@@ -1,0 +1,2002 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NYC Apartment Search &amp; Building Report</title>
+<style>
+  :root{
+    --bg:#0f1720; --panel:#182233; --panel2:#1f2c40; --border:#2c3b52;
+    --text:#e8eef7; --muted:#9fb0c7; --accent:#4da3ff; --accent2:#7cd4c0;
+    --good:#4caf7d; --warn:#e6b95c; --bad:#e2685f; --link:#7db8ff;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#f4f6fa; --panel:#ffffff; --panel2:#eef2f8; --border:#dbe2ec;
+      --text:#1b2534; --muted:#5b6b83; --accent:#1c6fe0; --accent2:#0f8a72;
+      --good:#1e8a56; --warn:#a06a00; --bad:#c13c33; --link:#1c6fe0;
+    }
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.5; min-height:100vh;
+  }
+  .wrap{max-width:1320px; margin:0 auto; padding:28px 20px 80px;}
+  header{margin-bottom:24px;}
+  h1{font-size:1.6rem; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:0.95rem; margin:0;}
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    padding:20px; margin-bottom:18px;
+  }
+  label{display:block; font-size:0.82rem; font-weight:600; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:.03em;}
+  input[type=text], select{
+    width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--border);
+    background:var(--panel2); color:var(--text); font-size:0.98rem;
+  }
+  input[type=text]:focus, select:focus{outline:2px solid var(--accent); outline-offset:1px;}
+  .row{display:grid; grid-template-columns:1fr; gap:14px;}
+  .row3{display:grid; grid-template-columns:1.3fr 2fr 1.1fr; gap:14px;}
+  @media (max-width:640px){ .row3{grid-template-columns:1fr;} }
+  .field{margin-bottom:0;}
+  button{
+    cursor:pointer; border:none; border-radius:8px; font-weight:600; font-size:0.98rem;
+    padding:11px 18px; background:var(--accent); color:#fff;
+  }
+  button.secondary{background:transparent; border:1px solid var(--border); color:var(--text);}
+  button:disabled{opacity:0.55; cursor:not-allowed;}
+  .actions{display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;}
+  .tabs{display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap;}
+  .tab-btn{
+    background:var(--panel); color:var(--muted); border:1px solid var(--border);
+    padding:10px 16px; border-radius:999px; font-size:0.92rem; font-weight:600;
+  }
+  .tab-btn.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .tab-count{font-size:0.72rem; opacity:0.85;}
+  .tab-panel{display:none;}
+  .tab-panel.active{display:block;}
+  .grade-badge{
+    display:inline-flex; align-items:center; gap:8px; font-size:0.85rem;
+    padding:6px 12px; border-radius:999px; font-weight:700; cursor:pointer; border:1px solid;
+  }
+  .grade-badge .letter{font-size:1.1rem; line-height:1;}
+  .grade-A{background:rgba(76,175,125,0.15); color:var(--good); border-color:var(--good);}
+  .grade-B{background:rgba(76,175,125,0.1); color:var(--good); border-color:var(--good);}
+  .grade-C{background:rgba(230,185,92,0.15); color:var(--warn); border-color:var(--warn);}
+  .grade-D{background:rgba(226,104,95,0.12); color:var(--bad); border-color:var(--bad);}
+  .grade-F{background:rgba(226,104,95,0.2); color:var(--bad); border-color:var(--bad);}
+  .grade-explain{font-size:0.8rem; color:var(--muted); margin-top:8px; padding-left:2px;}
+  .grade-explain ul{margin:4px 0 0; padding-left:18px;}
+  .neighborhood-cols{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
+  @media (max-width:700px){ .neighborhood-cols{grid-template-columns:1fr;} }
+  .building-row{
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    padding:10px 12px; border-radius:8px; background:var(--panel2); margin-bottom:8px; cursor:pointer;
+    border:1px solid transparent; transition:border-color .12s ease;
+  }
+  .building-row:hover{border-color:var(--accent);}
+  .building-row .addr{font-weight:600;}
+  .building-row .meta{font-size:0.78rem; color:var(--muted);}
+  .watchlist-card{
+    display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;
+    padding:14px; border-radius:10px; background:var(--panel2); margin-bottom:12px; border:1px solid var(--border);
+  }
+  .watchlist-card .meta{font-size:0.82rem; color:var(--muted); display:flex; gap:14px; flex-wrap:wrap; margin-top:4px;}
+  .watchlist-actions{display:flex; gap:8px;}
+  .watchlist-actions button{padding:7px 12px; font-size:0.82rem;}
+  .hint{color:var(--muted); font-size:0.85rem; margin-top:6px;}
+  .guess-banner{
+    background:var(--panel2); border:1px dashed var(--border); border-radius:10px;
+    padding:10px 14px; font-size:0.88rem; color:var(--muted); margin-top:14px; display:none;
+  }
+  .guess-banner.show{display:block;}
+  a{color:var(--link);}
+  .summary-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:6px;}
+  .stat{background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:14px;}
+  .stat .n{font-size:1.6rem; font-weight:700;}
+  .stat .l{font-size:0.78rem; color:var(--muted); text-transform:uppercase; letter-spacing:.03em;}
+  .stat.good .n{color:var(--good);}
+  .stat.warn .n{color:var(--warn);}
+  .stat.bad .n{color:var(--bad);}
+  .stat.clickable{cursor:pointer; transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease;}
+  .stat.clickable:hover{transform:translateY(-2px); box-shadow:0 4px 10px rgba(0,0,0,.18);}
+  .stat.clickable:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+  .stat.clickable.active{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset;}
+  .stat.clickable::after{content:"click to filter ↓"; display:block; font-size:0.66rem; color:var(--muted); opacity:0; margin-top:2px; transition:opacity .12s ease;}
+  .stat.clickable:hover::after{opacity:0.8;}
+  .filter-note{font-size:0.82rem; color:var(--muted); margin:10px 0 4px; padding:6px 10px; background:var(--panel2); border-radius:8px; display:inline-block;}
+  .filter-note a{margin-left:8px; font-weight:600;}
+  .section-title{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:8px;}
+  .section-title h2{font-size:1.1rem; margin:0;}
+  .badge{font-size:0.72rem; padding:2px 8px; border-radius:999px; background:var(--panel2); color:var(--muted); border:1px solid var(--border);}
+  table{width:100%; border-collapse:collapse; font-size:0.88rem;}
+  .table-scroll{max-height:420px; overflow-y:auto; margin-top:8px; border:1px solid var(--border); border-radius:8px;}
+  .table-scroll table{margin-top:0;}
+  .table-scroll thead th{position:sticky; top:0; background:var(--panel); box-shadow:0 1px 0 var(--border);}
+  th,td{text-align:left; padding:8px 8px; border-bottom:1px solid var(--border); vertical-align:top;}
+  th{color:var(--muted); font-weight:600; font-size:0.76rem; text-transform:uppercase; letter-spacing:.02em;}
+  tr:last-child td{border-bottom:none;}
+  tr.expandable{cursor:pointer;}
+  tr.expandable:hover td{background:var(--panel2);}
+  tr.expandable.open td:first-child{transform:rotate(90deg); display:inline-block;}
+  tr.detail-row td{background:var(--panel2); border-bottom:1px solid var(--border);}
+  .detail-panel{padding:6px 4px; font-size:0.85rem;}
+  .detail-panel .src-links{margin-top:8px;}
+  .status-open{color:var(--bad); font-weight:600;}
+  .status-closed{color:var(--good); font-weight:600;}
+  .muted{color:var(--muted);}
+  .src-links{margin-top:10px; font-size:0.82rem; display:flex; gap:14px; flex-wrap:wrap;}
+  .empty{color:var(--muted); font-size:0.9rem; padding:10px 0;}
+  .loading{color:var(--muted); font-size:0.9rem; padding:10px 0; display:flex; align-items:center; gap:8px;}
+  .spinner{width:14px;height:14px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--accent);animation:spin 0.8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .err{color:var(--bad); font-size:0.88rem;}
+  .top-links{display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;}
+  .top-links a{
+    display:inline-block; font-size:0.85rem; padding:6px 12px; border-radius:999px;
+    border:1px solid var(--border); text-decoration:none; background:var(--panel2);
+  }
+  .top-links button{font-size:0.85rem; padding:6px 12px; border-radius:999px;}
+  .top-links{align-items:center;}
+  footer{color:var(--muted); font-size:0.78rem; text-align:center; margin-top:30px;}
+  details{margin-top:8px;}
+  summary{cursor:pointer; color:var(--accent); font-size:0.85rem;}
+  .disclaimer{font-size:0.82rem; color:var(--muted); background:var(--panel2); border-radius:10px; padding:12px 14px; margin-top:10px;}
+  #results{display:none;}
+  /* Multi-column (not grid) so cards keep their own natural height — a grid's row
+     height matches its tallest cell, which left ugly gaps next to short cards
+     whenever a neighboring table (e.g. an expanded details panel) ran long. */
+  #results.show{
+    display:block; columns:2; column-gap:18px;
+  }
+  #results.show .card{
+    break-inside:avoid; -webkit-column-break-inside:avoid; margin-bottom:18px;
+  }
+  #results.show .card.full, #results.show .disclaimer{
+    column-span:all;
+  }
+  @media (max-width:860px){
+    #results.show{columns:1;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🏢 NYC Apartment Search</h1>
+    <p class="sub">Check a specific address, discover well-maintained buildings in a neighborhood, or track candidates as you shop — all built on public NYC Open Data, not scraped listings.</p>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button class="tab-btn active" data-tab="check" role="tab" aria-selected="true">🔎 Check an Address</button>
+    <button class="tab-btn" data-tab="explore" role="tab" aria-selected="false">🗺️ Explore a Neighborhood</button>
+    <button class="tab-btn" data-tab="watchlist" role="tab" aria-selected="false">⭐ My Watchlist <span id="watchlistCount" class="tab-count"></span></button>
+  </div>
+
+  <div id="tab-check" class="tab-panel active">
+    <div class="card">
+      <div class="row">
+        <div class="field">
+          <label for="ueInput">Listing link (StreetEasy, OpenIgloo…) or address</label>
+          <input type="text" id="ueInput" placeholder="Paste a StreetEasy or OpenIgloo link, or type 123 West 45 Street, Manhattan" autocomplete="off">
+        </div>
+      </div>
+      <div class="guess-banner" id="guessBanner"></div>
+
+      <div class="row3" style="margin-top:16px;">
+        <div class="field">
+          <label for="houseNumber">House number</label>
+          <input type="text" id="houseNumber" placeholder="e.g. 241">
+        </div>
+        <div class="field">
+          <label for="streetName">Street name</label>
+          <input type="text" id="streetName" placeholder="e.g. West 113 Street">
+        </div>
+        <div class="field">
+          <label for="borough">Borough</label>
+          <select id="borough">
+            <option value="">Select…</option>
+            <option value="MANHATTAN">Manhattan</option>
+            <option value="BROOKLYN">Brooklyn</option>
+            <option value="QUEENS">Queens</option>
+            <option value="BRONX">Bronx</option>
+            <option value="STATEN ISLAND">Staten Island</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint">This tool can only guess the address from the link's text — it can't open StreetEasy pages directly (they block automated access). Please confirm the fields above before searching.</p>
+
+      <div class="row" style="margin-top:14px; max-width:260px;">
+        <div class="field">
+          <label for="daysOnMarket">Days on market (optional)</label>
+          <input type="number" id="daysOnMarket" min="0" placeholder="e.g. 75">
+        </div>
+      </div>
+      <p class="hint">StreetEasy shows this on the listing page. A long time on market doesn't always mean something's wrong, but paired with real violations or complaints below, it's worth a second look.</p>
+
+      <div class="actions">
+        <button id="searchBtn">🔎 Search public records</button>
+        <button class="secondary" id="clearBtn" type="button">Clear</button>
+      </div>
+    </div>
+
+    <div id="results"></div>
+  </div>
+
+  <div id="tab-explore" class="tab-panel">
+    <div class="card">
+      <div class="row3">
+        <div class="field" style="grid-column:span 2;">
+          <label for="neighborhoodInput">Neighborhood or area</label>
+          <input type="text" id="neighborhoodInput" placeholder="e.g. Park Slope, Astoria, Bedford-Stuyvesant">
+        </div>
+        <div class="field">
+          <label for="neighborhoodBorough">Borough</label>
+          <select id="neighborhoodBorough">
+            <option value="">Select…</option>
+            <option value="MANHATTAN">Manhattan</option>
+            <option value="BROOKLYN">Brooklyn</option>
+            <option value="QUEENS">Queens</option>
+            <option value="BRONX">Bronx</option>
+            <option value="STATEN ISLAND">Staten Island</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint">Matched against NYC Planning's neighborhood names (Neighborhood Tabulation Areas) in HPD's violation data — try the name as it'd appear on a city map. This ranks buildings that already have at least one violation on record; it can't yet surface buildings with a completely clean history.</p>
+      <div class="actions">
+        <button id="exploreBtn">🗺️ Search neighborhood</button>
+      </div>
+    </div>
+    <div id="exploreResults"></div>
+  </div>
+
+  <div id="tab-watchlist" class="tab-panel">
+    <div id="watchlistContainer"></div>
+  </div>
+
+  <footer>
+    Built on public <a href="https://opendata.cityofnewyork.us/" target="_blank" rel="noopener">NYC Open Data</a>. Not affiliated with or endorsed by StreetEasy, HPD, DOB, or NYC 311. Data may be incomplete, delayed, or mismatched to the wrong address — always verify against the linked source records before making a decision.
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- Dataset configuration (NYC Open Data / Socrata) ----------
+  const DATASETS = [
+    {
+      key:'violations', label:'HPD Housing Code Violations', agency:'HPD', icon:'⚠️',
+      id:'wvxf-dwi5',
+      landing:'https://data.cityofnewyork.us/Housing-Development/Housing-Maintenance-Code-Violations/wvxf-dwi5',
+      houseField:'housenumber', streetField:'streetname', boroField:'boro',
+      order:'inspectiondate DESC', limit:2000,
+      registrationIdField:'registrationid', render: renderViolations
+    },
+    {
+      key:'hpdComplaints', label:'HPD Housing Complaints', agency:'HPD', icon:'🛠️',
+      id:'ygpa-z7cr',
+      landing:'https://data.cityofnewyork.us/Housing-Development/Housing-Maintenance-Code-Complaints-and-Problems/ygpa-z7cr',
+      houseField:'house_number', streetField:'street_name', boroField:'borough',
+      order:'received_date DESC', limit:300,
+      render: renderHpdComplaints
+    },
+    {
+      key:'bedbugs', label:'Bedbug Filings', agency:'HPD', icon:'🐛',
+      id:'wz6d-d3jb',
+      landing:'https://data.cityofnewyork.us/Housing-Development/Bedbug-Reporting/wz6d-d3jb',
+      houseField:'house_number', streetField:'street_name', boroField:'borough',
+      order:'filing_date DESC', limit:100,
+      registrationIdField:'registration_id', render: renderBedbugs
+    },
+    {
+      key:'dobComplaints', label:'DOB Building Complaints', agency:'DOB', icon:'🏗️',
+      id:'eabe-havv',
+      landing:'https://data.cityofnewyork.us/Housing-Development/DOB-Complaints-Received/eabe-havv',
+      houseField:'house_number', streetField:'house_street', boroField:null,
+      order:'date_entered DESC', limit:200,
+      render: renderDobComplaints
+    },
+    {
+      key:'threeOneOne', label:'311 Service Requests', agency:'311', icon:'📞',
+      id:'erm2-nwe9',
+      landing:'https://data.cityofnewyork.us/Social-Services/311-Service-Requests-from-2010-to-Present/erm2-nwe9',
+      houseField:null, streetField:'incident_address', boroField:'borough', addressIsFull:true,
+      order:'created_date DESC', limit:200,
+      render: renderThreeOneOne
+    },
+    {
+      key:'evictions', label:'Evictions (NYC Marshals)', agency:'DOI', icon:'📦',
+      id:'6z8x-wfk4',
+      landing:'https://data.cityofnewyork.us/City-Government/Evictions/6z8x-wfk4',
+      houseField:null, streetField:'eviction_address', boroField:'borough', addressIsFull:true,
+      order:'executed_date DESC', limit:100,
+      render: renderEvictions
+    },
+    {
+      key:'registrations', label:'HPD Property Registration', agency:'HPD', icon:'🗂️',
+      id:'tesw-yqqr',
+      landing:'https://data.cityofnewyork.us/Housing-Development/Multiple-Dwelling-Registrations/tesw-yqqr',
+      houseField:'housenumber', streetField:'streetname', boroField:'boro',
+      order:'lastregistrationdate DESC', limit:10,
+      registrationIdField:'registrationid', render: renderRegistrations
+    },
+    {
+      key:'rodents', label:'Rodent Inspection History', agency:'DOHMH', icon:'🐀',
+      id:'p937-wjvj',
+      landing:'https://data.cityofnewyork.us/Health/Rodent-Inspection/p937-wjvj',
+      houseField:'house_number', streetField:'street_name', boroField:'boro_code',
+      boroTransform: b => BORO_CODES[b],
+      order:'inspection_date DESC', limit:300,
+      render: renderRodents
+    },
+    {
+      key:'permits', label:'Nearby Construction Permits', agency:'DOB', icon:'🏗️',
+      id:'ic3t-wcy2',
+      landing:'https://data.cityofnewyork.us/Housing-Development/DOB-Job-Application-Filings/ic3t-wcy2',
+      houseField:'house__', streetField:'street_name', boroField:'borough',
+      order:'latest_action_date DESC', limit:200,
+      render: renderPermits
+    }
+  ];
+  const CONTACTS = {
+    id:'feu5-w2e2',
+    landing:'https://data.cityofnewyork.us/Housing-Development/Registration-Contacts/feu5-w2e2'
+  };
+
+  const BORO_NAMES = {MANHATTAN:'Manhattan', BROOKLYN:'Brooklyn', QUEENS:'Queens', BRONX:'Bronx', 'STATEN ISLAND':'Staten Island'};
+  // Standard NYC borough codes, used by datasets (like DOHMH rodent inspections) that key on the number instead of the name.
+  const BORO_CODES = {MANHATTAN:'1', BRONX:'2', BROOKLYN:'3', QUEENS:'4', 'STATEN ISLAND':'5'};
+
+  // DOB's official complaint category codes, from nyc.gov/assets/buildings/pdf/complaint_category.pdf (Rev. 09/21).
+  // The API returns numeric codes zero-padded ("04", not "4"); lettered codes are used as printed.
+  const DOB_COMPLAINT_CATEGORIES = {
+    '01':'Accident – construction/plumbing', '02':'Accident – to public', '03':'Adjacent buildings not protected',
+    '04':'After-hours work – illegal', '05':'No permit (building/PA/demolition, etc.)',
+    '06':'Construction – change of grade/watercourse', '07':'Construction – change watercourse',
+    '08':"Contractor's sign missing", '09':'Debris – excessive', '10':'Debris/building falling or in danger of falling',
+    '11':'Demolition – no permit', '12':'Demolition – unsafe/illegal/mechanical', '13':'Elevator not ready for FDNY',
+    '14':'Excavation undermining adjacent building', '15':'Fence missing/inadequate/illegal',
+    '16':'Inadequate support/shoring', '17':'Material/personnel hoist – no permit', '18':'Unsafe material storage',
+    '19':'Illegal mechanical demolition',
+    '1A':'Illegal conversion of commercial space to dwelling units', '1B':'Illegal tree removal / topography change',
+    '1C':'Disaster damage assessment request', '1D':'Con Edison referral',
+    '1E':'Suspended (hanging) scaffold – no permit/dangerous', '1F':'Failed annual crane inspection',
+    '1G':'Stalled construction site', '1H':'Emergency asbestos response', '1J':'Gas piping removed without permit',
+    '1K':'Bowstring truss tracking complaint', '1L':'Gas utility referral', '1U':'Special operations inspection',
+    '1V':'Electrical enforcement work order', '1W':'Plumbing enforcement work order',
+    '1X':'Construction enforcement work order', '1Y':'Enforcement work order', '1Z':'Enforcement work order',
+    '20':'Illegal work on a landmark building', '21':'Safety net/guard rail damaged or missing (tall building)',
+    '22':'Safety netting missing', '23':'Sidewalk shed/scaffold inadequate, defective, or unpermitted',
+    '24':'Sidewalk shed missing', '25':'Warning signs/lights missing', '26':'Watchman missing',
+    '27':'Illegal auto repair', '28':'Building in danger of collapse', '29':'Building vacant, open, and unguarded',
+    '2A':'Posted notice/order removed or tampered with', '2B':'Failure to comply with vacate order',
+    '2C':'Smoking on construction site (banned)', '2D':'No-smoking signs missing on construction site',
+    '2E':'Full demolition tracking complaint', '2F':'Building under structural monitoring',
+    '2G':'Illegal advertising sign/billboard', '2H':'Second Avenue Subway construction',
+    '2J':'Building destroyed (Sandy)', '2K':'Structurally compromised building', '2L':'Unsafe façade notification',
+    '2M':'Monopole tracking complaint', '2N':'COVID-19 executive order', '2P':'Façade compliance inspection',
+    '30':'Building shaking/vibrating, structural stability affected',
+    '31':'No certificate of occupancy / contrary to C of O', '32':'Not complying with certificate of occupancy',
+    '33':'Illegal commercial use', '34':'Illegal compactor room/refuse chute', '35':'Illegal curb cut/driveway/carport',
+    '36':'Illegal driveway/carport', '37':'Exit blocked, locked, or improper (no secondary egress)',
+    '38':'Exit door not proper', '39':'No secondary means of egress',
+    '3A':'Unlicensed/illegal electrical work in progress', '3B':'Routine inspection', '3C':'Plan compliance inspection',
+    '3D':'Bicycle access waiver – elevator safety', '3E':'Bicycle access waiver – alternate parking',
+    '3G':'Restroom non-compliance', '3H':'DCP/BSA compliance inspection',
+    '40':'Part of building falling', '41':'Part of building in danger of falling', '42':'Illegal fence',
+    '43':'Structural stability affected', '44':'Illegal fireplace/wood stove', '45':'Illegal conversion',
+    '46':'No permit for public assembly space', '47':'Public assembly permit not being complied with',
+    '48':'Illegal residential use', '49':'Illegal storefront sign/awning/marquee',
+    '4A':'Illegal hotel rooms in a residential building', '4B':'Professional certification compliance audit',
+    '4E':'Stalled site tracking complaint', '4G':'Illegal conversion – no-access follow-up',
+    '4H':'V.E.S.T. program inspection (DOB & NYPD)', '4J':'M.A.R.C.H. program (multi-agency) inspection',
+    '4K':'Demolition tracking complaint', '4L':'High-rise construction safety tracking',
+    '4M':'Low-rise construction safety tracking', '4N':'Retaining wall tracking complaint',
+    '4P':'Legal/padlock tracking complaint', '4S':'Sustainability enforcement work order',
+    '4W':'Woodside settlement project', '4X':'After-hours work with a permit',
+    '50':'Illegal sign erection/display, danger of falling', '51':'Illegal social club',
+    '52':'Inadequate sprinkler system', '53':'Illegal/improper vent or exhaust',
+    '54':'Wall or retaining wall bulging/cracked', '55':'Zoning non-conforming use',
+    '56':'Boiler – fumes, smoke, or carbon monoxide', '57':'Illegal boiler', '58':'Boiler defective/no permit',
+    '59':'Defective/exposed electrical wiring, in progress',
+    '5A':'Requested joint FDNY/DOB inspection', '5B':'Non-compliance with lightweight materials rules',
+    '5C':'Structural stability impacted (new construction)', '5D':'Non-compliance – vertical enlargement rules',
+    '5E':'Amusement ride accident/incident', '5F':'Compliance inspection',
+    '5G':'Unlicensed/illegal work in progress', '5H':'Illegal activity', '5J':'Multi-agency joint inspection',
+    '60':'Improper electrical work', '61':'Unlicensed electrical work, in progress',
+    '62':'Elevator danger condition / shaft open', '63':'Elevator defective/inoperative',
+    '64':'Elevator shaft open and unguarded', '65':'Illegal or defective gas hookup/piping',
+    '66':'Illegal plumbing/sprinkler/standpipe work', '67':'Crane – no permit/license or unsafe',
+    '68':'Unsafe or illegal crane/scaffold operation',
+    '69':'Unsafe crane/scaffold installation or equipment', '6A':'Vesting inspection',
+    '6B':'Homeless shelter inspection – plumbing', '6C':'Homeless shelter inspection – construction',
+    '6D':'Homeless shelter inspection – electrical', '6M':'Elevator – multiple devices on property',
+    '6S':'Elevator – single device, no backup', '6V':'Tenant safety inspection',
+    '6W':'Tenant safety notice not posted/distributed', '6X':'Work-without-permits watch list compliance',
+    '6Y':'Local law audit', '6Z':'Training compliance',
+    '70':'Suspended scaffold hanging with no work in progress',
+    '71':'SRO illegal work / change of occupancy', '72':'SRO change in occupancy/use', '73':'Failure to maintain building',
+    '74':'Illegal commercial/manufacturing use in a residential zone', '75':'Adult establishment',
+    '76':'Unlicensed/illegal plumbing work in progress', '77':'Not accessible to people with disabilities (LL58/87)',
+    '78':'Privately-owned public space non-compliance', '79':'Parking-lot lights shining on building',
+    '7A':'Integrity complaint referral', '7B':'Illegal commercial/manufacturing use (C1/C2 zone)',
+    '7F':'Construction safety enforcement – tracking', '7G':'Construction safety enforcement – sweep',
+    '7J':'Work without a permit in an occupied building', '7K':'Local Law 188 compliance inspection',
+    '7L':'Tenant protection non-compliance (DOHMH referral)', '7N':'Public space compliance inspection',
+    '80':'Elevator not inspected / illegal / no permit', '81':'Elevator accident', '82':'Boiler accident/explosion',
+    '83':'Construction beyond or contrary to approved plans', '84':'Defective/cracking façade',
+    '85':'Improper drainage / failure to retain water', '86':'Work contrary to a stop-work order',
+    '87':'Requested deck safety inspection',
+    '88':'Safety net/guard rail damaged or missing (lower building)', '89':'Crane/derrick/suspension accident',
+    '8A':'Construction safety compliance action', '90':'Unlicensed/illegal activity',
+    '91':'Site conditions endangering workers', '92':'Illegal conversion of manufacturing/industrial space',
+    '93':'Requested retaining wall safety inspection', '94':'Defective/leaking plumbing, not maintained',
+    '95':'Bronx 2nd-offense pilot program', '96':'Unlicensed boiler/electrical/plumbing/sign work completed',
+    '97':'Referred to another agency', '98':'Referred for operations determination', '99':'Other'
+  };
+
+  // ---------- Helpers ----------
+  function soql(s){ return String(s).replace(/'/g, "''"); }
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function fmtDate(d){
+    if(!d) return '—';
+    const dt = new Date(d);
+    if(isNaN(dt)) return esc(d);
+    return dt.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'});
+  }
+  function isClosed(status){ return /clos/i.test(status || ''); }
+
+  // ========== Year filtering & grading helpers ==========
+  function getYear(dateString){
+    if(!dateString) return null;
+    const dt = new Date(dateString);
+    if(isNaN(dt)) return null;
+    return dt.getFullYear();
+  }
+
+  function getYearRange(rows){
+    const years = rows.map(r => getYear(r.novissueddate||r.inspectiondate)).filter(y => y);
+    if(!years.length) return {min: new Date().getFullYear(), max: new Date().getFullYear()};
+    return {min: Math.min(...years), max: Math.max(...years)};
+  }
+
+  function calculateGrade(violations){
+    // A-F grading based on total violations, open status, and severity
+    const total = violations.length;
+    const open = violations.filter(r=>r.violationstatus==='Open').length;
+    const classC = violations.filter(r=>r.class==='C').length;
+    const classB = violations.filter(r=>r.class==='B').length;
+
+    // Scoring: higher score = worse grade
+    let score = 0;
+    score += Math.min(total, 50) * 0.5; // 0-25 points for total violations (cap at 50)
+    score += open * 3; // 3 points per open violation
+    score += classC * 5; // 5 points per Class C (most serious)
+    score += classB * 2; // 2 points per Class B
+
+    // Convert score to letter grade
+    if(score === 0) return 'A';
+    if(score <= 5) return 'A';
+    if(score <= 12) return 'B';
+    if(score <= 25) return 'C';
+    if(score <= 40) return 'D';
+    return 'F';
+  }
+
+  const STREET_TYPE_MAP = {
+    AVE:'AVENUE', BLVD:'BOULEVARD', RD:'ROAD', DR:'DRIVE', PL:'PLACE', LN:'LANE',
+    CT:'COURT', PKWY:'PARKWAY', SQ:'SQUARE', EXPY:'EXPRESSWAY', HWY:'HIGHWAY',
+    TER:'TERRACE', TPKE:'TURNPIKE', CIR:'CIRCLE', PLZ:'PLAZA', ST:'STREET'
+  };
+  const DIR_MAP = {N:'NORTH', S:'SOUTH', E:'EAST', W:'WEST'};
+
+  // Normalize a street name into search tokens matching NYC dataset conventions
+  // (e.g. "W 113th St" -> ["WEST","113","STREET"])
+  function streetTokens(input){
+    if(!input) return [];
+    let s = input.toUpperCase().trim().replace(/\./g,'');
+    let words = s.split(/\s+/).filter(Boolean);
+    words = words.map((w,i) => (i===0 && DIR_MAP[w]) ? DIR_MAP[w] : w);
+    words = words.map((w,i) => {
+      const m = w.match(/^(\d+)(ST|ND|RD|TH)$/);
+      return m ? m[1] : w;
+    });
+    if(words.length){
+      const last = words[words.length-1];
+      if(STREET_TYPE_MAP[last]) words[words.length-1] = STREET_TYPE_MAP[last];
+    }
+    return words.filter(Boolean);
+  }
+
+  // ---------- StreetEasy URL / free-text address parsing (best effort) ----------
+  function parseInput(raw){
+    raw = raw.trim();
+    const guess = {houseNumber:'', street:'', borough:''};
+    const hasProtocol = /^https?:\/\//i.test(raw);
+    const isUrl = hasProtocol || /streeteasy\.com|openigloo\.com/i.test(raw);
+
+    const boroFromToken = t => {
+      t = (t||'').toLowerCase();
+      if(t === 'new_york' || t === 'manhattan') return 'MANHATTAN';
+      if(t === 'brooklyn') return 'BROOKLYN';
+      if(t === 'bronx') return 'BRONX';
+      if(t === 'queens') return 'QUEENS';
+      if(t.startsWith('staten')) return 'STATEN ISLAND';
+      return '';
+    };
+    const titleCaseStreet = s => s.replace(/_/g,' ').split(' ').filter(Boolean)
+      .map(w => w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(' ');
+
+    if(isUrl){
+      let path = raw;
+      try{ path = new URL(hasProtocol ? raw : 'https://'+raw).pathname; }
+      catch(e){ /* fall back to raw string */ }
+      const segments = path.split('/').filter(Boolean);
+
+      // OpenIgloo address slug is ordered borough-neighborhood-housenumber-street-zip-unit,
+      // e.g. "manhattan-clinton-426-west-49-street-10019-2b" — different order from
+      // StreetEasy, so parse it off the zip/house-number anchors rather than assuming
+      // the house number comes first.
+      if(/openigloo\.com/i.test(raw)){
+        const slug = segments[segments.length-1] || '';
+        const p = slug.split('-').filter(Boolean);
+        guess.borough = boroFromToken(p[0]);
+        let zipIdx = -1;
+        for(let i=p.length-1; i>=1; i--){ if(/^\d{5}$/.test(p[i])){ zipIdx = i; break; } }
+        const streetEnd = zipIdx === -1 ? p.length : zipIdx;
+        let hnIdx = -1;
+        for(let i=1; i<streetEnd; i++){ if(/^\d+[a-z]?$/i.test(p[i])){ hnIdx = i; break; } }
+        if(hnIdx !== -1){
+          guess.houseNumber = p[hnIdx].toUpperCase();
+          guess.street = titleCaseStreet(p.slice(hnIdx+1, streetEnd).join(' '));
+        }
+        return guess;
+      }
+
+      // find a segment that looks like an address slug: starts with digits then a separator
+      let target = segments.find(seg => /^\d+[a-z]?-/i.test(seg));
+      if(!target) target = segments.reverse().find(seg => /^\d+[a-z]?[-_]/i.test(seg));
+      if(target){
+        const parts = target.split('-').filter(Boolean);
+        if(parts.length){
+          guess.houseNumber = parts[0].toUpperCase();
+          const boroTokenIdx = parts.findIndex(p => /^(new_york|brooklyn|bronx|queens|staten_island|statenisland)$/i.test(p));
+          let streetParts = parts.slice(1, boroTokenIdx === -1 ? undefined : boroTokenIdx);
+          if(boroTokenIdx !== -1){
+            const bt = parts[boroTokenIdx].toLowerCase();
+            if(bt === 'new_york') guess.borough = 'MANHATTAN';
+            else if(bt === 'brooklyn') guess.borough = 'BROOKLYN';
+            else if(bt === 'bronx') guess.borough = 'BRONX';
+            else if(bt === 'queens') guess.borough = 'QUEENS';
+            else guess.borough = 'STATEN ISLAND';
+          }
+          guess.street = streetParts.join(' ').replace(/_/g,' ')
+            .split(' ').filter(Boolean)
+            .map(w => w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(' ');
+        }
+      }
+      // borough hint from path even without address slug
+      if(!guess.borough){
+        const joined = path.toLowerCase();
+        if(joined.includes('brooklyn')) guess.borough = 'BROOKLYN';
+        else if(joined.includes('bronx')) guess.borough = 'BRONX';
+        else if(joined.includes('queens')) guess.borough = 'QUEENS';
+        else if(joined.includes('staten')) guess.borough = 'STATEN ISLAND';
+        else if(joined.includes('manhattan') || joined.includes('new_york') || joined.includes('/nyc/')) guess.borough = 'MANHATTAN';
+      }
+    } else {
+      // plain address text, e.g. "241 West 113th Street, Manhattan"
+      const m = raw.match(/^\s*(\d+[A-Za-z]?(?:-\d+)?)\s+(.+)$/);
+      if(m){
+        guess.houseNumber = m[1].toUpperCase();
+        let rest = m[2];
+        const boroMatch = rest.match(/,?\s*(manhattan|brooklyn|bronx|queens|staten island|new york,?\s*ny)\s*$/i);
+        if(boroMatch){
+          rest = rest.slice(0, boroMatch.index);
+          const bt = boroMatch[1].toLowerCase();
+          if(bt.startsWith('brooklyn')) guess.borough='BROOKLYN';
+          else if(bt.startsWith('bronx')) guess.borough='BRONX';
+          else if(bt.startsWith('queens')) guess.borough='QUEENS';
+          else if(bt.startsWith('staten')) guess.borough='STATEN ISLAND';
+          else guess.borough='MANHATTAN';
+        }
+        guess.street = rest.replace(/,\s*$/,'').trim();
+      }
+    }
+    return guess;
+  }
+
+  // ---------- Socrata fetch ----------
+  // Every dataset on data.cityofnewyork.us is queried the same way: build a $where/$limit/
+  // $order query string, GET the resource, and hand back both the rows and the exact URL
+  // used (so the UI can link straight to it for verification).
+  async function socrataGet(datasetId, params){
+    const url = `https://data.cityofnewyork.us/resource/${datasetId}.json?${params.toString()}`;
+    const res = await fetch(url, {headers:{'Accept':'application/json'}});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    return {rows: await res.json(), url};
+  }
+
+  async function fetchDataset(ds, ctx){
+    const clauses = [];
+    if(ds.addressIsFull){
+      [ctx.houseNumber, ...ctx.streetTokens].filter(Boolean)
+        .forEach(t => clauses.push(`upper(${ds.streetField}) like '%${soql(t)}%'`));
+    } else {
+      if(ds.houseField) clauses.push(`upper(${ds.houseField})='${soql(ctx.houseNumber.toUpperCase())}'`);
+      if(ds.streetField) ctx.streetTokens.forEach(t => clauses.push(`upper(${ds.streetField}) like '%${soql(t)}%'`));
+    }
+    if(ds.boroField && ctx.borough){
+      const boroVal = ds.boroTransform ? ds.boroTransform(ctx.borough) : ctx.borough;
+      if(boroVal) clauses.push(`${ds.boroField}='${soql(boroVal)}'`);
+    }
+
+    const params = new URLSearchParams({'$where': clauses.join(' AND '), '$limit': String(ds.limit)});
+    if(ds.order) params.set('$order', ds.order);
+    return socrataGet(ds.id, params);
+  }
+
+  function fetchContactsForRegistration(regId){
+    const params = new URLSearchParams({'$where': `registrationid='${soql(regId)}'`, '$limit': '50'});
+    return socrataGet(CONTACTS.id, params);
+  }
+
+  // ---------- Rendering ----------
+  // click = {scope, attr, value} — scope is the dataset key (matches #sec-{scope}),
+  // attr/value select which <tr data-{attr}="{value}"> rows stay visible.
+  // Omit attr/value (just {scope}) to make the card a "clear filter / show all" card.
+  function statCard(n, label, tone, click){
+    if(click){
+      const attrPart = click.attr ? ` data-attr="${esc(click.attr)}"` : '';
+      const valuePart = click.value !== undefined ? ` data-value="${esc(click.value)}"` : '';
+      return `<div class="stat ${tone||''} clickable" role="button" tabindex="0" data-scope="${esc(click.scope)}"${attrPart}${valuePart}><div class="n">${n}</div><div class="l">${esc(label)}</div></div>`;
+    }
+    return `<div class="stat ${tone||''}"><div class="n">${n}</div><div class="l">${esc(label)}</div></div>`;
+  }
+  function sourceLinks(landing, queryUrl){
+    return `<div class="src-links">
+      <a href="${landing}" target="_blank" rel="noopener">📄 Open dataset on NYC Open Data ↗</a>
+      <a href="${queryUrl}" target="_blank" rel="noopener">🔗 View raw query results (JSON) ↗</a>
+    </div>`;
+  }
+  function loadingBlock(label){
+    return `<div class="loading"><span class="spinner"></span> Searching ${esc(label)}…</div>`;
+  }
+  function errBlock(msg){
+    return `<div class="err">⚠ Couldn't load this dataset (${esc(msg)}). Try the source link above to check manually.</div>`;
+  }
+  // If a fetch returns exactly `limit` rows, there may be more we didn't see — the
+  // stat cards above are computed only from what was fetched, so say so plainly rather
+  // than silently under-reporting a busy building's true violation/complaint count.
+  function truncationWarning(ds){
+    return `<p class="hint" style="color:var(--warn);">⚠️ Hit the ${ds.limit.toLocaleString()}-record fetch cap for this building — there may be more ${ds.label.toLowerCase()} than shown here, and the counts above could undercount the true total. Use "View raw query results" to check the full history.</p>`;
+  }
+  function statusCell(closed, text){
+    return `<td class="${closed?'status-closed':'status-open'}">${esc(text)}</td>`;
+  }
+  function dataAttrs(obj){
+    return Object.entries(obj||{}).map(([k,v]) => v==null ? '' : ` data-${k}="${esc(v)}"`).join('');
+  }
+
+  // Shared shape for every "stat cards + table" section: a summary-grid of clickable
+  // stats, an optional plain-English note, then the rows themselves (collapsed behind
+  // a <details> for long lists, capped at 150 and scroll-boxed so one huge table can't
+  // blow out the whole card).
+  //   opts: {emptyMsg, scope, noun, stats?, note?, headers, rowFn, collapsible?, scrollTable?}
+  //   rowFn(row) => {attrs, cells}  — attrs become <tr data-*>, cells are pre-built <td> strings
+  function renderSection(rows, opts){
+    if(!rows.length) return `<p class="empty">${opts.emptyMsg}</p>`;
+    const statsHtml = (opts.stats && opts.stats.length)
+      ? `<div class="summary-grid">${opts.stats.map(s => statCard(s.n, s.label, s.tone, {scope:opts.scope, attr:s.attr, value:s.value})).join('')}</div>`
+      : '';
+    const noteHtml = opts.note ? `<p class="hint">${opts.note}</p>` : '';
+    const bodyRows = rows.slice(0,150).map(r => {
+      const {attrs, cells} = opts.rowFn(r);
+      return `<tr${dataAttrs(attrs)}>${cells.join('')}</tr>`;
+    }).join('');
+    let tableHtml = `<table><thead><tr>${opts.headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${bodyRows}</tbody></table>`;
+    if(opts.scrollTable) tableHtml = `<div class="table-scroll">${tableHtml}</div>`;
+    const body = opts.collapsible === false
+      ? tableHtml
+      : `<details><summary>Show ${rows.length} individual ${opts.noun}${rows.length===1?'':'s'}</summary>${tableHtml}</details>`;
+    return statsHtml + noteHtml + body;
+  }
+
+  function renderViolations(rows){
+    if(!rows.length) return `<p class="empty">No HPD housing code violations found for this address/borough combination.</p>`;
+
+    const {min: minYear, max: maxYear} = getYearRange(rows);
+    const currentYear = new Date().getFullYear();
+    let selectedYear = minYear;
+
+    // Create year filter UI
+    let yearOptions = '';
+    for(let y = maxYear; y >= minYear; y--){
+      yearOptions += `<option value="${y}"${y === minYear ? ' selected' : ''}>${y} onwards</option>`;
+    }
+
+    // Filter data by selected year (default: show all)
+    const filtered = rows.filter(r => {
+      const y = getYear(r.novissueddate||r.inspectiondate);
+      return y === null || y >= minYear;
+    });
+
+    const grade = calculateGrade(filtered);
+    const gradeColor = {A:'var(--good)',B:'var(--good)',C:'var(--warn)',D:'var(--bad)',F:'var(--bad)'}[grade];
+    const gradeExplain = {
+      A:'Excellent — very few or no violations',
+      B:'Good — minor violations, mostly resolved',
+      C:'Fair — some violations, may include open issues',
+      D:'Poor — multiple violations or several open issues',
+      F:'Critical — many violations or serious open issues'
+    }[grade];
+
+    let html = `
+      <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
+        <div>
+          <label for="violationYearFilter" style="display:inline-block; margin-right:8px; font-weight:600; font-size:0.82rem; color:var(--muted); text-transform:uppercase; letter-spacing:.03em;">Show violations from:</label>
+          <select id="violationYearFilter" style="width:140px; padding:8px 10px; border-radius:6px; border:1px solid var(--border); background:var(--panel2); color:var(--text); font-size:0.98rem; cursor:pointer;">
+            ${yearOptions}
+          </select>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div style="font-size:0.82rem; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-weight:600;">Building Grade:</div>
+          <div class="grade-badge grade-${grade}" style="color: ${gradeColor}; background:rgba(${grade==='A'||grade==='B'?'76,175,125':'230,185,92,0.15'}, 0.15); border-color: ${gradeColor};">
+            <span class="letter" style="font-size:1.3rem;">${grade}</span>
+          </div>
+        </div>
+      </div>
+      <p class="grade-explain">${gradeExplain}</p>
+      <p class="hint">Class A = non-hazardous (e.g. paint/plaster). Class B = hazardous (e.g. no smoke detector). Class C = immediately hazardous (e.g. no heat/hot water, pests, lead paint) — the most serious.</p>
+    `;
+
+    const open = filtered.filter(r=>r.violationstatus==='Open').length;
+    const classCounts = {};
+    filtered.forEach(r=>{ classCounts[r.class||'?'] = (classCounts[r.class||'?']||0)+1; });
+
+    html += renderSection(filtered, {
+      emptyMsg:'No HPD housing code violations found for this address/borough combination.',
+      scope:'violations', noun:'violation', scrollTable:true,
+      stats:[
+        {n:filtered.length, label:'Total violations'},
+        {n:open, label:'Currently open', tone: open>0?'bad':'good', attr:'status', value:'Open'},
+        {n:classCounts.C||0, label:'Class C (most serious)', tone:(classCounts.C||0)>0?'bad':'', attr:'class', value:'C'},
+        {n:classCounts.B||0, label:'Class B', attr:'class', value:'B'},
+        {n:classCounts.A||0, label:'Class A', attr:'class', value:'A'}
+      ],
+      headers:['Issued','Class','Status','Description'],
+      rowFn: r => ({
+        attrs:{status:r.violationstatus, class:r.class},
+        cells:[
+          `<td>${fmtDate(r.novissueddate||r.inspectiondate)}</td>`,
+          `<td>${esc(r.class)}</td>`,
+          statusCell(r.violationstatus!=='Open', r.currentstatus||r.violationstatus),
+          `<td>${esc(r.novdescription||'').slice(0,220)}</td>`
+        ]
+      })
+    });
+
+    // Store reference for event listener setup
+    html = `<div class="violations-section" data-min-year="${minYear}" data-max-year="${maxYear}" data-rows='${JSON.stringify(rows)}'>${html}</div>`;
+    return html;
+  }
+
+  function renderHpdComplaints(rows){
+    const cats = {};
+    rows.forEach(r=>{ const c=r.major_category||'Other'; cats[c]=(cats[c]||0)+1; });
+    const top = Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    return renderSection(rows, {
+      emptyMsg:'No HPD housing complaints found for this address/borough combination.',
+      scope:'hpdComplaints', noun:'complaint',
+      stats:[{n:rows.length, label:'Total complaints'}, ...top.map(([c,n])=>({n, label:c, attr:'category', value:c}))],
+      headers:['Received','Category','Status'],
+      rowFn: r => {
+        const closed = isClosed(r.complaint_status||r.problem_status);
+        return {
+          attrs:{category:r.major_category||'Other'},
+          cells:[
+            `<td>${fmtDate(r.received_date)}</td>`,
+            `<td>${esc(r.major_category)}${r.minor_category?' — '+esc(r.minor_category):''}</td>`,
+            statusCell(closed, r.complaint_status||r.problem_status||'—')
+          ]
+        };
+      }
+    });
+  }
+
+  function renderBedbugs(rows){
+    const confirmed = rows.filter(r=>Number(r.infested_dwelling_unit_count)>0);
+    return renderSection(rows, {
+      emptyMsg:'No bedbug filings found for this building. (Owners must file this report annually — a lack of filings does not guarantee a bedbug-free history.)',
+      scope:'bedbugs', collapsible:false,
+      stats:[
+        {n:rows.length, label:'Filing periods on record'},
+        {n:confirmed.length, label:'Periods with reported bedbugs', tone:confirmed.length>0?'bad':'good', attr:'infested', value:'yes'}
+      ],
+      headers:['Filing period','Filed','Infested units','Re-infested units'],
+      rowFn: r => {
+        const infested = Number(r.infested_dwelling_unit_count)||0;
+        return {
+          attrs:{infested: infested>0?'yes':'no'},
+          cells:[
+            `<td>${fmtDate(r.filing_period_start_date)} – ${fmtDate(r.filling_period_end_date)}</td>`,
+            `<td>${fmtDate(r.filing_date)}</td>`,
+            statusCell(infested===0, infested),
+            `<td>${esc(r.re_infested_dwelling_unit||0)}</td>`
+          ]
+        };
+      }
+    });
+  }
+
+  // Rows currently on screen for the DOB Complaints table, keyed by index — lets the
+  // click-to-expand handler look up full record detail without re-fetching.
+  let dobComplaintRows = [];
+  let dispositionCodesPromise = null;
+  function getDispositionCodes(){
+    if(!dispositionCodesPromise){
+      dispositionCodesPromise = socrataGet('6v9u-ndjg', new URLSearchParams({'$limit':'300'}))
+        .then(({rows}) => Object.fromEntries(rows.map(r => [r.code, r.disposition])))
+        .catch(() => ({}));
+    }
+    return dispositionCodesPromise;
+  }
+
+  // Bespoke (not renderSection) because rows are click-to-expand and need the decoded
+  // category inline — see toggleDobDetail/dobDetailRowHtml below.
+  function renderDobComplaints(rows){
+    if(!rows.length) return '<p class="empty">No DOB building complaints found. Note: this dataset has no borough field, so double-check the source link if the street name is common.</p>';
+    dobComplaintRows = rows;
+    const open = rows.filter(r=>!isClosed(r.status)).length;
+    let html = `<div class="summary-grid">${statCard(rows.length,'Total complaints','',{scope:'dobComplaints'})}${statCard(open,'Open / non-closed', open>0?'warn':'good', {scope:'dobComplaints',attr:'open',value:'yes'})}</div>`;
+    html += `<details><summary>Show ${rows.length} individual complaint${rows.length===1?'':'s'}</summary>
+      <p class="hint">Click a row for the full complaint detail.</p>
+      <div class="table-scroll"><table><thead><tr><th></th><th>Entered</th><th>Category</th><th>Status</th></tr></thead><tbody>`;
+    rows.slice(0,150).forEach((r,i)=>{
+      const closed = isClosed(r.status);
+      const plainCategory = DOB_COMPLAINT_CATEGORIES[r.complaint_category];
+      html += `<tr class="expandable" data-open="${closed?'no':'yes'}" data-idx="${i}"><td class="muted">▸</td><td>${esc(r.date_entered)}</td>
+        <td>${esc(r.complaint_category)}${plainCategory ? ' — '+esc(plainCategory) : ''}</td>
+        ${statusCell(closed, r.status)}</tr>`;
+    });
+    html += `</tbody></table></div></details>`;
+    return html;
+  }
+
+  function dobDetailRowHtml(r, dispositionMeaning){
+    const disposition = r.disposition_code
+      ? `${esc(r.disposition_code)}${dispositionMeaning ? ' — ' + esc(dispositionMeaning) : ''} (${fmtDate(r.disposition_date)})`
+      : '—';
+    const rawQueryUrl = `https://data.cityofnewyork.us/resource/eabe-havv.json?complaint_number=${encodeURIComponent(r.complaint_number||'')}`;
+    return `<tr class="detail-row"><td colspan="4"><div class="detail-panel">
+      <div><strong>Complaint #</strong> ${esc(r.complaint_number||'—')} &nbsp; <strong>Unit</strong> ${esc(r.unit||'—')} &nbsp; <strong>BIN</strong> ${esc(r.bin||'—')} &nbsp; <strong>Community board</strong> ${esc(r.community_board||'—')}</div>
+      <div style="margin-top:4px;"><strong>Inspected</strong> ${fmtDate(r.inspection_date)} &nbsp; <strong>Disposition</strong> ${disposition}</div>
+      <div class="src-links">
+        <a href="${rawQueryUrl}" target="_blank" rel="noopener">🔗 View this complaint's raw record (JSON) ↗</a>
+        <a href="https://www.nyc.gov/assets/buildings/pdf/complaint_category.pdf" target="_blank" rel="noopener">📄 Full category code legend (PDF) ↗</a>
+      </div>
+    </div></td></tr>`;
+  }
+
+  function renderThreeOneOne(rows){
+    const types = {};
+    rows.forEach(r=>{ const t=r.complaint_type||'Other'; types[t]=(types[t]||0)+1; });
+    const top = Object.entries(types).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    return renderSection(rows, {
+      emptyMsg:'No 311 service requests found for this address.',
+      scope:'threeOneOne', noun:'request',
+      stats:[{n:rows.length, label:'Total 311 requests'}, ...top.map(([t,n])=>({n, label:t, attr:'type', value:t}))],
+      headers:['Created','Type','Descriptor','Status'],
+      rowFn: r => ({
+        attrs:{type:r.complaint_type||'Other'},
+        cells:[
+          `<td>${fmtDate(r.created_date)}</td>`,
+          `<td>${esc(r.complaint_type)}</td>`,
+          `<td>${esc(r.descriptor||'')}</td>`,
+          statusCell(isClosed(r.status), r.status||'—')
+        ]
+      })
+    });
+  }
+
+  function renderEvictions(rows){
+    return renderSection(rows, {
+      emptyMsg:'No executed evictions found on record for this address (NYC Marshal filings, 2017–present).',
+      scope:'evictions', collapsible:false,
+      stats:[{n:rows.length, label:'Executed evictions', tone:rows.length>0?'bad':'good'}],
+      headers:['Executed','Apt','Type','Docket #'],
+      rowFn: r => ({
+        attrs:{},
+        cells:[
+          `<td>${fmtDate(r.executed_date)}</td>`,
+          `<td>${esc(r.eviction_apt_num||'—')}</td>`,
+          `<td>${esc(r.residential_commercial_ind||'')}</td>`,
+          `<td class="muted">${esc(r.docket_number||'—')}</td>`
+        ]
+      })
+    });
+  }
+
+  function renderRegistrations(rows){
+    return renderSection(rows, {
+      emptyMsg:'No HPD multiple-dwelling registration found for this address. (Small owner-occupied buildings may not be required to register.)',
+      scope:'registrations', collapsible:false,
+      headers:['Registration ID','Last registered','Expires'],
+      rowFn: r => ({
+        attrs:{},
+        cells:[
+          `<td>${esc(r.registrationid)}</td>`,
+          `<td>${fmtDate(r.lastregistrationdate)}</td>`,
+          `<td>${fmtDate(r.registrationenddate)}</td>`
+        ]
+      })
+    });
+  }
+
+  function renderRodents(rows){
+    const failed = rows.filter(r => (r.result||'').includes('Failed for Rat Activity'));
+    return renderSection(rows, {
+      emptyMsg:'No DOHMH rodent inspections found on record for this address.',
+      scope:'rodents', noun:'inspection',
+      stats:[
+        {n:rows.length, label:'Total inspections'},
+        {n:failed.length, label:'Failed for rat activity', tone:failed.length>0?'bad':'good', attr:'ratActive', value:'yes'}
+      ],
+      headers:['Date','Result'],
+      rowFn: r => {
+        const active = (r.result||'').includes('Failed for Rat Activity');
+        return {
+          attrs:{ratActive: active ? 'yes' : 'no'},
+          cells:[`<td>${fmtDate(r.inspection_date)}</td>`, statusCell(!active, r.result||'—')]
+        };
+      }
+    });
+  }
+
+  function renderPermits(rows){
+    return renderSection(rows, {
+      emptyMsg:'No DOB permit filings found on record for this address.',
+      scope:'permits', noun:'permit filing',
+      stats:[{n:rows.length, label:'Total filings on record'}],
+      headers:['Last updated','Type','Status','Description'],
+      rowFn: r => ({
+        attrs:{},
+        cells:[
+          `<td>${esc(r.latest_action_date)}</td>`,
+          `<td>${esc(r.job_type)}</td>`,
+          `<td>${esc(r.job_status_descrp)}</td>`,
+          `<td>${esc((r.job_description||'').slice(0,150))}</td>`
+        ]
+      })
+    });
+  }
+
+  function renderContacts(rows){
+    return renderSection(rows, {
+      emptyMsg:'No owner/agent contact on file for the most recent registration.',
+      scope:'contacts', collapsible:false,
+      headers:['Role','Name','Business address'],
+      rowFn: r => {
+        const name = r.corporationname || [r.firstname,r.middleinitial,r.lastname].filter(Boolean).join(' ') || '—';
+        const addr = [r.businesshousenumber,r.businessstreetname].filter(Boolean).join(' ') +
+          (r.businessapartment?(' Apt '+r.businessapartment):'') +
+          (r.businesscity?(', '+r.businesscity):'') + (r.businessstate?(', '+r.businessstate):'') + (r.businesszip?(' '+r.businesszip):'');
+        return {
+          attrs:{},
+          cells:[
+            `<td>${esc(r.type||r.contactdescription||'—')}${r.title?' ('+esc(r.title)+')':''}</td>`,
+            `<td>${esc(name)}</td>`,
+            `<td class="muted">${esc(addr.trim()||'—')}</td>`
+          ]
+        };
+      }
+    });
+  }
+
+  // ---------- Transit & Safety: two more public APIs, layered onto the same address ----------
+  // Neither dataset knows a "building" — both are geographic. We reuse whatever lat/long
+  // came back on the datasets already fetched for this address (violations/complaints/
+  // bedbugs/311 all carry coordinates), so this costs zero extra address-matching risk.
+  function getBuildingCoords(byKey){
+    const sources = ['violations','hpdComplaints','threeOneOne','bedbugs'];
+    for(const key of sources){
+      const rows = (byKey[key] && byKey[key].rows) || [];
+      const hit = rows.find(r => r.latitude && r.longitude && !isNaN(Number(r.latitude)) && !isNaN(Number(r.longitude)));
+      if(hit) return {lat: Number(hit.latitude), lon: Number(hit.longitude)};
+    }
+    return null;
+  }
+  function haversineMiles(lat1, lon1, lat2, lon2){
+    const R = 3958.8, toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+    return R * 2 * Math.asin(Math.sqrt(a));
+  }
+
+  // MTA Subway Stations (data.ny.gov, same Socrata platform as NYC Open Data) — small
+  // and essentially static, so fetch once and reuse for every address checked this session.
+  let subwayStationsPromise = null;
+  async function fetchNearestSubwayStations(coords){
+    if(!subwayStationsPromise){
+      const url = `https://data.ny.gov/resource/39hk-dx4f.json?$select=stop_name,daytime_routes,gtfs_latitude,gtfs_longitude,complex_id&$limit=600`;
+      subwayStationsPromise = fetch(url, {headers:{'Accept':'application/json'}})
+        .then(r => { if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); });
+    }
+    const stations = await subwayStationsPromise;
+    const withDist = stations
+      .filter(s => s.gtfs_latitude && s.gtfs_longitude)
+      .map(s => ({
+        name: s.stop_name, routes: (s.daytime_routes||'').trim().split(/\s+/).filter(Boolean),
+        complexId: s.complex_id,
+        miles: haversineMiles(coords.lat, coords.lon, Number(s.gtfs_latitude), Number(s.gtfs_longitude))
+      }))
+      .sort((a,b) => a.miles - b.miles);
+    // collapse multiple platforms of the same station complex into one entry (nearest wins)
+    const seen = new Set(), nearest = [];
+    for(const s of withDist){
+      if(seen.has(s.complexId)) continue;
+      seen.add(s.complexId);
+      nearest.push(s);
+      if(nearest.length === 3) break;
+    }
+    return nearest;
+  }
+
+  async function fetchCrimeSnapshot(coords){
+    // ~0.4mi bounding box (not a true circle — SoQL's within_circle needs a geometry
+    // column this dataset doesn't expose in a documented way, so a lat/long box is the
+    // reliable option). Longitude degrees are narrower than latitude ones this far
+    // north, hence the cos(latitude) correction.
+    const milesBox = 0.4;
+    const latDelta = milesBox / 69;
+    const lonDelta = milesBox / (69 * Math.cos(coords.lat * Math.PI/180));
+    const since = new Date(); since.setDate(since.getDate() - 180);
+    const sinceStr = since.toISOString().slice(0,10);
+    const params = new URLSearchParams({
+      '$select': 'law_cat_cd, count(*) as n',
+      '$where': `latitude between ${coords.lat-latDelta} and ${coords.lat+latDelta} ` +
+                `AND longitude between ${coords.lon-lonDelta} and ${coords.lon+lonDelta} ` +
+                `AND cmplnt_fr_dt > '${sinceStr}T00:00:00'`,
+      '$group': 'law_cat_cd'
+    });
+    const url = `https://data.cityofnewyork.us/resource/5uac-w243.json?${params.toString()}`;
+    const res = await fetch(url, {headers:{'Accept':'application/json'}});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const rows = await res.json();
+    const counts = {FELONY:0, MISDEMEANOR:0, VIOLATION:0};
+    rows.forEach(r => { if(counts.hasOwnProperty(r.law_cat_cd)) counts[r.law_cat_cd] = Number(r.n); });
+    return {counts, url, radiusMiles: milesBox, sinceStr};
+  }
+
+  async function fetchCrashSnapshot(coords){
+    const milesBox = 0.3;
+    const latDelta = milesBox / 69;
+    const lonDelta = milesBox / (69 * Math.cos(coords.lat * Math.PI/180));
+    const since = new Date(); since.setDate(since.getDate() - 180);
+    const sinceStr = since.toISOString().slice(0,10);
+    const params = new URLSearchParams({
+      '$select': 'count(*) as n, sum(number_of_persons_injured) as injured, sum(number_of_persons_killed) as killed',
+      '$where': `latitude between ${coords.lat-latDelta} and ${coords.lat+latDelta} ` +
+                `AND longitude between ${coords.lon-lonDelta} and ${coords.lon+lonDelta} ` +
+                `AND crash_date > '${sinceStr}T00:00:00'`
+    });
+    const url = `https://data.cityofnewyork.us/resource/h9gi-nx95.json?${params.toString()}`;
+    const res = await fetch(url, {headers:{'Accept':'application/json'}});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const rows = await res.json();
+    const row = rows[0] || {};
+    return {crashes:Number(row.n)||0, injured:Number(row.injured)||0, killed:Number(row.killed)||0, radiusMiles:milesBox, sinceStr, url};
+  }
+
+  function renderTransitSafety(coords, subwayResult, crimeResult, crashResult){
+    if(!coords){
+      return '<p class="empty">No coordinates came back from any dataset for this address, so transit and safety data couldn\'t be looked up.</p>';
+    }
+    const parts = [];
+
+    if(subwayResult.status === 'fulfilled' && subwayResult.value.length){
+      parts.push(`<h3 style="margin:0 0 8px; font-size:1rem;">🚇 Nearest subway stations</h3>`);
+      parts.push(subwayResult.value.map(s => `
+        <div class="building-row" style="cursor:default;">
+          <div>
+            <div class="addr">${esc(s.name)}</div>
+            <div class="meta">${s.routes.map(r=>esc(r)).join(', ') || '—'}</div>
+          </div>
+          <span class="meta">${s.miles.toFixed(2)} mi</span>
+        </div>`).join(''));
+      parts.push(`<div class="src-links"><a href="https://data.ny.gov/Transportation/MTA-Subway-Stations/39hk-dx4f" target="_blank" rel="noopener">📄 MTA Subway Stations dataset ↗</a></div>`);
+    } else if(subwayResult.status === 'rejected'){
+      parts.push(errBlock(subwayResult.reason && subwayResult.reason.message || 'subway lookup failed'));
+    } else {
+      parts.push('<p class="empty">No subway stations found nearby.</p>');
+    }
+
+    parts.push('<hr style="border:none; border-top:1px solid var(--border); margin:16px 0;">');
+
+    if(crimeResult.status === 'fulfilled'){
+      const {counts, url, radiusMiles, sinceStr} = crimeResult.value;
+      const total = counts.FELONY + counts.MISDEMEANOR + counts.VIOLATION;
+      parts.push(`<h3 style="margin:0 0 8px; font-size:1rem;">🚨 NYPD complaints within ~${radiusMiles} mi (since ${fmtDate(sinceStr)})</h3>`);
+      parts.push(`<div class="summary-grid">
+        ${statCard(total, 'Total complaints')}
+        ${statCard(counts.FELONY, 'Felony', counts.FELONY>0?'bad':'good')}
+        ${statCard(counts.MISDEMEANOR, 'Misdemeanor', counts.MISDEMEANOR>0?'warn':'good')}
+        ${statCard(counts.VIOLATION, 'Violation')}
+      </div>`);
+      parts.push(`<p class="hint">Area-level context, not specific to this building — NYPD complaints logged within roughly ${radiusMiles} miles, straight-line. A dense commercial strip nearby will show more activity than a quiet residential block even if both are equally safe.</p>`);
+      parts.push(`<div class="src-links">
+        <a href="https://data.cityofnewyork.us/Public-Safety/NYPD-Complaint-Data-Current-Year-To-Date-/5uac-w243" target="_blank" rel="noopener">📄 NYPD Complaint Data dataset ↗</a>
+        <a href="${url}" target="_blank" rel="noopener">🔗 View raw query results (JSON) ↗</a>
+      </div>`);
+    } else {
+      parts.push(errBlock(crimeResult.reason && crimeResult.reason.message || 'crime lookup failed'));
+    }
+
+    parts.push('<hr style="border:none; border-top:1px solid var(--border); margin:16px 0;">');
+
+    if(crashResult.status === 'fulfilled'){
+      const {crashes, injured, killed, radiusMiles, sinceStr, url} = crashResult.value;
+      parts.push(`<h3 style="margin:0 0 8px; font-size:1rem;">🚗 Traffic crashes within ~${radiusMiles} mi (since ${fmtDate(sinceStr)})</h3>`);
+      parts.push(`<div class="summary-grid">
+        ${statCard(crashes, 'Crashes', crashes>0?'warn':'good')}
+        ${statCard(injured, 'People injured', injured>0?'bad':'good')}
+        ${statCard(killed, 'People killed', killed>0?'bad':'good')}
+      </div>`);
+      parts.push(`<div class="src-links">
+        <a href="https://data.cityofnewyork.us/Public-Safety/Motor-Vehicle-Collisions-Crashes/h9gi-nx95" target="_blank" rel="noopener">📄 Motor Vehicle Collisions dataset ↗</a>
+        <a href="${url}" target="_blank" rel="noopener">🔗 View raw query results (JSON) ↗</a>
+      </div>`);
+    } else {
+      parts.push(errBlock(crashResult.reason && crashResult.reason.message || 'crash lookup failed'));
+    }
+
+    return parts.join('');
+  }
+
+  // ---------- Tax Exemptions & Rent Stabilization signal ----------
+  // 421-a and J-51 are the two tax-exemption programs that generally require a building's
+  // affected units to stay rent-stabilized for the benefit period. DOF's own exemption
+  // codes (e.g. "5110") aren't self-explanatory, so we decode them against DOF's own
+  // Exemption Classification Codes reference table rather than guessing at code numbers.
+  function getBuildingBbl(byKey){
+    const sources = ['violations','hpdComplaints','threeOneOne','dobComplaints','bedbugs','permits'];
+    for(const key of sources){
+      const rows = (byKey[key] && byKey[key].rows) || [];
+      const hit = rows.find(r => r.bbl && /^\d{10}$/.test(String(r.bbl)));
+      if(hit) return String(hit.bbl);
+    }
+    return null;
+  }
+
+  let exemptionCodeMapPromise = null;
+  function getExemptionCodeMap(){
+    if(!exemptionCodeMapPromise){
+      exemptionCodeMapPromise = socrataGet('myn9-hwsy', new URLSearchParams({'$limit':'5000'}))
+        .then(({rows}) => {
+          const map = {};
+          rows.forEach(r => { if(!map[r.exempt_code]) map[r.exempt_code] = {description:r.description, legalRef:r.legal_ref||''}; });
+          return map;
+        })
+        .catch(() => ({}));
+    }
+    return exemptionCodeMapPromise;
+  }
+
+  async function fetchTaxExemptions(bbl){
+    const params = new URLSearchParams({'$where': `parid='${soql(bbl)}'`, '$limit': '50'});
+    const [{rows, url}, codeMap] = await Promise.all([socrataGet('muvi-b6kx', params), getExemptionCodeMap()]);
+    const decoded = rows.map(r => {
+      const info = codeMap[r.exmp_code] || codeMap[String(r.exmp_code).split('-')[0]] || null;
+      const desc = info ? info.description : `Code ${r.exmp_code}`;
+      const legalRef = info ? info.legalRef : '';
+      return {code:r.exmp_code, desc, flagged: /421A|J51/i.test(desc+' '+legalRef), amount: Number(r.curexmptot)||0};
+    });
+    return {decoded, url};
+  }
+
+  function renderTaxExemptions(bbl, result){
+    if(!bbl){
+      return '<p class="empty">No BBL came back from any dataset for this address, so property tax exemption records couldn\'t be looked up.</p>';
+    }
+    if(result.status !== 'fulfilled'){
+      return errBlock(result.reason && result.reason.message || 'exemption lookup failed');
+    }
+    const {decoded, url} = result.value;
+    const dofLink = `<div class="src-links"><a href="https://data.cityofnewyork.us/City-Government/Property-Exemption-Detail/muvi-b6kx" target="_blank" rel="noopener">📄 Property Exemption Detail dataset ↗</a> <a href="${url}" target="_blank" rel="noopener">🔗 View raw query results (JSON) ↗</a></div>`;
+    const condoCaveat = `<p class="hint">Condos and co-ops assign a separate BBL to each individual unit — this only looked up the one BBL that happened to surface in this building's other public records, so it may reflect a different unit than yours in a condo/co-op building. Rental buildings generally have one BBL for the whole building, so this is more reliable there.</p>`;
+    if(!decoded.length){
+      return `<p class="empty">No active property tax exemptions found for this BBL — no 421-a/J-51 signal either way.</p>${condoCaveat}${dofLink}`;
+    }
+    const flagged = decoded.filter(d => d.flagged);
+    let html = flagged.length
+      ? `<p class="hint" style="color:var(--warn);">🏷️ This building has a <strong>${flagged.map(f=>esc(f.desc)).join(', ')}</strong> exemption on file. Buildings receiving 421-a or J-51 benefits are generally required to keep affected units rent-stabilized for the benefit period — this doesn't confirm your specific unit is stabilized, but it's worth requesting a <a href="https://hcr.ny.gov/rent-history" target="_blank" rel="noopener">DHCR rent history</a> to check for sure.</p>`
+      : `<p class="hint">No 421-a or J-51 exemption found among this building's tax exemption records (other exemption types below may still apply, e.g. senior/veteran/nonprofit).</p>`;
+    html += condoCaveat;
+    html += `<table><thead><tr><th>Exemption</th><th>Code</th><th>Current benefit</th></tr></thead><tbody>`;
+    decoded.forEach(d => {
+      html += `<tr><td>${esc(d.desc)}</td><td class="muted">${esc(d.code)}</td><td>$${d.amount.toLocaleString()}</td></tr>`;
+    });
+    html += `</tbody></table>${dofLink}`;
+    return html;
+  }
+
+  // ---------- Building Grade: NYC-restaurant-style A–F letter grade from the same data ----------
+  // Transparent, hand-weighted scoring (not a black box) — the point is a fast, familiar
+  // gut-check, not a precise ranking. Every deduction is shown in the "why" breakdown.
+  function computeBuildingGrade(byKey){
+    const rowsOf = key => (byKey[key] && byKey[key].rows) || [];
+    let score = 100;
+    const notes = [];
+    const deduct = (amount, reason) => { if(amount <= 0) return; score -= amount; notes.push(`−${amount} — ${reason}`); };
+
+    const violations = rowsOf('violations').filter(r => r.violationstatus === 'Open');
+    const openC = violations.filter(r => r.class === 'C').length;
+    const openB = violations.filter(r => r.class === 'B').length;
+    const openA = violations.filter(r => r.class === 'A').length;
+    deduct(Math.min(openC*3, 30), `${openC} open Class C violation${openC===1?'':'s'} (immediately hazardous)`);
+    deduct(Math.min(openB*1.5, 15), `${openB} open Class B violation${openB===1?'':'s'} (hazardous)`);
+    deduct(Math.min(openA*0.5, 5), `${openA} open Class A violation${openA===1?'':'s'} (non-hazardous)`);
+
+    const latestBedbug = rowsOf('bedbugs')[0]; // fetched newest-filing-first
+    if(latestBedbug && Number(latestBedbug.infested_dwelling_unit_count) > 0){
+      deduct(15, `bedbugs reported in the most recent filing (${fmtDate(latestBedbug.filing_date)})`);
+    }
+
+    const openDob = rowsOf('dobComplaints').filter(r => !isClosed(r.status)).length;
+    deduct(Math.min(openDob*1, 10), `${openDob} open DOB complaint${openDob===1?'':'s'}`);
+
+    const evictions = rowsOf('evictions').length;
+    deduct(Math.min(evictions*8, 24), `${evictions} executed eviction${evictions===1?'':'s'}`);
+
+    const threeOneOne = rowsOf('threeOneOne').length;
+    if(threeOneOne > 10) deduct(Math.min((threeOneOne-10)*0.3, 10), `elevated 311 volume (${threeOneOne} requests on record)`);
+
+    score = Math.max(0, Math.min(100, Math.round(score)));
+    const grade = score>=90 ? 'A' : score>=75 ? 'B' : score>=60 ? 'C' : score>=40 ? 'D' : 'F';
+    return {score, grade, notes};
+  }
+
+  function renderGradeBadge(gradeInfo){
+    const {score, grade, notes} = gradeInfo;
+    const summary = notes.length
+      ? `<ul>${notes.map(n=>`<li>${esc(n)}</li>`).join('')}</ul>`
+      : '<p>No deductions — nothing in the public record pulled the score down.</p>';
+    return `<details class="grade-wrap">
+      <summary class="grade-badge grade-${grade}"><span class="letter">${grade}</span> Building Grade (${score}/100)</summary>
+      <div class="grade-explain">${summary}</div>
+    </details>`;
+  }
+
+  // ---------- Red flags: roll findings from every dataset into one summary ----------
+  // Thresholds are deliberately conservative "worth a look" signals, not proof of anything.
+  function computeRedFlags(byKey){
+    const rowsOf = key => (byKey[key] && byKey[key].rows) || [];
+    const landingOf = key => DATASETS.find(d => d.key === key).landing;
+    const flags = [];
+
+    const openViolations = rowsOf('violations').filter(r => r.violationstatus === 'Open');
+    const classC = openViolations.filter(r => r.class === 'C');
+    if(openViolations.length){
+      flags.push({
+        icon:'⚠️', anchor:'sec-violations', source:landingOf('violations'),
+        text:`${openViolations.length} open HPD housing code violation${openViolations.length===1?'':'s'}` +
+          (classC.length ? `, including ${classC.length} Class C (most serious).` : '.')
+      });
+    }
+
+    const latestBedbug = rowsOf('bedbugs')[0]; // fetched newest-filing-first
+    if(latestBedbug && Number(latestBedbug.infested_dwelling_unit_count) > 0){
+      flags.push({
+        icon:'🐛', anchor:'sec-bedbugs', source:landingOf('bedbugs'),
+        text:`Most recent bedbug filing (${fmtDate(latestBedbug.filing_date)}) reported ${latestBedbug.infested_dwelling_unit_count} infested unit(s).`
+      });
+    }
+
+    const openDob = rowsOf('dobComplaints').filter(r => !isClosed(r.status));
+    if(openDob.length){
+      flags.push({
+        icon:'🏗️', anchor:'sec-dobComplaints', source:landingOf('dobComplaints'),
+        text:`${openDob.length} open/non-closed DOB complaint${openDob.length===1?'':'s'}.`
+      });
+    }
+
+    const evictions = rowsOf('evictions');
+    if(evictions.length){
+      flags.push({
+        icon:'📦', anchor:'sec-evictions', source:landingOf('evictions'),
+        text:`${evictions.length} executed eviction${evictions.length===1?'':'s'} on record at this address.`
+      });
+    }
+
+    const threeOneOne = rowsOf('threeOneOne');
+    if(threeOneOne.length >= 15){
+      flags.push({
+        icon:'📞', anchor:'sec-threeOneOne', source:landingOf('threeOneOne'),
+        text:`${threeOneOne.length} 311 service requests on record for this address.`
+      });
+    }
+
+    const hpdComplaints = rowsOf('hpdComplaints');
+    if(hpdComplaints.length >= 15){
+      flags.push({
+        icon:'🛠️', anchor:'sec-hpdComplaints', source:landingOf('hpdComplaints'),
+        text:`${hpdComplaints.length} HPD housing complaints on record.`
+      });
+    }
+
+    return flags;
+  }
+
+  function renderRedFlags(flags, daysOnMarket){
+    const parts = [];
+    if(daysOnMarket){
+      const long = Number(daysOnMarket) >= 45;
+      parts.push(`<p class="${long?'err':'muted'}" style="margin:0 0 10px;">${
+        long
+          ? `⏳ Listed for ${esc(daysOnMarket)} days — longer than a typical NYC listing (often 30–45 days). ` +
+            (flags.length ? 'That may line up with the issues below.' : "We didn't find violations or complaints that obviously explain it — could be price, unit condition, or just timing.")
+          : `Listed for ${esc(daysOnMarket)} days — within a fairly normal range.`
+      }</p>`);
+    }
+    if(!flags.length){
+      parts.push('<p class="empty">✅ No major red flags (open violations, recent bedbugs, open DOB complaints, or evictions) found in public records for this address.</p>');
+      return parts.join('');
+    }
+    parts.push('<ul style="margin:0; padding-left:22px;">' + flags.map(f => `
+      <li style="margin-bottom:10px;">
+        ${f.icon} ${f.text}
+        <a href="#${f.anchor}">Jump to details ↓</a> ·
+        <a href="${f.source}" target="_blank" rel="noopener">View source on NYC Open Data ↗</a>
+      </li>`).join('') + '</ul>');
+    return parts.join('');
+  }
+
+  // ---------- Main search flow ----------
+  const resultsEl = document.getElementById('results');
+  const searchBtn = document.getElementById('searchBtn');
+  let currentSearch = null; // snapshot of the most recent completed search, for "Save to Watchlist"
+
+  async function runSearch(){
+    const houseNumber = document.getElementById('houseNumber').value.trim();
+    const streetRaw = document.getElementById('streetName').value.trim();
+    const borough = document.getElementById('borough').value;
+    const daysOnMarket = document.getElementById('daysOnMarket').value.trim();
+
+    if(!houseNumber || !streetRaw){
+      alert('Please enter both a house number and a street name.');
+      return;
+    }
+    if(!borough){
+      alert('Please select a borough — the public datasets are borough-specific.');
+      return;
+    }
+
+    const ctx = {houseNumber, streetTokens: streetTokens(streetRaw), borough};
+    const wowUrl = `https://whoownswhat.justfix.org/en/address/${encodeURIComponent(borough)}/${encodeURIComponent(houseNumber)}/${encodeURIComponent(ctx.streetTokens.join(' '))}`;
+
+    // Live rental listings are proprietary (StreetEasy/Zillow/etc. have no open API and
+    // block scraping), so we can't pull them inline like the NYC Open Data sections.
+    // Instead we build deep links that open each site's page for THIS building, pre-filled
+    // with the address, so the user lands on the live inventory in one click.
+    const seBoroTok = {MANHATTAN:'new_york', BROOKLYN:'brooklyn', QUEENS:'queens', BRONX:'bronx', 'STATEN ISLAND':'staten-island'}[borough] || 'new_york';
+    const cityForBoro = {MANHATTAN:'New York', BROOKLYN:'Brooklyn', QUEENS:'Queens', BRONX:'Bronx', 'STATEN ISLAND':'Staten Island'}[borough] || 'New York';
+    const streetSlug = ctx.streetTokens.join(' ').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const hnSlug = houseNumber.toLowerCase().trim();
+    const addrString = `${houseNumber} ${streetRaw}, ${cityForBoro}, NY`;
+    const listingLinks = {
+      streeteasy: `https://streeteasy.com/building/${hnSlug}-${streetSlug}-${seBoroTok}`,
+      zillow: `https://www.zillow.com/homes/${encodeURIComponent(addrString)}_rb/`,
+      openigloo: `https://www.openigloo.com/listings`,
+      google: `https://www.google.com/search?q=${encodeURIComponent(addrString + ' apartments for rent')}`
+    };
+
+    searchBtn.disabled = true;
+    searchBtn.textContent = '🔎 Searching…';
+    resultsEl.classList.add('show');
+    resultsEl.innerHTML = `
+      <div class="card full">
+        <div class="top-links">
+          <span class="badge">${esc(houseNumber)} ${esc(streetRaw)}, ${esc(BORO_NAMES[borough]||borough)}</span>
+          <span id="gradeBadgeSlot"></span>
+          <button id="saveWatchlistBtn" class="secondary" type="button">⭐ Save to Watchlist</button>
+          <a href="${wowUrl}" target="_blank" rel="noopener">🏘️ Who Owns What (portfolio, rent-stab &amp; sale history) ↗</a>
+          <a href="https://hpdonline.nyc.gov/hpdonline/" target="_blank" rel="noopener">🏠 Search on HPD Online ↗</a>
+          <a href="https://a810-bisweb.nyc.gov/bisweb/bispi00.jsp" target="_blank" rel="noopener">🏗️ Search on DOB NOW / BIS ↗</a>
+          <a href="https://www.landlordwatchlist.com/everylandlord" target="_blank" rel="noopener">📋 NYC Public Advocate Worst Landlord Watchlist ↗</a>
+          <a href="https://www.localize.city/" target="_blank" rel="noopener">🔍 Localize.city (permits &amp; construction) ↗</a>
+          <a href="https://www.floodhelpny.org/" target="_blank" rel="noopener">🌊 Check flood risk (FloodHelpNY) ↗</a>
+          <span id="parksLinkSlot"></span>
+        </div>
+        <p class="hint" style="margin-top:10px;">Tip: once you know the owner's name below (see "Registered Owner / Managing Agent"), Ctrl+F for it on the Watchlist page, or search it directly on <a href="https://whoownswhat.justfix.org/en/" target="_blank" rel="noopener">Who Owns What</a> to see every building tied to them.</p>
+      </div>
+      <div class="card full" id="sec-listings">
+        <div class="section-title"><h2>🔑 Current Listings for This Building</h2></div>
+        <div class="top-links" style="margin-top:0;">
+          <a href="${listingLinks.streeteasy}" target="_blank" rel="noopener">🏙️ StreetEasy — this building ↗</a>
+          <a href="${listingLinks.zillow}" target="_blank" rel="noopener">🔑 Zillow — rentals here ↗</a>
+          <a href="${listingLinks.openigloo}" target="_blank" rel="noopener">🧊 OpenIgloo — browse listings ↗</a>
+          <a href="${listingLinks.google}" target="_blank" rel="noopener">🔎 All sites (Google) ↗</a>
+        </div>
+        <p class="hint" style="margin-top:10px;">These open the live listing pages for <strong>${esc(houseNumber)} ${esc(streetRaw)}</strong> in a new tab — actual availability lives on those sites (no public API exists to show it here). If StreetEasy's building link 404s, the "All sites" search will still surface every current listing.</p>
+      </div>
+      <div class="card full" id="sec-redflags">
+        <div class="section-title"><h2>🚦 Possible Red Flags</h2></div>
+        <div class="body">${loadingBlock('for red flags')}</div>
+      </div>
+      <div class="card" id="sec-transit">
+        <div class="section-title"><h2>🚇 Transit &amp; Safety</h2><span class="badge">MTA / NYPD</span></div>
+        <div class="body">${loadingBlock('transit and safety data')}</div>
+      </div>
+      <div class="card" id="sec-exemptions">
+        <div class="section-title"><h2>🏷️ Tax Exemptions &amp; Rent Stabilization</h2><span class="badge">DOF</span></div>
+        <div class="body">${loadingBlock('tax exemption records')}</div>
+      </div>
+      ${DATASETS.map(ds => `
+        <div class="card" id="sec-${ds.key}">
+          <div class="section-title"><h2>${ds.icon} ${esc(ds.label)}</h2><span class="badge">${esc(ds.agency)}</span></div>
+          <div class="body">${loadingBlock(ds.label)}</div>
+        </div>`).join('')}
+      <div class="card" id="sec-contacts">
+        <div class="section-title"><h2>🧾 Registered Owner / Managing Agent</h2><span class="badge">HPD</span></div>
+        <div class="body"><p class="empty">Waiting for registration lookup…</p></div>
+      </div>
+      <div class="disclaimer">
+        Address matching against city datasets is approximate (abbreviations, hyphenated numbers, and duplicate street names can cause mismatches). Always confirm findings using the source links before relying on them.
+      </div>
+    `;
+
+    let latestRegId = null;
+    const resultsByKey = {};
+
+    await Promise.all(DATASETS.map(async ds => {
+      const body = document.querySelector(`#sec-${ds.key} .body`);
+      try{
+        const {rows, url} = await fetchDataset(ds, ctx);
+        resultsByKey[ds.key] = {rows, url};
+        if(ds.registrationIdField && !latestRegId){
+          const withReg = rows.find(r => r[ds.registrationIdField] && r[ds.registrationIdField] !== '0');
+          if(withReg) latestRegId = withReg[ds.registrationIdField];
+        }
+        const truncated = rows.length === ds.limit ? truncationWarning(ds) : '';
+        body.innerHTML = ds.render(rows) + truncated + sourceLinks(ds.landing, url);
+      }catch(e){
+        body.innerHTML = errBlock(e.message) + `<div class="src-links"><a href="${ds.landing}" target="_blank" rel="noopener">📄 Open dataset on NYC Open Data ↗</a></div>`;
+      }
+    }));
+
+    // Set up year filter event listener for violations
+    setTimeout(() => {
+      const yearFilter = document.getElementById('violationYearFilter');
+      if(yearFilter){
+        const violationsSection = document.querySelector('.violations-section');
+        const allRows = violationsSection ? JSON.parse(violationsSection.dataset.rows) : [];
+        yearFilter.addEventListener('change', (e) => {
+          const selectedYear = parseInt(e.target.value);
+          const filtered = allRows.filter(r => {
+            const y = getYear(r.novissueddate||r.inspectiondate);
+            return y === null || y >= selectedYear;
+          });
+          const grade = calculateGrade(filtered);
+          const gradeColor = {A:'var(--good)',B:'var(--good)',C:'var(--warn)',D:'var(--bad)',F:'var(--bad)'}[grade];
+          const gradeExplain = {
+            A:'Excellent — very few or no violations',
+            B:'Good — minor violations, mostly resolved',
+            C:'Fair — some violations, may include open issues',
+            D:'Poor — multiple violations or several open issues',
+            F:'Critical — many violations or serious open issues'
+          }[grade];
+
+          // Update grade badge
+          const gradeBadge = violationsSection.querySelector('.grade-badge');
+          if(gradeBadge){
+            gradeBadge.className = `grade-badge grade-${grade}`;
+            gradeBadge.style.color = gradeColor;
+            gradeBadge.innerHTML = `<span class="letter" style="font-size:1.3rem;">${grade}</span>`;
+          }
+          const gradeExplainEl = violationsSection.querySelector('.grade-explain');
+          if(gradeExplainEl) gradeExplainEl.textContent = gradeExplain;
+
+          // Update stats
+          const open = filtered.filter(r=>r.violationstatus==='Open').length;
+          const classCounts = {};
+          filtered.forEach(r=>{ classCounts[r.class||'?'] = (classCounts[r.class||'?']||0)+1; });
+
+          const stats = violationsSection.querySelectorAll('.stat');
+          if(stats.length >= 5){
+            stats[0].querySelector('.n').textContent = filtered.length;
+            stats[1].querySelector('.n').textContent = open;
+            stats[1].className = `stat ${open>0?'bad':'good'} clickable`;
+            stats[2].querySelector('.n').textContent = classCounts.C||0;
+            stats[2].className = `stat ${(classCounts.C||0)>0?'bad':''} clickable`;
+            stats[3].querySelector('.n').textContent = classCounts.B||0;
+            stats[4].querySelector('.n').textContent = classCounts.A||0;
+          }
+
+          // Update table rows - filter by year
+          const tableRows = violationsSection.querySelectorAll('tbody tr');
+          tableRows.forEach(row => {
+            const dateCell = row.querySelector('td:first-child');
+            if(dateCell){
+              const dateText = dateCell.textContent;
+              const rowYear = parseInt(dateText.split(' ').pop());
+              row.style.display = (rowYear >= selectedYear) ? '' : 'none';
+            }
+          });
+        });
+      }
+    }, 0);
+
+    document.querySelector('#sec-redflags .body').innerHTML =
+      renderRedFlags(computeRedFlags(resultsByKey), daysOnMarket);
+
+    const gradeInfo = computeBuildingGrade(resultsByKey);
+    document.getElementById('gradeBadgeSlot').innerHTML = renderGradeBadge(gradeInfo);
+    currentSearch = {houseNumber, street: streetRaw, borough, gradeInfo, resultsByKey};
+
+    // Transit & Safety and the exemptions lookup both run off coordinates/BBL rather
+    // than address matching, so they're independent of everything else — let them
+    // resolve in the background instead of blocking the rest of the page.
+    const coords = getBuildingCoords(resultsByKey);
+    const transitBody = document.querySelector('#sec-transit .body');
+    if(!coords){
+      transitBody.innerHTML = renderTransitSafety(null);
+    } else {
+      document.getElementById('parksLinkSlot').innerHTML =
+        `<a href="https://www.google.com/maps/search/parks/@${coords.lat},${coords.lon},15z" target="_blank" rel="noopener">🌳 Find nearby parks ↗</a>`;
+      Promise.allSettled([fetchNearestSubwayStations(coords), fetchCrimeSnapshot(coords), fetchCrashSnapshot(coords)])
+        .then(([subwayResult, crimeResult, crashResult]) => {
+          transitBody.innerHTML = renderTransitSafety(coords, subwayResult, crimeResult, crashResult);
+        });
+    }
+
+    const bbl = getBuildingBbl(resultsByKey);
+    const exemptionsBody = document.querySelector('#sec-exemptions .body');
+    if(!bbl){
+      exemptionsBody.innerHTML = renderTaxExemptions(null);
+    } else {
+      fetchTaxExemptions(bbl)
+        .then(value => { exemptionsBody.innerHTML = renderTaxExemptions(bbl, {status:'fulfilled', value}); })
+        .catch(reason => { exemptionsBody.innerHTML = renderTaxExemptions(bbl, {status:'rejected', reason}); });
+    }
+
+    const contactsBody = document.querySelector('#sec-contacts .body');
+    if(!latestRegId){
+      contactsBody.innerHTML = '<p class="empty">No HPD registration ID found for this building, so no owner/agent contact could be looked up.</p>';
+    } else {
+      contactsBody.innerHTML = loadingBlock('Registered Owner / Managing Agent');
+      try{
+        const {rows, url} = await fetchContactsForRegistration(latestRegId);
+        contactsBody.innerHTML = renderContacts(rows) + sourceLinks(CONTACTS.landing, url);
+      }catch(e){
+        contactsBody.innerHTML = errBlock(e.message) + `<div class="src-links"><a href="${CONTACTS.landing}" target="_blank" rel="noopener">📄 Open dataset on NYC Open Data ↗</a></div>`;
+      }
+    }
+
+    searchBtn.disabled = false;
+    searchBtn.textContent = '🔎 Search public records';
+  }
+
+  // ---------- Input wiring ----------
+  const ueInput = document.getElementById('ueInput');
+  const guessBanner = document.getElementById('guessBanner');
+
+  ueInput.addEventListener('change', () => {
+    const val = ueInput.value.trim();
+    if(!val) return;
+    const guess = parseInput(val);
+    const applied = [];
+    if(guess.houseNumber){ document.getElementById('houseNumber').value = guess.houseNumber; applied.push('house number'); }
+    if(guess.street){ document.getElementById('streetName').value = guess.street; applied.push('street'); }
+    if(guess.borough){ document.getElementById('borough').value = guess.borough; applied.push('borough'); }
+    if(applied.length){
+      guessBanner.textContent = `Guessed ${applied.join(', ')} from your input — please double check it's correct before searching.`;
+      guessBanner.classList.add('show');
+    } else {
+      guessBanner.textContent = `Couldn't guess an address from that link — please fill in the fields manually.`;
+      guessBanner.classList.add('show');
+    }
+  });
+
+  searchBtn.addEventListener('click', runSearch);
+  document.getElementById('clearBtn').addEventListener('click', () => {
+    ueInput.value=''; document.getElementById('houseNumber').value='';
+    document.getElementById('streetName').value=''; document.getElementById('borough').value='';
+    document.getElementById('daysOnMarket').value='';
+    guessBanner.classList.remove('show');
+    resultsEl.classList.remove('show'); resultsEl.innerHTML='';
+  });
+  ueInput.addEventListener('keydown', e => { if(e.key==='Enter') runSearch(); });
+
+  // ---------- Stat-card drill-down: click a stat to filter the table rows below it ----------
+  function applyStatFilter(card){
+    const scope = card.dataset.scope;
+    const attr = card.dataset.attr;   // e.g. "status", "class", "category" — matches tr[data-*]
+    const value = card.dataset.value;
+    const section = document.getElementById(`sec-${scope}`);
+    if(!section) return;
+
+    section.querySelectorAll('tr.detail-row').forEach(tr => tr.remove());
+    section.querySelectorAll('tr.expandable.open').forEach(tr => tr.classList.remove('open'));
+
+    const rows = Array.from(section.querySelectorAll('table tbody tr:not(.detail-row)'));
+    let visible = rows.length;
+    if(attr){
+      visible = 0;
+      rows.forEach(tr => {
+        const match = tr.dataset[attr] === value;
+        tr.style.display = match ? '' : 'none';
+        if(match) visible++;
+      });
+    } else {
+      rows.forEach(tr => { tr.style.display = ''; });
+    }
+
+    const grid = card.closest('.summary-grid');
+    if(grid) grid.querySelectorAll('.stat.clickable').forEach(s => s.classList.remove('active'));
+    card.classList.add('active');
+
+    const details = section.querySelector('details');
+    if(details) details.open = true;
+
+    const table = section.querySelector('table');
+    let note = section.querySelector('.filter-note');
+    if(attr && table){
+      if(!note){
+        note = document.createElement('div');
+        note.className = 'filter-note';
+        table.parentNode.insertBefore(note, table);
+      }
+      const label = card.querySelector('.l').textContent;
+      note.innerHTML = `Showing ${visible} of ${rows.length} matching “${esc(label)}”.<a href="#" class="clear-filter">Clear filter ✕</a>`;
+    } else if(note){
+      note.remove();
+    }
+    if(table) table.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+
+  // Expand/collapse a DOB complaint row into a detail panel with the full record.
+  async function toggleDobDetail(row){
+    const next = row.nextElementSibling;
+    if(next && next.classList.contains('detail-row')){
+      next.remove();
+      row.classList.remove('open');
+      return;
+    }
+    row.parentNode.querySelectorAll('tr.detail-row').forEach(tr => tr.remove());
+    row.parentNode.querySelectorAll('tr.expandable.open').forEach(tr => tr.classList.remove('open'));
+
+    const r = dobComplaintRows[Number(row.dataset.idx)];
+    if(!r) return;
+    row.classList.add('open');
+    const placeholder = document.createElement('tr');
+    placeholder.className = 'detail-row';
+    placeholder.innerHTML = `<td colspan="4" class="muted">Loading complaint detail…</td>`;
+    row.after(placeholder);
+
+    const codes = await getDispositionCodes();
+    if(!row.classList.contains('open')) return; // collapsed again while loading
+    placeholder.outerHTML = dobDetailRowHtml(r, codes[r.disposition_code]);
+  }
+
+  resultsEl.addEventListener('click', e => {
+    const saveBtn = e.target.closest('#saveWatchlistBtn');
+    if(saveBtn){
+      if(!currentSearch) return;
+      addToWatchlist(currentSearch);
+      saveBtn.textContent = '✅ Saved!';
+      saveBtn.disabled = true;
+      setTimeout(() => { saveBtn.textContent = '⭐ Save to Watchlist'; saveBtn.disabled = false; }, 1500);
+      return;
+    }
+    const clearLink = e.target.closest('.clear-filter');
+    if(clearLink){
+      e.preventDefault();
+      const section = clearLink.closest('.card');
+      const totalCard = section && section.querySelector('.stat.clickable');
+      if(totalCard) applyStatFilter(totalCard);
+      return;
+    }
+    const card = e.target.closest('.stat.clickable');
+    if(card){ applyStatFilter(card); return; }
+
+    const row = e.target.closest('tr.expandable');
+    if(row) toggleDobDetail(row);
+  });
+  resultsEl.addEventListener('keydown', e => {
+    if((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('clickable')){
+      e.preventDefault();
+      applyStatFilter(e.target);
+    }
+  });
+
+  // ---------- Tabs ----------
+  function switchTab(tab){
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+    document.querySelectorAll('.tab-btn').forEach(b => {
+      const active = b.dataset.tab === tab;
+      b.classList.toggle('active', active);
+      b.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    if(tab === 'watchlist') renderWatchlistPanel();
+  }
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
+
+  // ---------- Watchlist: save/compare candidate addresses across visits ----------
+  const WATCHLIST_KEY = 'nycAptWatchlist';
+  const watchlistContainer = document.getElementById('watchlistContainer');
+
+  function loadWatchlist(){
+    try{ return JSON.parse(localStorage.getItem(WATCHLIST_KEY)) || []; }
+    catch(e){ return []; }
+  }
+  function persistWatchlist(list){
+    localStorage.setItem(WATCHLIST_KEY, JSON.stringify(list));
+    const n = list.length;
+    document.getElementById('watchlistCount').textContent = n ? `(${n})` : '';
+  }
+  function watchlistId(houseNumber, street, borough){
+    return `${borough}|${houseNumber}|${streetTokens(street).join(' ')}`;
+  }
+  function addToWatchlist(search){
+    const rowsOf = key => (search.resultsByKey[key] && search.resultsByKey[key].rows) || [];
+    const id = watchlistId(search.houseNumber, search.street, search.borough);
+    const latestBedbug = rowsOf('bedbugs')[0];
+    const record = {
+      id, houseNumber: search.houseNumber, street: search.street, borough: search.borough,
+      grade: search.gradeInfo.grade, score: search.gradeInfo.score,
+      openViolations: rowsOf('violations').filter(r => r.violationstatus === 'Open').length,
+      evictions: rowsOf('evictions').length,
+      bedbugs: !!(latestBedbug && Number(latestBedbug.infested_dwelling_unit_count) > 0),
+      savedAt: new Date().toISOString()
+    };
+    const list = loadWatchlist();
+    const existingIdx = list.findIndex(x => x.id === id);
+    if(existingIdx === -1) list.unshift(record); else list[existingIdx] = record;
+    persistWatchlist(list);
+  }
+  function removeFromWatchlist(id){
+    persistWatchlist(loadWatchlist().filter(x => x.id !== id));
+    renderWatchlistPanel();
+  }
+  function renderWatchlistPanel(){
+    const list = loadWatchlist();
+    if(!list.length){
+      watchlistContainer.innerHTML = `<div class="card"><p class="empty">No saved addresses yet. Search an address in "Check an Address" and click "⭐ Save to Watchlist" to start comparing candidates.</p></div>`;
+      return;
+    }
+    watchlistContainer.innerHTML = `<div class="card full">
+      <div class="section-title"><h2>⭐ My Watchlist</h2><span class="badge">${list.length} saved</span></div>
+      ${list.map(item => `
+        <div class="watchlist-card">
+          <div>
+            <div class="addr">${esc(item.houseNumber)} ${esc(item.street)}, ${esc(BORO_NAMES[item.borough]||item.borough)}</div>
+            <div class="meta">
+              <span class="grade-badge grade-${item.grade}"><span class="letter">${item.grade}</span> ${item.score}/100</span>
+              <span>${item.openViolations} open violation${item.openViolations===1?'':'s'}</span>
+              <span>${item.evictions} eviction${item.evictions===1?'':'s'}</span>
+              <span>${item.bedbugs ? '🐛 Bedbugs reported' : '✅ No recent bedbugs'}</span>
+              <span>Saved ${fmtDate(item.savedAt)}</span>
+            </div>
+          </div>
+          <div class="watchlist-actions">
+            <button type="button" class="secondary recheck-btn" data-id="${esc(item.id)}">🔄 Recheck</button>
+            <button type="button" class="secondary remove-btn" data-id="${esc(item.id)}">🗑️ Remove</button>
+          </div>
+        </div>`).join('')}
+    </div>`;
+  }
+  watchlistContainer.addEventListener('click', e => {
+    const removeBtn = e.target.closest('.remove-btn');
+    if(removeBtn){ removeFromWatchlist(removeBtn.dataset.id); return; }
+    const recheckBtn = e.target.closest('.recheck-btn');
+    if(recheckBtn){
+      const item = loadWatchlist().find(x => x.id === recheckBtn.dataset.id);
+      if(!item) return;
+      switchTab('check');
+      document.getElementById('houseNumber').value = item.houseNumber;
+      document.getElementById('streetName').value = item.street;
+      document.getElementById('borough').value = item.borough;
+      runSearch();
+    }
+  });
+  persistWatchlist(loadWatchlist()); // paint the (n) count on load without touching stored data
+
+  // ---------- Explore a Neighborhood: rank buildings by violation history ----------
+  function titleCase(s){ return String(s||'').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()); }
+  function buildingRowHtml(b, tone){
+    return `<div class="building-row" data-house="${esc(b.houseNumber)}" data-street="${esc(b.street)}" data-boro="${esc(b.boro)}">
+      <div>
+        <div class="addr">${esc(b.houseNumber)} ${esc(titleCase(b.street))}</div>
+        <div class="meta">${b.open} open violation${b.open===1?'':'s'}${b.classC?`, ${b.classC} Class C`:''} · ${b.total} total on record</div>
+      </div>
+      <span>${tone==='good' ? '👍' : '⚠️'}</span>
+    </div>`;
+  }
+
+  const exploreBtn = document.getElementById('exploreBtn');
+  const exploreResultsEl = document.getElementById('exploreResults');
+
+  // A LIKE '%term%' scan of the whole violations table (millions of rows) took 16+
+  // seconds in testing. Matching against the real, short list of NTA names for the
+  // chosen borough (~50-60 names) lets every real query use a fast exact/IN match
+  // instead — 3-4x faster — and doubles as a picker when the user's spelling doesn't
+  // match NYC Planning's official name. Cached per borough since it barely ever changes.
+  // Normalize a neighborhood name for tolerant matching: lowercase, DROP apostrophes
+  // entirely (so "Hell's" == "Hells" == "Hells'"), turn any other punctuation into
+  // spaces, and collapse whitespace. Apostrophes are removed rather than spaced so the
+  // three spellings above all collapse to the same token.
+  function normNbhd(s){
+    return String(s || '').toLowerCase()
+      .replace(/[’‘']/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+  // Common colloquial names that appear in NO official NTA name, mapped to a normalized
+  // fragment of the official name they belong to. (Many other colloquial names — SoHo,
+  // Tribeca, DUMBO, Red Hook, Hudson Yards, Turtle Bay… — already match directly because
+  // NYC's combined NTA names contain them, so they aren't listed here.) Borough-scoped
+  // search keeps these safe, e.g. "clinton" only resolves to Hell's Kitchen in Manhattan.
+  const NBHD_ALIASES = {
+    'alphabet city': 'east village',
+    'nolita': 'little italy',
+    'nomad': 'flatiron',
+    'clinton': 'hells kitchen',
+    'bed stuy': 'bedford stuyvesant',
+    'bedstuy': 'bedford stuyvesant',
+    'spanish harlem': 'east harlem',
+    'el barrio': 'east harlem',
+    'lic': 'long island city',
+    'fidi': 'financial district'
+  };
+  // Return the official NTA names that match a free-text term, tolerant of punctuation
+  // and common nicknames.
+  function matchNeighborhoods(ntas, term){
+    const q = normNbhd(term);
+    if(!q) return [];
+    const targets = [q];
+    for(const [alias, official] of Object.entries(NBHD_ALIASES)){
+      if(q === alias || q.includes(alias) || alias.includes(q)) targets.push(official);
+    }
+    return ntas.filter(n => {
+      const nn = normNbhd(n);
+      return targets.some(t => nn.includes(t));
+    });
+  }
+
+  const ntaListCache = {};
+  async function getNtasForBorough(boro){
+    if(!ntaListCache[boro]){
+      const {rows} = await socrataGet('wvxf-dwi5', new URLSearchParams({
+        '$select': 'nta', '$where': `boro='${soql(boro)}'`, '$group': 'nta', '$limit': '200'
+      }));
+      ntaListCache[boro] = rows.map(r => r.nta).filter(Boolean).sort();
+    }
+    return ntaListCache[boro];
+  }
+
+  function ntaSuggestionsHtml(ntas){
+    return `<div class="top-links">${ntas.map(n => `<a href="#" class="nta-suggestion" data-nta="${esc(n)}">${esc(n)}</a>`).join('')}</div>`;
+  }
+
+  async function runNeighborhoodSearch(){
+    const term = document.getElementById('neighborhoodInput').value.trim();
+    const boro = document.getElementById('neighborhoodBorough').value;
+    if(!term){ alert('Please enter a neighborhood name.'); return; }
+    if(!boro){ alert('Please select a borough.'); return; }
+
+    exploreBtn.disabled = true;
+    exploreBtn.textContent = '🗺️ Searching…';
+    exploreResultsEl.innerHTML = `<div class="card">${loadingBlock('neighborhood names')}</div>`;
+
+    try{
+      const ntas = await getNtasForBorough(boro);
+      const matches = matchNeighborhoods(ntas, term);
+
+      if(!matches.length){
+        exploreResultsEl.innerHTML = `<div class="card">
+          <p class="empty">No neighborhood in ${esc(BORO_NAMES[boro]||boro)} matched “${esc(term)}.” Pick one below (these are NYC Planning's official neighborhood names for this borough):</p>
+          ${ntaSuggestionsHtml(ntas)}
+        </div>`;
+        return;
+      }
+
+      exploreResultsEl.innerHTML = `<div class="card">${loadingBlock(`violation records for ${matches.join(', ')}`)}</div>`;
+
+      // Grouped counts computed server-side (not a client-side tally of a capped row
+      // fetch) — a busy building can rack up 1000+ historical violation rows, which
+      // would silently swallow a page cap long before the neighborhood's other
+      // buildings got counted. $group/count(*) aggregates over the *full* matching set
+      // regardless of row volume, so counts stay accurate no matter how dense the area.
+      const ntaWhere = matches.length === 1
+        ? `nta='${soql(matches[0])}'`
+        : `nta IN (${matches.map(n => `'${soql(n)}'`).join(',')})`;
+      const baseWhere = `boro='${soql(boro)}' AND ${ntaWhere}`;
+      // $order biases which buildings survive the 5000-group cap on a very broad match:
+      // the "total" list favors low counts (feeds "cleanest"), the other two favor high
+      // counts (feed "worst") — so a truncated result still holds the buildings each
+      // ranking actually needs, rather than an arbitrary unsorted 5000.
+      const groupParams = (extraWhere, countAs, order) => new URLSearchParams({
+        '$select': `housenumber,streetname,count(*) as ${countAs}`,
+        '$where': extraWhere ? `${baseWhere} AND ${extraWhere}` : baseWhere,
+        '$group': 'housenumber,streetname',
+        '$order': `${countAs} ${order}`,
+        '$limit': '5000'
+      });
+
+      const [totalRes, openRes, classCRes] = await Promise.all([
+        socrataGet('wvxf-dwi5', groupParams('', 'total', 'ASC')),
+        socrataGet('wvxf-dwi5', groupParams(`violationstatus='Open'`, 'open', 'DESC')),
+        socrataGet('wvxf-dwi5', groupParams(`violationstatus='Open' AND class='C'`, 'classc', 'DESC'))
+      ]);
+      const url = totalRes.url;
+      const possiblyTruncated = totalRes.rows.length >= 5000 || openRes.rows.length >= 5000;
+
+      const buildings = {};
+      const keyOf = r => `${r.housenumber}|${r.streetname}`;
+      totalRes.rows.forEach(r => {
+        buildings[keyOf(r)] = {houseNumber:r.housenumber, street:r.streetname, boro, total:Number(r.total), open:0, classC:0};
+      });
+      openRes.rows.forEach(r => { const b = buildings[keyOf(r)]; if(b) b.open = Number(r.open); });
+      classCRes.rows.forEach(r => { const b = buildings[keyOf(r)]; if(b) b.classC = Number(r.classc); });
+      const list = Object.values(buildings);
+
+      if(!list.length){
+        exploreResultsEl.innerHTML = `<div class="card"><p class="empty">${esc(matches.join(', '))} has no HPD violations on record — nothing to rank yet.</p>
+          <div class="src-links"><a href="${url}" target="_blank" rel="noopener">🔗 View raw query results (JSON) ↗</a></div></div>`;
+        return;
+      }
+
+      const cleanest = [...list].sort((a,b) => a.open-b.open || a.classC-b.classC).slice(0,10);
+      const worst = [...list].filter(b => b.classC>0 || b.open>0).sort((a,b) => b.classC-a.classC || b.open-a.open).slice(0,10);
+
+      exploreResultsEl.innerHTML = `
+        <div class="card full">
+          <p class="hint" style="margin-top:0;">${list.length}${possiblyTruncated?'+':''} building${list.length===1?'':'s'} with a violation on record in <strong>${esc(matches.join(', '))}</strong>, ${esc(BORO_NAMES[boro]||boro)}. Click any building to run the full check on it.</p>
+          ${possiblyTruncated ? `<p class="hint" style="color:var(--warn);">⚠️ That's a lot of neighborhoods matched at once — this hit the per-search fetch cap, so the rankings below are drawn from a large but not exhaustive sample. Pick one of the specific neighborhoods above (e.g. just "${esc(matches[0])}") for a complete ranking.</p>` : ''}
+          <div class="neighborhood-cols">
+            <div>
+              <h3 style="margin:0 0 8px; font-size:1rem;">🏆 Fewest open violations</h3>
+              ${cleanest.map(b => buildingRowHtml(b,'good')).join('')}
+            </div>
+            <div>
+              <h3 style="margin:0 0 8px; font-size:1rem;">⚠️ Most serious violations</h3>
+              ${worst.length ? worst.map(b => buildingRowHtml(b,'bad')).join('') : '<p class="empty">No open Class C violations found among matched buildings.</p>'}
+            </div>
+          </div>
+          <div class="src-links"><a href="${url}" target="_blank" rel="noopener">🔗 View raw query results (JSON) ↗</a></div>
+        </div>`;
+    }catch(e){
+      exploreResultsEl.innerHTML = `<div class="card">${errBlock(e.message)}</div>`;
+    }finally{
+      exploreBtn.disabled = false;
+      exploreBtn.textContent = '🗺️ Search neighborhood';
+    }
+  }
+  exploreBtn.addEventListener('click', runNeighborhoodSearch);
+  document.getElementById('neighborhoodInput').addEventListener('keydown', e => { if(e.key==='Enter') runNeighborhoodSearch(); });
+  exploreResultsEl.addEventListener('click', e => {
+    const suggestion = e.target.closest('.nta-suggestion');
+    if(suggestion){
+      e.preventDefault();
+      document.getElementById('neighborhoodInput').value = suggestion.dataset.nta;
+      runNeighborhoodSearch();
+      return;
+    }
+    const row = e.target.closest('.building-row');
+    if(!row) return;
+    switchTab('check');
+    document.getElementById('houseNumber').value = row.dataset.house;
+    document.getElementById('streetName').value = titleCase(row.dataset.street);
+    document.getElementById('borough').value = row.dataset.boro;
+    runSearch();
+  });
+})();
+</script>
+</body>
+</html>
