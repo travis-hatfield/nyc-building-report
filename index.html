@@ -266,6 +266,9 @@
 (function(){
   "use strict";
 
+  // Cache for storing dataset rows to avoid storing large JSON in HTML attributes
+  const datasetRowsCache = {};
+
   // ---------- Dataset configuration (NYC Open Data / Socrata) ----------
   const DATASETS = [
     {
@@ -782,8 +785,11 @@
       })
     });
 
-    // Store reference for event listener setup
-    html = `<div class="violations-section" data-min-year="${minYear}" data-max-year="${maxYear}" data-rows='${JSON.stringify(rows)}'>${html}</div>`;
+    // Store rows in cache for event listener to access
+    datasetRowsCache['violations'] = rows;
+
+    // Return wrapper with min/max year for reference, rows now in cache
+    html = `<div class="violations-section" data-min-year="${minYear}" data-max-year="${maxYear}">${html}</div>`;
     return html;
   }
 
@@ -1470,67 +1476,85 @@
       }
     }));
 
-    // Set up year filter event listener for violations
-    setTimeout(() => {
-      const yearFilter = document.getElementById('violationYearFilter');
-      if(yearFilter){
-        const violationsSection = document.querySelector('.violations-section');
-        const allRows = violationsSection ? JSON.parse(violationsSection.dataset.rows) : [];
-        yearFilter.addEventListener('change', (e) => {
-          const selectedYear = parseInt(e.target.value);
-          const filtered = allRows.filter(r => {
-            const y = getYear(r.novissueddate||r.inspectiondate);
-            return y === null || y >= selectedYear;
-          });
-          const grade = calculateGrade(filtered);
-          const gradeColor = {A:'var(--good)',B:'var(--good)',C:'var(--warn)',D:'var(--bad)',F:'var(--bad)'}[grade];
-          const gradeExplain = {
-            A:'Excellent — very few or no violations',
-            B:'Good — minor violations, mostly resolved',
-            C:'Fair — some violations, may include open issues',
-            D:'Poor — multiple violations or several open issues',
-            F:'Critical — many violations or serious open issues'
-          }[grade];
+    // Set up year filter event listener for violations (using cached rows, not DOM attributes)
+    const yearFilter = document.getElementById('violationYearFilter');
+    if(yearFilter && datasetRowsCache['violations']){
+      const allRows = datasetRowsCache['violations'];
+      const violationsSection = document.querySelector('.violations-section');
 
-          // Update grade badge
-          const gradeBadge = violationsSection.querySelector('.grade-badge');
-          if(gradeBadge){
-            gradeBadge.className = `grade-badge grade-${grade}`;
-            gradeBadge.style.color = gradeColor;
-            gradeBadge.innerHTML = `<span class="letter" style="font-size:1.3rem;">${grade}</span>`;
-          }
-          const gradeExplainEl = violationsSection.querySelector('.grade-explain');
-          if(gradeExplainEl) gradeExplainEl.textContent = gradeExplain;
+      yearFilter.addEventListener('change', (e) => {
+        if(!violationsSection) return; // Guard against missing section
 
-          // Update stats
-          const open = filtered.filter(r=>r.violationstatus==='Open').length;
-          const classCounts = {};
-          filtered.forEach(r=>{ classCounts[r.class||'?'] = (classCounts[r.class||'?']||0)+1; });
+        const selectedYear = parseInt(e.target.value);
+        if(isNaN(selectedYear)) return; // Guard against invalid year
 
-          const stats = violationsSection.querySelectorAll('.stat');
-          if(stats.length >= 5){
-            stats[0].querySelector('.n').textContent = filtered.length;
-            stats[1].querySelector('.n').textContent = open;
-            stats[1].className = `stat ${open>0?'bad':'good'} clickable`;
-            stats[2].querySelector('.n').textContent = classCounts.C||0;
-            stats[2].className = `stat ${(classCounts.C||0)>0?'bad':''} clickable`;
-            stats[3].querySelector('.n').textContent = classCounts.B||0;
-            stats[4].querySelector('.n').textContent = classCounts.A||0;
-          }
-
-          // Update table rows - filter by year
-          const tableRows = violationsSection.querySelectorAll('tbody tr');
-          tableRows.forEach(row => {
-            const dateCell = row.querySelector('td:first-child');
-            if(dateCell){
-              const dateText = dateCell.textContent;
-              const rowYear = parseInt(dateText.split(' ').pop());
-              row.style.display = (rowYear >= selectedYear) ? '' : 'none';
-            }
-          });
+        // Filter violations by selected year
+        const filtered = allRows.filter(r => {
+          const y = getYear(r.novissueddate||r.inspectiondate);
+          return y === null || y >= selectedYear;
         });
-      }
-    }, 0);
+
+        // Calculate grade for filtered violations
+        const grade = calculateGrade(filtered);
+        const gradeColor = {A:'var(--good)',B:'var(--good)',C:'var(--warn)',D:'var(--bad)',F:'var(--bad)'}[grade];
+        const gradeExplain = {
+          A:'Excellent — very few or no violations',
+          B:'Good — minor violations, mostly resolved',
+          C:'Fair — some violations, may include open issues',
+          D:'Poor — multiple violations or several open issues',
+          F:'Critical — many violations or serious open issues'
+        }[grade] || 'Unknown';
+
+        // Update grade badge
+        const gradeBadge = violationsSection.querySelector('.grade-badge');
+        if(gradeBadge){
+          gradeBadge.className = `grade-badge grade-${grade}`;
+          gradeBadge.style.color = gradeColor;
+          gradeBadge.innerHTML = `<span class="letter" style="font-size:1.3rem;">${grade}</span>`;
+        }
+
+        // Update grade explanation
+        const gradeExplainEl = violationsSection.querySelector('.grade-explain');
+        if(gradeExplainEl) gradeExplainEl.textContent = gradeExplain;
+
+        // Calculate statistics for filtered results
+        const open = filtered.filter(r=>r.violationstatus==='Open').length;
+        const classCounts = {};
+        filtered.forEach(r=>{ classCounts[r.class||'?'] = (classCounts[r.class||'?']||0)+1; });
+
+        // Update stats cards
+        const stats = violationsSection.querySelectorAll('.stat');
+        if(stats.length >= 5){
+          const updateStatCard = (idx, value, newTone = null) => {
+            const stat = stats[idx];
+            const numEl = stat.querySelector('.n');
+            if(numEl) numEl.textContent = value;
+            if(newTone !== null){
+              stat.className = `stat ${newTone} clickable`;
+            }
+          };
+
+          updateStatCard(0, filtered.length);
+          updateStatCard(1, open, open>0?'bad':'good');
+          updateStatCard(2, classCounts.C||0, (classCounts.C||0)>0?'bad':'');
+          updateStatCard(3, classCounts.B||0);
+          updateStatCard(4, classCounts.A||0);
+        }
+
+        // Update table rows visibility based on year filter
+        const tableRows = violationsSection.querySelectorAll('tbody tr');
+        tableRows.forEach(row => {
+          const dateCell = row.querySelector('td:first-child');
+          if(dateCell){
+            const dateText = dateCell.textContent.trim();
+            // Extract year from formatted date (e.g., "Jan 15, 2005" -> 2005)
+            const match = dateText.match(/(\d{4})$/);
+            const rowYear = match ? parseInt(match[1]) : null;
+            row.style.display = (rowYear !== null && rowYear >= selectedYear) ? '' : 'none';
+          }
+        });
+      });
+    }
 
     document.querySelector('#sec-redflags .body').innerHTML =
       renderRedFlags(computeRedFlags(resultsByKey), daysOnMarket);
