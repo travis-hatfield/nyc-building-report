@@ -468,6 +468,13 @@
     if(!years.length) return {min: new Date().getFullYear(), max: new Date().getFullYear()};
     return {min: Math.min(...years), max: Math.max(...years)};
   }
+  // Same idea as getYearRange, but for sections keyed off a single arbitrary date field
+  // (e.g. DOB complaints' date_entered) instead of the violations-specific fields.
+  function getYearRange2(rows, dateField){
+    const years = rows.map(r => getYear(r[dateField])).filter(y => y);
+    if(!years.length) return {min: new Date().getFullYear(), max: new Date().getFullYear()};
+    return {min: Math.min(...years), max: Math.max(...years)};
+  }
 
   function calculateGrade(violations){
     // A-F grading based on total violations, open status, and severity
@@ -858,9 +865,27 @@
   // category inline — see toggleDobDetail/dobDetailRowHtml below.
   function renderDobComplaints(rows){
     if(!rows.length) return '<p class="empty">No DOB building complaints found. Note: this dataset has no borough field, so double-check the source link if the street name is common.</p>';
+    // dobComplaintRows stays the FULL unfiltered array — toggleDobDetail indexes into it
+    // by the row's original position, so the year filter below only hides <tr>s, it never
+    // re-renders or re-indexes the table.
     dobComplaintRows = rows;
+
+    const {min: minYear, max: maxYear} = getYearRange2(rows, 'date_entered');
+    let yearOptions = '';
+    for(let y = maxYear; y >= minYear; y--){
+      yearOptions += `<option value="${y}"${y === minYear ? ' selected' : ''}>${y} onwards</option>`;
+    }
+    const yearFilterHtml = maxYear > minYear ? `
+      <div style="margin-bottom:12px;">
+        <label for="dobYearFilter" style="display:inline-block; margin-right:8px; font-weight:600; font-size:0.82rem; color:var(--muted); text-transform:uppercase; letter-spacing:.03em;">Show complaints from:</label>
+        <select id="dobYearFilter" style="width:140px; padding:8px 10px; border-radius:6px; border:1px solid var(--border); background:var(--panel2); color:var(--text); font-size:0.98rem; cursor:pointer;">
+          ${yearOptions}
+        </select>
+      </div>` : '';
+
     const open = rows.filter(r=>!isClosed(r.status)).length;
-    let html = `<div class="summary-grid">${statCard(rows.length,'Total complaints','',{scope:'dobComplaints'})}${statCard(open,'Open / non-closed', open>0?'warn':'good', {scope:'dobComplaints',attr:'open',value:'yes'})}</div>`;
+    let html = yearFilterHtml;
+    html += `<div class="summary-grid">${statCard(rows.length,'Total complaints','',{scope:'dobComplaints'})}${statCard(open,'Open / non-closed', open>0?'warn':'good', {scope:'dobComplaints',attr:'open',value:'yes'})}</div>`;
     html += `<details><summary>Show ${rows.length} individual complaint${rows.length===1?'':'s'}</summary>
       <p class="hint">Click a row for the full complaint detail.</p>
       <div class="table-scroll"><table><thead><tr><th></th><th>Entered</th><th>Category</th><th>Status</th></tr></thead><tbody>`;
@@ -872,7 +897,7 @@
         ${statusCell(closed, r.status)}</tr>`;
     });
     html += `</tbody></table></div></details>`;
-    return html;
+    return `<div class="dob-complaints-section">${html}</div>`;
   }
 
   function dobDetailRowHtml(r, dispositionMeaning){
@@ -1549,6 +1574,47 @@
             const dateText = dateCell.textContent.trim();
             // Extract year from formatted date (e.g., "Jan 15, 2005" -> 2005)
             const match = dateText.match(/(\d{4})$/);
+            const rowYear = match ? parseInt(match[1]) : null;
+            row.style.display = (rowYear !== null && rowYear >= selectedYear) ? '' : 'none';
+          }
+        });
+      });
+    }
+
+    // Set up year filter event listener for DOB Building Complaints (mirrors the
+    // violations filter above, but keyed off date_entered and dobComplaintRows).
+    const dobYearFilter = document.getElementById('dobYearFilter');
+    if(dobYearFilter){
+      const dobSection = document.querySelector('.dob-complaints-section');
+      dobYearFilter.addEventListener('change', (e) => {
+        if(!dobSection) return;
+        const selectedYear = parseInt(e.target.value);
+        if(isNaN(selectedYear)) return;
+
+        // Collapse any open detail row — its parent may be about to hide.
+        dobSection.querySelectorAll('tr.detail-row').forEach(tr => tr.remove());
+        dobSection.querySelectorAll('tr.expandable.open').forEach(tr => tr.classList.remove('open'));
+
+        const filtered = dobComplaintRows.filter(r => {
+          const y = getYear(r.date_entered);
+          return y === null || y >= selectedYear;
+        });
+        const open = filtered.filter(r=>!isClosed(r.status)).length;
+
+        const stats = dobSection.querySelectorAll('.stat');
+        if(stats.length >= 2){
+          const totalNumEl = stats[0].querySelector('.n');
+          if(totalNumEl) totalNumEl.textContent = filtered.length;
+          const openNumEl = stats[1].querySelector('.n');
+          if(openNumEl) openNumEl.textContent = open;
+          stats[1].className = `stat ${open>0?'warn':'good'} clickable`;
+        }
+
+        const tableRows = dobSection.querySelectorAll('tbody tr.expandable');
+        tableRows.forEach(row => {
+          const dateCell = row.querySelector('td:nth-child(2)');
+          if(dateCell){
+            const match = dateCell.textContent.trim().match(/(\d{4})$/);
             const rowYear = match ? parseInt(match[1]) : null;
             row.style.display = (rowYear !== null && rowYear >= selectedYear) ? '' : 'none';
           }
