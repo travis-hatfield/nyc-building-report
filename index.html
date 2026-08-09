@@ -145,6 +145,96 @@
   details{margin-top:8px;}
   summary{cursor:pointer; color:var(--accent); font-size:0.85rem;}
   .disclaimer{font-size:0.82rem; color:var(--muted); background:var(--panel2); border-radius:10px; padding:12px 14px; margin-top:10px;}
+
+  /* ============================================================
+     "Case File" treatment — HPD Violations + DOB Complaints only.
+     Deliberately light-only "paper report" theme, independent of the
+     rest of the app's dark/light toggle (a considered design choice,
+     not an oversight — see design review). Entirely scoped under
+     .case-file-card / .case-file with its own --cf-* tokens so it
+     can't leak into or be affected by the app's --root tokens above.
+     ============================================================ */
+  .case-file-card{
+    --cf-paper:#faf9f6; --cf-panel:#ffffff; --cf-ink:#211f1a; --cf-rule:#e3e0d7;
+    --cf-accent:#7a4b1e; --cf-good:#3a6b45; --cf-warn:#9a6a1a; --cf-bad:#9c3a2b; --cf-muted:#847c6c;
+    background:var(--cf-paper); border-color:var(--cf-rule); color:var(--cf-ink);
+  }
+  .case-file-card .cf-head{ margin-bottom:4px; }
+  .case-file-card .cf-head h2{
+    font-family:Georgia,"Times New Roman",serif; font-weight:600; font-size:1.28rem;
+    color:var(--cf-ink); letter-spacing:-.01em; margin:0;
+  }
+  .case-file-card .cf-head .badge{
+    background:transparent; border:1px solid var(--cf-rule); color:var(--cf-muted);
+    font-family:"Archivo Narrow","Arial Narrow","Helvetica Neue Condensed",Arial,sans-serif;
+    text-transform:uppercase; letter-spacing:.06em; font-size:.64rem;
+  }
+  .case-file{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif;
+    color:var(--cf-ink); margin-top:16px;
+  }
+  .case-file .cf-mono{ font-family:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono","Courier New",monospace; font-variant-numeric:tabular-nums; }
+  .case-file .cf-toprow{ display:flex; justify-content:space-between; align-items:flex-start; gap:18px; flex-wrap:wrap; }
+  .case-file .cf-seal{
+    width:54px; height:54px; border-radius:50%; border:2px solid var(--cf-good); color:var(--cf-good);
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:1.4rem; flex:none;
+    font-family:Georgia,"Times New Roman",serif; transform:rotate(-6deg); cursor:help;
+  }
+  .case-file .cf-seal.warn{ border-color:var(--cf-warn); color:var(--cf-warn); }
+  .case-file .cf-seal.bad{ border-color:var(--cf-bad); color:var(--cf-bad); }
+  .case-file .cf-yearfield{ font-size:.8rem; }
+  .case-file .cf-yearfield label{
+    display:inline-block; margin-right:7px; font-weight:600; color:var(--cf-muted);
+    font-family:"Archivo Narrow","Arial Narrow",sans-serif; text-transform:uppercase; letter-spacing:.05em; font-size:.7rem;
+  }
+  .case-file select{
+    padding:7px 10px; border-radius:4px; border:1px solid var(--cf-rule); background:var(--cf-panel);
+    color:var(--cf-ink); font-size:.85rem; cursor:pointer; font-family:inherit;
+  }
+  .case-file .cf-summary{ font-size:.96rem; line-height:1.7; margin:14px 0 6px; max-width:70ch; }
+  .case-file .cf-summary b{ color:var(--cf-ink); }
+  .case-file h4{
+    font-family:"Archivo Narrow","Arial Narrow","Helvetica Neue Condensed",Arial,sans-serif;
+    text-transform:uppercase; font-size:.74rem; letter-spacing:.06em; color:var(--cf-accent);
+    margin:20px 0 8px; border-bottom:1px solid var(--cf-rule); padding-bottom:6px;
+  }
+  .case-file table{ width:100%; border-collapse:collapse; font-size:.85rem; }
+  .case-file th{ text-align:left; font-weight:600; font-size:.7rem; color:var(--cf-muted); text-transform:uppercase; letter-spacing:.03em; padding:0 12px 7px 0; }
+  .case-file td{ padding:9px 12px 9px 0; border-top:1px solid var(--cf-rule); vertical-align:top; }
+  .case-file td.cf-mono{ font-size:.82rem; }
+  .case-file tr.expandable{ cursor:pointer; }
+  .case-file tr.expandable:hover td{ background:rgba(122,75,30,.05); }
+  .case-file .detail-panel{ font-size:.85rem; color:var(--cf-ink); }
+  .case-file .detail-panel .src-links a{ color:var(--cf-accent); }
+  .case-file tr.detail-row td{ background:rgba(122,75,30,.04); border-top:1px solid var(--cf-rule); }
+  .case-file .cf-status-open{ color:var(--cf-bad); font-weight:600; }
+  .case-file .cf-status-closed{ color:var(--cf-good); font-weight:600; }
+
+  /* Plain-English hover terms. Dotted underline signals it's inspectable; cursor:help
+     plus a visible focus ring keeps it usable without a mouse. */
+  .case-file .cf-term{ border-bottom:1px dotted var(--cf-accent); cursor:help; }
+  .case-file .cf-term:hover, .case-file .cf-term:focus-visible{ background:rgba(122,75,30,.08); }
+  .case-file .cf-term:focus-visible{ outline:2px solid var(--cf-accent); outline-offset:2px; border-radius:2px; }
+  .cf-tip{
+    position:fixed; max-width:280px; background:var(--cf-panel); color:var(--cf-ink);
+    border:1px solid var(--cf-rule); border-radius:3px; padding:11px 13px;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+    font-size:.8rem; line-height:1.55; box-shadow:0 6px 20px rgba(33,31,26,.18);
+    opacity:0; pointer-events:none; transition:opacity .1s ease; z-index:80;
+  }
+  .cf-tip::before{
+    content:"Plain English"; display:block; font-family:"Archivo Narrow","Arial Narrow",sans-serif;
+    text-transform:uppercase; letter-spacing:.06em; font-size:.62rem; color:var(--cf-accent); margin-bottom:4px;
+  }
+  .cf-tip::after{
+    content:""; position:absolute; bottom:-6px; left:18px; width:0; height:0;
+    border:6px solid transparent; border-top-color:var(--cf-panel);
+  }
+  .cf-tip.show{ opacity:1; }
+  @media (max-width:640px){
+    .case-file .cf-toprow{ flex-direction:column; }
+  }
+
   #results{display:none;}
   /* Multi-column (not grid) so cards keep their own natural height — a grid's row
      height matches its tallest cell, which left ugly gaps next to short cards
@@ -499,6 +589,139 @@
     return 'F';
   }
 
+  // ========== "Plain English" hover explanations (Case File design) ==========
+  // These back the hover/focus tooltips on the Violations and DOB Complaints
+  // sections. Every function returns a string, never renders HTML directly —
+  // callers esc() the result same as any other user-facing text.
+
+  function explainViolationClass(cls){
+    switch(cls){
+      case 'A': return 'Class A — non-hazardous. Cosmetic or minor issues, like peeling paint on a non-lead surface or a loose tile. The owner has up to 90 days to fix it.';
+      case 'B': return 'Class B — hazardous. More serious than Class A: things like a missing smoke detector or inadequate lighting in a hallway. The owner has 30 days to fix it.';
+      case 'C': return 'Class C — immediately hazardous. The most serious tier: no heat or hot water, pests, lead paint, no gas. Depending on the issue, the owner must fix it within 24 hours to 21 days.';
+      default: return 'This violation doesn’t carry a hazard class — usually an administrative or paperwork issue (like a missing filing) rather than a physical condition in the building.';
+    }
+  }
+
+  function explainViolationStatus(status){
+    const s = (status || '').toLowerCase();
+    if(s.includes('open')) return 'Still open on HPD’s books — as far as the public record shows, this hasn’t been resolved yet.';
+    if(s.includes('dismiss')) return 'HPD closed this without penalty — usually because an inspector couldn’t confirm the issue, the owner successfully contested it, or it was issued in error.';
+    if(s.includes('certif')) return 'The owner filed paperwork certifying the problem was fixed. HPD doesn’t always re-inspect to confirm — it’s the owner’s word on file, not a guaranteed re-inspection.';
+    if(s.includes('clos') || s.includes('compl')) return 'Marked closed in HPD’s system. Exact reason varies by violation — see the raw record for full detail.';
+    return `HPD status on file: “${status || 'unknown'}.”`;
+  }
+
+  // Keyword-matched plain-English gloss for the free-text violation description
+  // (novdescription). HPD's own wording is technically English but written in dense
+  // statute-citation style. We only translate patterns we're confident about — the
+  // fallback is honest about not knowing rather than guessing at a specific cause.
+  const VIOLATION_DESC_PATTERNS = [
+    [[/LEAD/i, /PAINT/i], 'Lead paint hazard — a legally required protection, especially where young children live. Landlords of pre-1960 buildings must test and remediate peeling paint.'],
+    [[/SMOKE\s*DETECT/i], 'Missing or non-working smoke detector.'],
+    [[/CARBON MONOXIDE/i], 'Missing or non-working carbon monoxide detector.'],
+    [[/HOT WATER/i], 'No hot water — legally required to be at least 120°F, year-round.'],
+    [[/\bHEAT\b/i], 'No heat during the legally required heating season (Oct 1–May 31).'],
+    [[/MOLD/i], 'Mold reported — often tied to an unaddressed leak elsewhere in the building.'],
+    [[/ROACH|MICE|\bRAT|VERMIN|INFESTAT|PEST/i], 'Pest infestation (rodents or insects).'],
+    [[/BED\s*BUG/i], 'Bedbugs reported.'],
+    [[/WINDOW GUARD/i], 'Missing required window guards — a child-safety requirement in buildings where children 10 or younger live.'],
+    [[/REGISTRATION STATEMENT/i], 'Paperwork violation — the owner’s required annual filing naming who owns/manages the building was missing or expired. Not about physical conditions.'],
+    [[/ELEVATOR/i], 'Elevator condition or maintenance issue.'],
+    [[/\bGAS\b/i], 'Gas line or appliance issue — treated seriously given the safety risk.'],
+    [[/ELECTRIC/i], 'Electrical wiring or fixture issue.'],
+    [[/PLASTER|CEILING|WALL/i], 'Wall, ceiling, or plaster condition — cracking, peeling, or water damage.'],
+    [[/WATER DAMAGE|LEAK/i], 'Water leak or water damage reported.'],
+    [[/FLOOR/i], 'Flooring condition issue.'],
+    [[/DOOR|LOCK/i], 'Door or lock condition/security issue.']
+  ];
+  function explainViolationDescription(desc, cls){
+    const text = desc || '';
+    for(const [tests, explanation] of VIOLATION_DESC_PATTERNS){
+      if(tests.every(re => re.test(text))) return explanation;
+    }
+    // Honest fallback: don't guess at a cause we didn't pattern-match.
+    return `HPD’s exact wording is shown at left. ${explainViolationClass(cls)}`;
+  }
+
+  // Renter-oriented gloss for the most commonly seen DOB complaint codes — not
+  // exhaustive (DOB has ~150 codes). Falls back to the existing plain-language
+  // label from DOB_COMPLAINT_CATEGORIES plus a note on how DOB complaints work.
+  const DOB_COMPLAINT_EXPLANATIONS = {
+    '73':'A complaint that the building’s exterior, roof, or structure isn’t being kept up — think crumbling façade or deferred repairs, not conditions inside a unit.',
+    '28':'Someone reported a structural safety concern serious enough to flag possible collapse risk. DOB inspects and closes complaints that turn out unfounded, so “received” isn’t the same as “confirmed.”',
+    '05':'Construction, alteration, or demolition work was reported happening without the permit the city requires for that kind of work.',
+    '11':'Demolition work reported happening without a permit.',
+    '53':'A vent or exhaust system (kitchen, bathroom, boiler) was reported as installed incorrectly or without the required permit.',
+    '04':'Construction or repair work reported happening outside the hours the city allows without a special after-hours permit — usually a noise complaint, not a safety one.',
+    '31':'The space may be used in a way that doesn’t match what the building’s certificate of occupancy allows — e.g. commercial space used residentially, or more units than permitted.',
+    '32':'The building isn’t being used in the way its certificate of occupancy specifies.',
+    '48':'A unit or space is reportedly being used residentially without the required approval.',
+    '45':'A space was reportedly converted to a use (e.g. more units, a different occupancy type) without the required approval.',
+    '37':'An exit is reported blocked, locked, or otherwise not usable — a fire-safety concern.',
+    '39':'The building reportedly lacks a required second way out in case of fire.',
+    '52':'The building’s sprinkler system was reported as inadequate for its size or use.',
+    '62':'An elevator was reported in a dangerous condition or with an open shaft — treated as urgent.',
+    '63':'An elevator was reported broken or out of service.',
+    '65':'A gas line or hookup was reported illegal or defective — treated seriously given the safety risk.',
+    '56':'A boiler was reported producing fumes, smoke, or carbon monoxide — treated as urgent.',
+    '58':'A boiler was reported defective or operating without the required permit.',
+    '84':'The building’s façade was reported cracking or deteriorating.',
+    '94':'Plumbing was reported defective, leaking, or not maintained.',
+    '10':'Debris or part of the building was reported at risk of falling.',
+    '40':'Part of the building was reported actively falling.',
+    '41':'Part of the building was reported at risk of falling.',
+    '29':'The building was reported vacant and unsecured — open to trespass or hazard.',
+    '77':'The building was reported not accessible to people with disabilities, as required by law.',
+    '1A':'Commercial space was reportedly converted to residential units without the required approval.',
+    '4A':'The building was reported operating illegal hotel-style short-term rentals in a residential building.'
+  };
+  function explainDobComplaint(code, plainLabel){
+    const specific = DOB_COMPLAINT_EXPLANATIONS[code];
+    if(specific) return specific;
+    const label = plainLabel || 'this category';
+    return `Filed with DOB as “${label}.” DOB inspects and closes complaints that turn out unfounded, so a complaint on file isn’t proof of a real problem — check the status and inspection date.`;
+  }
+  function explainDobStatus(status){
+    return isClosed(status)
+      ? 'DOB marked this complaint closed. That can mean the issue was fixed, or that an inspector found nothing to act on — see the disposition in the row detail for which.'
+      : 'Still open on DOB’s books — as far as the public record shows, this hasn’t been inspected or resolved yet.';
+  }
+
+  // One tooltip element per case-file card, appended INSIDE .case-file-card so it
+  // inherits that card's --cf-* custom properties (they don't exist outside that
+  // subtree — appending elsewhere leaves the tooltip transparent/invisible, a bug
+  // this exact pattern hit once already). position:fixed still places it relative
+  // to the viewport regardless of DOM nesting, so this only affects which tokens
+  // it can see, not where it visually lands.
+  function mountCaseFileTooltips(cardEl){
+    if(!cardEl || cardEl.querySelector('.cf-tip')) return; // already mounted
+    const tip = document.createElement('div');
+    tip.className = 'cf-tip';
+    tip.setAttribute('role', 'tooltip');
+    cardEl.appendChild(tip);
+
+    function place(el){
+      const r = el.getBoundingClientRect();
+      tip.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 296)) + 'px';
+      tip.style.top = (r.top - 8) + 'px';
+      tip.style.transform = 'translateY(-100%)';
+    }
+    function show(el){
+      tip.textContent = el.dataset.explain || '';
+      place(el);
+      tip.classList.add('show');
+    }
+    function hide(){ tip.classList.remove('show'); }
+
+    // Delegate from the card root so terms added later (e.g. after a year-filter
+    // re-render) are picked up without re-binding listeners.
+    cardEl.addEventListener('mouseover', e => { const t = e.target.closest('.cf-term'); if(t) show(t); });
+    cardEl.addEventListener('mouseout', e => { const t = e.target.closest('.cf-term'); if(t) hide(); });
+    cardEl.addEventListener('focusin', e => { const t = e.target.closest('.cf-term'); if(t) show(t); });
+    cardEl.addEventListener('focusout', e => { const t = e.target.closest('.cf-term'); if(t) hide(); });
+  }
+
   const STREET_TYPE_MAP = {
     AVE:'AVENUE', BLVD:'BOULEVARD', RD:'ROAD', DR:'DRIVE', PL:'PLACE', LN:'LANE',
     CT:'COURT', PKWY:'PARKWAY', SQ:'SQUARE', EXPY:'EXPRESSWAY', HWY:'HIGHWAY',
@@ -718,86 +941,88 @@
     return statsHtml + noteHtml + body;
   }
 
+  // Plain-English summary paragraph — regenerated from whatever row set is
+  // currently in view (full history or year-filtered), never hand-written per
+  // building.
+  function buildViolationsSummary(rows){
+    const total = rows.length;
+    const open = rows.filter(r=>r.violationstatus==='Open');
+    const classC = rows.filter(r=>r.class==='C');
+    const years = rows.map(r=>getYear(r.novissueddate||r.inspectiondate)).filter(Boolean);
+    const earliest = years.length ? Math.min(...years) : null;
+    let s = `This building has <b>${total}</b> recorded violation${total===1?'':'s'}${earliest ? ` since ${earliest}` : ''}. `;
+    if(open.length === 0){
+      s += `<b>None are currently open</b> — every one on file has been closed, dismissed, or certified corrected.`;
+    } else {
+      s += `<b>${open.length}</b> ${open.length===1?'is':'are'} still <b>open</b>`;
+      s += classC.length ? `, including <b>${classC.length}</b> at the most serious tier (Class C).` : `, none at the most serious tier (Class C).`;
+    }
+    return s;
+  }
+
+  // Renders everything that changes when the year filter changes: grade seal,
+  // summary paragraph, and table. Called on first render and again (replacing
+  // #violationsCfDynamic in place) on every year-select change — the <select>
+  // itself is never destroyed, so its focus/scroll position survives.
+  function violationsCfDynamicHtml(filteredRows){
+    if(!filteredRows.length){
+      return `<p class="empty">No violations on file in this range.</p>`;
+    }
+    const grade = calculateGrade(filteredRows);
+    const tone = (grade==='A'||grade==='B') ? '' : (grade==='C' ? 'warn' : 'bad');
+    const open = filteredRows.filter(r=>r.violationstatus==='Open').length;
+    const classC = filteredRows.filter(r=>r.class==='C').length;
+    const sealExplain = `Grade reflects how many violations are on file, how many are open, and how severe they are. In this range: ${filteredRows.length} violation${filteredRows.length===1?'':'s'}, ${open} open, ${classC} at the most serious tier (Class C) — landing on a ${grade}.`;
+
+    const rowsHtml = filteredRows.slice(0,150).map(r => {
+      const cls = r.class || '—';
+      const isOpen = r.violationstatus === 'Open';
+      const statusText = r.currentstatus || r.violationstatus || '—';
+      const descRaw = r.novdescription || '';
+      return `<tr>
+        <td class="cf-mono">${fmtDate(r.novissueddate||r.inspectiondate)}</td>
+        <td><span class="cf-term" tabindex="0" data-explain="${esc(explainViolationClass(r.class))}">${esc(cls)}</span></td>
+        <td class="${isOpen ? 'cf-status-open' : 'cf-status-closed'}"><span class="cf-term" tabindex="0" data-explain="${esc(explainViolationStatus(r.violationstatus||r.currentstatus))}">${esc(statusText)}</span></td>
+        <td><span class="cf-term" tabindex="0" data-explain="${esc(explainViolationDescription(descRaw, r.class))}">${esc(descRaw).slice(0,200)}</span></td>
+      </tr>`;
+    }).join('');
+
+    const truncNote = filteredRows.length > 150
+      ? `<p class="hint">Showing the first 150 of ${filteredRows.length} — use the raw query link below for the rest.</p>` : '';
+
+    return `
+      <div class="cf-toprow">
+        <div class="cf-seal ${tone}" tabindex="0" data-explain="${esc(sealExplain)}">${grade}</div>
+      </div>
+      <p class="cf-summary">${buildViolationsSummary(filteredRows)}</p>
+      <h4>Violations on file</h4>
+      <div class="table-scroll"><table>
+        <thead><tr><th>Issued</th><th>Class</th><th>Status</th><th>Description</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table></div>
+      ${truncNote}
+    `;
+  }
+
   function renderViolations(rows){
     if(!rows.length) return `<p class="empty">No HPD housing code violations found for this address/borough combination.</p>`;
+    datasetRowsCache['violations'] = rows;
 
     const {min: minYear, max: maxYear} = getYearRange(rows);
-    const currentYear = new Date().getFullYear();
-    let selectedYear = minYear;
-
-    // Create year filter UI
     let yearOptions = '';
     for(let y = maxYear; y >= minYear; y--){
       yearOptions += `<option value="${y}"${y === minYear ? ' selected' : ''}>${y} onwards</option>`;
     }
+    const yearFilterHtml = maxYear > minYear ? `
+      <div class="cf-yearfield">
+        <label for="violationYearFilter">Show violations from</label>
+        <select id="violationYearFilter">${yearOptions}</select>
+      </div>` : '';
 
-    // Filter data by selected year (default: show all)
-    const filtered = rows.filter(r => {
-      const y = getYear(r.novissueddate||r.inspectiondate);
-      return y === null || y >= minYear;
-    });
-
-    const grade = calculateGrade(filtered);
-    const gradeColor = {A:'var(--good)',B:'var(--good)',C:'var(--warn)',D:'var(--bad)',F:'var(--bad)'}[grade];
-    const gradeExplain = {
-      A:'Excellent — very few or no violations',
-      B:'Good — minor violations, mostly resolved',
-      C:'Fair — some violations, may include open issues',
-      D:'Poor — multiple violations or several open issues',
-      F:'Critical — many violations or serious open issues'
-    }[grade];
-
-    let html = `
-      <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
-        <div>
-          <label for="violationYearFilter" style="display:inline-block; margin-right:8px; font-weight:600; font-size:0.82rem; color:var(--muted); text-transform:uppercase; letter-spacing:.03em;">Show violations from:</label>
-          <select id="violationYearFilter" style="width:140px; padding:8px 10px; border-radius:6px; border:1px solid var(--border); background:var(--panel2); color:var(--text); font-size:0.98rem; cursor:pointer;">
-            ${yearOptions}
-          </select>
-        </div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <div style="font-size:0.82rem; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-weight:600;">Building Grade:</div>
-          <div class="grade-badge grade-${grade}" style="color: ${gradeColor}; background:rgba(${grade==='A'||grade==='B'?'76,175,125,0.15':'230,185,92,0.15'}); border-color: ${gradeColor};">
-            <span class="letter" style="font-size:1.3rem;">${grade}</span>
-          </div>
-        </div>
-      </div>
-      <p class="grade-explain">${gradeExplain}</p>
-      <p class="hint">Class A = non-hazardous (e.g. paint/plaster). Class B = hazardous (e.g. no smoke detector). Class C = immediately hazardous (e.g. no heat/hot water, pests, lead paint) — the most serious.</p>
-    `;
-
-    const open = filtered.filter(r=>r.violationstatus==='Open').length;
-    const classCounts = {};
-    filtered.forEach(r=>{ classCounts[r.class||'?'] = (classCounts[r.class||'?']||0)+1; });
-
-    html += renderSection(filtered, {
-      emptyMsg:'No HPD housing code violations found for this address/borough combination.',
-      scope:'violations', noun:'violation', scrollTable:true,
-      stats:[
-        {n:filtered.length, label:'Total violations'},
-        {n:open, label:'Currently open', tone: open>0?'bad':'good', attr:'status', value:'Open'},
-        {n:classCounts.C||0, label:'Class C (most serious)', tone:(classCounts.C||0)>0?'bad':'', attr:'class', value:'C'},
-        {n:classCounts.B||0, label:'Class B', attr:'class', value:'B'},
-        {n:classCounts.A||0, label:'Class A', attr:'class', value:'A'}
-      ],
-      headers:['Issued','Class','Status','Description'],
-      rowFn: r => ({
-        attrs:{status:r.violationstatus, class:r.class},
-        cells:[
-          `<td>${fmtDate(r.novissueddate||r.inspectiondate)}</td>`,
-          `<td>${esc(r.class)}</td>`,
-          statusCell(r.violationstatus!=='Open', r.currentstatus||r.violationstatus),
-          `<td>${esc(r.novdescription||'').slice(0,220)}</td>`
-        ]
-      })
-    });
-
-    // Store rows in cache for event listener to access
-    datasetRowsCache['violations'] = rows;
-
-    // Return wrapper with min/max year for reference, rows now in cache
-    html = `<div class="violations-section" data-min-year="${minYear}" data-max-year="${maxYear}">${html}</div>`;
-    return html;
+    return `<div class="case-file">
+      ${yearFilterHtml}
+      <div id="violationsCfDynamic">${violationsCfDynamicHtml(rows)}</div>
+    </div>`;
   }
 
   function renderHpdComplaints(rows){
@@ -861,14 +1086,62 @@
     return dispositionCodesPromise;
   }
 
+  function buildDobSummary(rows){
+    const total = rows.length;
+    const open = rows.filter(r=>!isClosed(r.status));
+    const years = rows.map(r=>getYear(r.date_entered)).filter(Boolean);
+    const earliest = years.length ? Math.min(...years) : null;
+    let s = `This building has <b>${total}</b> recorded DOB complaint${total===1?'':'s'}${earliest ? ` since ${earliest}` : ''}. `;
+    s += open.length === 0
+      ? `<b>All are marked closed</b> in DOB's system.`
+      : `<b>${open.length}</b> ${open.length===1?'is':'are'} still <b>open</b>.`;
+    return s;
+  }
+
+  // Renders everything that changes when the year filter changes. Also keeps
+  // dobComplaintRows in sync with exactly what's on screen — toggleDobDetail
+  // indexes into that array by the clicked row's data-idx, so as long as the
+  // array we set here matches the rows we just rendered (same order, same
+  // subset), the click-to-expand lookup stays correct without any separate
+  // show/hide-by-CSS bookkeeping.
+  function dobComplaintsCfDynamicHtml(filteredRows){
+    if(!filteredRows.length){
+      return `<p class="empty">No DOB complaints on file in this range.</p>`;
+    }
+    dobComplaintRows = filteredRows;
+
+    const rowsHtml = filteredRows.slice(0,150).map((r,i) => {
+      const closed = isClosed(r.status);
+      const plainCategory = DOB_COMPLAINT_CATEGORIES[r.complaint_category];
+      const categoryLabel = `${r.complaint_category || '—'}${plainCategory ? ' — ' + plainCategory : ''}`;
+      return `<tr class="expandable" data-idx="${i}">
+        <td style="color:var(--cf-muted);">▸</td>
+        <td class="cf-mono">${fmtDate(r.date_entered)}</td>
+        <td><span class="cf-term" tabindex="0" data-explain="${esc(explainDobComplaint(r.complaint_category, plainCategory))}">${esc(categoryLabel)}</span></td>
+        <td class="${closed ? 'cf-status-closed' : 'cf-status-open'}"><span class="cf-term" tabindex="0" data-explain="${esc(explainDobStatus(r.status))}">${esc(r.status || '—')}</span></td>
+      </tr>`;
+    }).join('');
+
+    const truncNote = filteredRows.length > 150
+      ? `<p class="hint">Showing the first 150 of ${filteredRows.length} — use the raw query link below for the rest.</p>` : '';
+
+    return `
+      <p class="cf-summary">${buildDobSummary(filteredRows)}</p>
+      <h4>DOB complaints on file</h4>
+      <p class="hint" style="margin-top:-4px;">Click a row for the full complaint detail.</p>
+      <div class="table-scroll"><table>
+        <thead><tr><th></th><th>Entered</th><th>Category</th><th>Status</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table></div>
+      ${truncNote}
+    `;
+  }
+
   // Bespoke (not renderSection) because rows are click-to-expand and need the decoded
   // category inline — see toggleDobDetail/dobDetailRowHtml below.
   function renderDobComplaints(rows){
     if(!rows.length) return '<p class="empty">No DOB building complaints found. Note: this dataset has no borough field, so double-check the source link if the street name is common.</p>';
-    // dobComplaintRows stays the FULL unfiltered array — toggleDobDetail indexes into it
-    // by the row's original position, so the year filter below only hides <tr>s, it never
-    // re-renders or re-indexes the table.
-    dobComplaintRows = rows;
+    datasetRowsCache['dobComplaints'] = rows;
 
     const {min: minYear, max: maxYear} = getYearRange2(rows, 'date_entered');
     let yearOptions = '';
@@ -876,37 +1149,26 @@
       yearOptions += `<option value="${y}"${y === minYear ? ' selected' : ''}>${y} onwards</option>`;
     }
     const yearFilterHtml = maxYear > minYear ? `
-      <div style="margin-bottom:12px;">
-        <label for="dobYearFilter" style="display:inline-block; margin-right:8px; font-weight:600; font-size:0.82rem; color:var(--muted); text-transform:uppercase; letter-spacing:.03em;">Show complaints from:</label>
-        <select id="dobYearFilter" style="width:140px; padding:8px 10px; border-radius:6px; border:1px solid var(--border); background:var(--panel2); color:var(--text); font-size:0.98rem; cursor:pointer;">
-          ${yearOptions}
-        </select>
+      <div class="cf-yearfield">
+        <label for="dobYearFilter">Show complaints from</label>
+        <select id="dobYearFilter">${yearOptions}</select>
       </div>` : '';
 
-    const open = rows.filter(r=>!isClosed(r.status)).length;
-    let html = yearFilterHtml;
-    html += `<div class="summary-grid">${statCard(rows.length,'Total complaints','',{scope:'dobComplaints'})}${statCard(open,'Open / non-closed', open>0?'warn':'good', {scope:'dobComplaints',attr:'open',value:'yes'})}</div>`;
-    html += `<details><summary>Show ${rows.length} individual complaint${rows.length===1?'':'s'}</summary>
-      <p class="hint">Click a row for the full complaint detail.</p>
-      <div class="table-scroll"><table><thead><tr><th></th><th>Entered</th><th>Category</th><th>Status</th></tr></thead><tbody>`;
-    rows.slice(0,150).forEach((r,i)=>{
-      const closed = isClosed(r.status);
-      const plainCategory = DOB_COMPLAINT_CATEGORIES[r.complaint_category];
-      html += `<tr class="expandable" data-open="${closed?'no':'yes'}" data-idx="${i}"><td class="muted">▸</td><td>${esc(r.date_entered)}</td>
-        <td>${esc(r.complaint_category)}${plainCategory ? ' — '+esc(plainCategory) : ''}</td>
-        ${statusCell(closed, r.status)}</tr>`;
-    });
-    html += `</tbody></table></div></details>`;
-    return `<div class="dob-complaints-section">${html}</div>`;
+    return `<div class="case-file">
+      ${yearFilterHtml}
+      <div id="dobCfDynamic">${dobComplaintsCfDynamicHtml(rows)}</div>
+    </div>`;
   }
 
   function dobDetailRowHtml(r, dispositionMeaning){
     const disposition = r.disposition_code
       ? `${esc(r.disposition_code)}${dispositionMeaning ? ' — ' + esc(dispositionMeaning) : ''} (${fmtDate(r.disposition_date)})`
       : '—';
+    const plainCategory = DOB_COMPLAINT_CATEGORIES[r.complaint_category];
     const rawQueryUrl = `https://data.cityofnewyork.us/resource/eabe-havv.json?complaint_number=${encodeURIComponent(r.complaint_number||'')}`;
     return `<tr class="detail-row"><td colspan="4"><div class="detail-panel">
-      <div><strong>Complaint #</strong> ${esc(r.complaint_number||'—')} &nbsp; <strong>Unit</strong> ${esc(r.unit||'—')} &nbsp; <strong>BIN</strong> ${esc(r.bin||'—')} &nbsp; <strong>Community board</strong> ${esc(r.community_board||'—')}</div>
+      <div>${esc(explainDobComplaint(r.complaint_category, plainCategory))}</div>
+      <div style="margin-top:8px;"><strong>Complaint #</strong> ${esc(r.complaint_number||'—')} &nbsp; <strong>Unit</strong> ${esc(r.unit||'—')} &nbsp; <strong>BIN</strong> ${esc(r.bin||'—')} &nbsp; <strong>Community board</strong> ${esc(r.community_board||'—')}</div>
       <div style="margin-top:4px;"><strong>Inspected</strong> ${fmtDate(r.inspection_date)} &nbsp; <strong>Disposition</strong> ${disposition}</div>
       <div class="src-links">
         <a href="${rawQueryUrl}" target="_blank" rel="noopener">🔗 View this complaint's raw record (JSON) ↗</a>
@@ -1468,11 +1730,17 @@
         <div class="section-title"><h2>🏷️ Tax Exemptions &amp; Rent Stabilization</h2><span class="badge">DOF</span></div>
         <div class="body">${loadingBlock('tax exemption records')}</div>
       </div>
-      ${DATASETS.map(ds => `
-        <div class="card" id="sec-${ds.key}">
-          <div class="section-title"><h2>${ds.icon} ${esc(ds.label)}</h2><span class="badge">${esc(ds.agency)}</span></div>
-          <div class="body">${loadingBlock(ds.label)}</div>
-        </div>`).join('')}
+      ${DATASETS.map(ds => {
+        // Violations + DOB Complaints get the "Case File" treatment: a doc-style
+        // head (serif title, no emoji, tracked source tag) instead of the emoji
+        // header the rest of the report still uses — see design review.
+        const isCaseFile = ds.key === 'violations' || ds.key === 'dobComplaints';
+        const cardClass = isCaseFile ? 'card case-file-card' : 'card';
+        const head = isCaseFile
+          ? `<div class="section-title cf-head"><h2>${esc(ds.label)}</h2><span class="badge">${esc(ds.agency)} source</span></div>`
+          : `<div class="section-title"><h2>${ds.icon} ${esc(ds.label)}</h2><span class="badge">${esc(ds.agency)}</span></div>`;
+        return `<div class="${cardClass}" id="sec-${ds.key}">${head}<div class="body">${loadingBlock(ds.label)}</div></div>`;
+      }).join('')}
       <div class="card" id="sec-contacts">
         <div class="section-title"><h2>🧾 Registered Owner / Managing Agent</h2><span class="badge">HPD</span></div>
         <div class="body"><p class="empty">Waiting for registration lookup…</p></div>
@@ -1501,126 +1769,46 @@
       }
     }));
 
-    // Set up year filter event listener for violations (using cached rows, not DOM attributes)
-    const yearFilter = document.getElementById('violationYearFilter');
-    if(yearFilter && datasetRowsCache['violations']){
-      const allRows = datasetRowsCache['violations'];
-      const violationsSection = document.querySelector('.violations-section');
-
-      yearFilter.addEventListener('change', (e) => {
-        if(!violationsSection) return; // Guard against missing section
-
+    // Case File year filters: on change, replace only the "dynamic" zone inside
+    // each card — the <select> itself is never destroyed, so its scroll position
+    // and focus state survive. Filtering always re-derives from the full cached
+    // row set (datasetRowsCache), never from whatever's currently on screen, so
+    // switching from "2020 onward" back to "2015 onward" correctly brings the
+    // earlier rows back rather than staying stuck with what's already filtered.
+    const violationYearFilter = document.getElementById('violationYearFilter');
+    if(violationYearFilter){
+      violationYearFilter.addEventListener('change', (e) => {
         const selectedYear = parseInt(e.target.value);
-        if(isNaN(selectedYear)) return; // Guard against invalid year
-
-        // Filter violations by selected year
+        if(isNaN(selectedYear)) return;
+        const allRows = datasetRowsCache['violations'] || [];
         const filtered = allRows.filter(r => {
           const y = getYear(r.novissueddate||r.inspectiondate);
           return y === null || y >= selectedYear;
         });
-
-        // Calculate grade for filtered violations
-        const grade = calculateGrade(filtered);
-        const gradeColor = {A:'var(--good)',B:'var(--good)',C:'var(--warn)',D:'var(--bad)',F:'var(--bad)'}[grade];
-        const gradeExplain = {
-          A:'Excellent — very few or no violations',
-          B:'Good — minor violations, mostly resolved',
-          C:'Fair — some violations, may include open issues',
-          D:'Poor — multiple violations or several open issues',
-          F:'Critical — many violations or serious open issues'
-        }[grade] || 'Unknown';
-
-        // Update grade badge
-        const gradeBadge = violationsSection.querySelector('.grade-badge');
-        if(gradeBadge){
-          gradeBadge.className = `grade-badge grade-${grade}`;
-          gradeBadge.style.color = gradeColor;
-          gradeBadge.innerHTML = `<span class="letter" style="font-size:1.3rem;">${grade}</span>`;
-        }
-
-        // Update grade explanation
-        const gradeExplainEl = violationsSection.querySelector('.grade-explain');
-        if(gradeExplainEl) gradeExplainEl.textContent = gradeExplain;
-
-        // Calculate statistics for filtered results
-        const open = filtered.filter(r=>r.violationstatus==='Open').length;
-        const classCounts = {};
-        filtered.forEach(r=>{ classCounts[r.class||'?'] = (classCounts[r.class||'?']||0)+1; });
-
-        // Update stats cards
-        const stats = violationsSection.querySelectorAll('.stat');
-        if(stats.length >= 5){
-          const updateStatCard = (idx, value, newTone = null) => {
-            const stat = stats[idx];
-            const numEl = stat.querySelector('.n');
-            if(numEl) numEl.textContent = value;
-            if(newTone !== null){
-              stat.className = `stat ${newTone} clickable`;
-            }
-          };
-
-          updateStatCard(0, filtered.length);
-          updateStatCard(1, open, open>0?'bad':'good');
-          updateStatCard(2, classCounts.C||0, (classCounts.C||0)>0?'bad':'');
-          updateStatCard(3, classCounts.B||0);
-          updateStatCard(4, classCounts.A||0);
-        }
-
-        // Update table rows visibility based on year filter
-        const tableRows = violationsSection.querySelectorAll('tbody tr');
-        tableRows.forEach(row => {
-          const dateCell = row.querySelector('td:first-child');
-          if(dateCell){
-            const dateText = dateCell.textContent.trim();
-            // Extract year from formatted date (e.g., "Jan 15, 2005" -> 2005)
-            const match = dateText.match(/(\d{4})$/);
-            const rowYear = match ? parseInt(match[1]) : null;
-            row.style.display = (rowYear !== null && rowYear >= selectedYear) ? '' : 'none';
-          }
-        });
+        const dynamic = document.getElementById('violationsCfDynamic');
+        if(dynamic) dynamic.innerHTML = violationsCfDynamicHtml(filtered);
       });
     }
-
-    // Set up year filter event listener for DOB Building Complaints (mirrors the
-    // violations filter above, but keyed off date_entered and dobComplaintRows).
     const dobYearFilter = document.getElementById('dobYearFilter');
     if(dobYearFilter){
-      const dobSection = document.querySelector('.dob-complaints-section');
       dobYearFilter.addEventListener('change', (e) => {
-        if(!dobSection) return;
         const selectedYear = parseInt(e.target.value);
         if(isNaN(selectedYear)) return;
-
-        // Collapse any open detail row — its parent may be about to hide.
-        dobSection.querySelectorAll('tr.detail-row').forEach(tr => tr.remove());
-        dobSection.querySelectorAll('tr.expandable.open').forEach(tr => tr.classList.remove('open'));
-
-        const filtered = dobComplaintRows.filter(r => {
+        const allRows = datasetRowsCache['dobComplaints'] || [];
+        const filtered = allRows.filter(r => {
           const y = getYear(r.date_entered);
           return y === null || y >= selectedYear;
         });
-        const open = filtered.filter(r=>!isClosed(r.status)).length;
-
-        const stats = dobSection.querySelectorAll('.stat');
-        if(stats.length >= 2){
-          const totalNumEl = stats[0].querySelector('.n');
-          if(totalNumEl) totalNumEl.textContent = filtered.length;
-          const openNumEl = stats[1].querySelector('.n');
-          if(openNumEl) openNumEl.textContent = open;
-          stats[1].className = `stat ${open>0?'warn':'good'} clickable`;
-        }
-
-        const tableRows = dobSection.querySelectorAll('tbody tr.expandable');
-        tableRows.forEach(row => {
-          const dateCell = row.querySelector('td:nth-child(2)');
-          if(dateCell){
-            const match = dateCell.textContent.trim().match(/(\d{4})$/);
-            const rowYear = match ? parseInt(match[1]) : null;
-            row.style.display = (rowYear !== null && rowYear >= selectedYear) ? '' : 'none';
-          }
-        });
+        const dynamic = document.getElementById('dobCfDynamic');
+        if(dynamic) dynamic.innerHTML = dobComplaintsCfDynamicHtml(filtered);
       });
     }
+
+    // Mount plain-English hover tooltips once per case-file card. Listeners are
+    // delegated from the card root, so they keep working after a year-filter
+    // change swaps the table markup beneath them — no re-binding needed.
+    mountCaseFileTooltips(document.getElementById('sec-violations'));
+    mountCaseFileTooltips(document.getElementById('sec-dobComplaints'));
 
     document.querySelector('#sec-redflags .body').innerHTML =
       renderRedFlags(computeRedFlags(resultsByKey), daysOnMarket);
