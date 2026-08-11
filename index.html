@@ -235,6 +235,80 @@
     .case-file .cf-toprow{ flex-direction:column; }
   }
 
+  /* ---------- Renter Tools: calculator, lease scanner, checklist, rights ---------- */
+  .calc-result{margin-top:18px;}
+  .calc-total{
+    background:var(--panel2); border:1px solid var(--border); border-radius:10px;
+    padding:16px 18px; margin-bottom:14px;
+  }
+  .calc-total .n{font-size:1.7rem; font-weight:700; font-variant-numeric:tabular-nums;}
+  .calc-total .l{font-size:0.8rem; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; margin-top:2px;}
+  .calc-line{display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--border); font-size:0.92rem;}
+  .calc-line:last-child{border-bottom:none;}
+  .calc-line .amt{font-variant-numeric:tabular-nums; font-weight:600;}
+  .calc-ratio{
+    display:inline-flex; align-items:center; gap:8px; padding:8px 14px; border-radius:999px;
+    font-weight:700; font-size:0.95rem; margin-top:4px; border:1px solid;
+  }
+  .calc-ratio.good{background:rgba(76,175,125,0.12); color:var(--good); border-color:var(--good);}
+  .calc-ratio.warn{background:rgba(230,185,92,0.12); color:var(--warn); border-color:var(--warn);}
+  .calc-ratio.bad{background:rgba(226,104,95,0.12); color:var(--bad); border-color:var(--bad);}
+  .calc-flag{
+    display:flex; gap:10px; padding:10px 12px; border-radius:8px; background:rgba(226,104,95,0.08);
+    border:1px solid var(--bad); margin-top:8px; font-size:0.88rem;
+  }
+  .calc-flag .ico{flex:none;}
+
+  .lease-flag{
+    padding:12px 14px; border-radius:8px; margin-bottom:10px; border:1px solid;
+  }
+  .lease-flag.high{background:rgba(226,104,95,0.08); border-color:var(--bad);}
+  .lease-flag.medium{background:rgba(230,185,92,0.08); border-color:var(--warn);}
+  .lease-flag .lf-title{font-weight:700; font-size:0.92rem; margin-bottom:4px; display:flex; align-items:center; gap:8px;}
+  .lease-flag .lf-sev{font-size:0.68rem; text-transform:uppercase; letter-spacing:.04em; padding:2px 8px; border-radius:999px;}
+  .lease-flag.high .lf-sev{background:var(--bad); color:#fff;}
+  .lease-flag.medium .lf-sev{background:var(--warn); color:#1b1500;}
+  .lease-flag .lf-body{font-size:0.86rem; color:var(--text); line-height:1.5;}
+  .lease-flag .lf-quote{
+    font-family:ui-monospace,"SF Mono","Roboto Mono",monospace; font-size:0.8rem; color:var(--muted);
+    background:var(--panel2); border-radius:6px; padding:6px 9px; margin-top:6px; display:block;
+    white-space:pre-wrap; word-break:break-word;
+  }
+
+  ul.checklist{list-style:none; margin:8px 0 0; padding:0; display:flex; flex-direction:column; gap:2px;}
+  ul.checklist li{
+    display:flex; align-items:flex-start; gap:10px; padding:10px 4px; border-bottom:1px solid var(--border); font-size:0.92rem;
+  }
+  ul.checklist li:last-child{border-bottom:none;}
+  ul.checklist input[type=checkbox]{margin-top:3px; flex:none; width:16px; height:16px; accent-color:var(--accent); cursor:pointer;}
+  ul.checklist .ci-title{font-weight:600;}
+  ul.checklist .ci-note{color:var(--muted); font-size:0.85rem; margin-top:2px;}
+  ul.checklist li.checked .ci-title{text-decoration:line-through; color:var(--muted);}
+
+  .rights-item{border-bottom:1px solid var(--border);}
+  .rights-item:last-child{border-bottom:none;}
+  .rights-item summary{
+    padding:12px 4px; font-weight:600; color:var(--text); font-size:0.95rem; list-style:none;
+    display:flex; justify-content:space-between; align-items:center; cursor:pointer;
+  }
+  .rights-item summary::-webkit-details-marker{display:none;}
+  .rights-item summary::after{content:"+"; font-size:1.2rem; color:var(--muted); font-weight:400;}
+  .rights-item[open] summary::after{content:"−";}
+  .rights-item .ri-body{padding:0 4px 14px; font-size:0.9rem; color:var(--muted); line-height:1.6;}
+  .rights-item .ri-body a{color:var(--link);}
+
+  .cmp-table-wrap{overflow-x:auto; margin-top:4px;}
+  table.cmp-table{width:100%; border-collapse:collapse; font-size:0.88rem;}
+  table.cmp-table th{text-align:left; padding:8px 10px; color:var(--muted); font-weight:600; font-size:0.74rem; text-transform:uppercase; letter-spacing:.03em; border-bottom:2px solid var(--border); white-space:nowrap;}
+  table.cmp-table td{padding:10px; border-bottom:1px solid var(--border); vertical-align:middle; white-space:nowrap;}
+  table.cmp-table tr:last-child td{border-bottom:none;}
+  table.cmp-table .cmp-addr{white-space:normal; min-width:180px; font-weight:600;}
+  table.cmp-table input.cmp-rent{
+    width:90px; padding:5px 7px; border-radius:6px; border:1px solid var(--border); background:var(--panel2); color:var(--text); font-size:0.85rem;
+  }
+  table.cmp-table .cmp-actions{display:flex; gap:6px;}
+  table.cmp-table .cmp-actions button{padding:5px 9px; font-size:0.78rem;}
+
   #results{display:none;}
   /* Multi-column (not grid) so cards keep their own natural height — a grid's row
      height matches its tallest cell, which left ugly gaps next to short cards
@@ -264,6 +338,7 @@
     <button class="tab-btn active" data-tab="check" role="tab" aria-selected="true">🔎 Check an Address</button>
     <button class="tab-btn" data-tab="explore" role="tab" aria-selected="false">🗺️ Explore a Neighborhood</button>
     <button class="tab-btn" data-tab="watchlist" role="tab" aria-selected="false">⭐ My Watchlist <span id="watchlistCount" class="tab-count"></span></button>
+    <button class="tab-btn" data-tab="tools" role="tab" aria-selected="false">🧰 Renter Tools</button>
   </div>
 
   <div id="tab-check" class="tab-panel active">
@@ -345,6 +420,77 @@
 
   <div id="tab-watchlist" class="tab-panel">
     <div id="watchlistContainer"></div>
+  </div>
+
+  <div id="tab-tools" class="tab-panel">
+    <div class="card">
+      <div class="section-title"><h2>💰 Upfront-Cost &amp; Affordability Calculator</h2></div>
+      <p class="hint">Estimates what you'd actually need on hand to move in, and whether the rent fits your budget. Nothing here is sent anywhere — it's calculated in your browser.</p>
+      <div class="row3" style="margin-top:14px;">
+        <div class="field">
+          <label for="calcRent">Monthly rent</label>
+          <input type="number" id="calcRent" min="0" placeholder="e.g. 2800">
+        </div>
+        <div class="field">
+          <label for="calcIncome">Your annual gross income (optional)</label>
+          <input type="number" id="calcIncome" min="0" placeholder="e.g. 90000">
+        </div>
+        <div class="field">
+          <label for="calcDeposit">Security deposit</label>
+          <input type="number" id="calcDeposit" min="0" placeholder="e.g. 2800">
+        </div>
+      </div>
+      <div class="row3" style="margin-top:14px;">
+        <div class="field">
+          <label for="calcBrokerFeeType">Broker fee</label>
+          <select id="calcBrokerFeeType">
+            <option value="none">No fee</option>
+            <option value="percent">% of annual rent</option>
+            <option value="flat">Flat dollar amount</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="calcBrokerFeeValue">Fee amount</label>
+          <input type="number" id="calcBrokerFeeValue" min="0" placeholder="e.g. 15 (for 15%) or 4000">
+        </div>
+        <div class="field">
+          <label for="calcAppFee"># of applicants paying an application fee</label>
+          <input type="number" id="calcAppFee" min="0" value="1">
+        </div>
+      </div>
+      <div class="actions">
+        <button id="calcRunBtn">💰 Calculate</button>
+      </div>
+      <div id="calcResult"></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title"><h2>📄 Lease Red-Flag Scanner</h2></div>
+      <p class="hint">Paste lease text below to scan for clauses worth double-checking. This is a keyword scanner, not a lawyer — it can miss things and can false-positive on boilerplate. Nothing you paste leaves your browser. For anything flagged, NYC has free tenant legal help (see Know Your Rights below).</p>
+      <div class="row" style="margin-top:10px;">
+        <div class="field">
+          <label for="leaseText">Lease text</label>
+          <textarea id="leaseText" rows="10" style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:var(--panel2); color:var(--text); font-size:0.92rem; font-family:inherit; resize:vertical;" placeholder="Paste as much of the lease as you have — even a section at a time works."></textarea>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="leaseScanBtn">📄 Scan lease</button>
+        <button class="secondary" id="leaseClearBtn" type="button">Clear</button>
+      </div>
+      <div id="leaseResult"></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title"><h2>✅ Application Document Checklist</h2></div>
+      <p class="hint">What NYC landlords typically ask for. Requirements vary by building — always confirm with the listing agent before your viewing.</p>
+      <ul id="docChecklist" class="checklist"></ul>
+    </div>
+
+    <div class="card">
+      <div class="section-title"><h2>⚖️ Know Your Rights (NYC renters)</h2></div>
+      <p class="hint">General education, not legal advice — laws change and every situation differs. For anything specific to your lease, use the free resources linked at the bottom.</p>
+      <div id="rightsAccordion"></div>
+    </div>
   </div>
 
   <footer>
@@ -2025,12 +2171,14 @@
     const rowsOf = key => (search.resultsByKey[key] && search.resultsByKey[key].rows) || [];
     const id = watchlistId(search.houseNumber, search.street, search.borough);
     const latestBedbug = rowsOf('bedbugs')[0];
+    const existing = loadWatchlist().find(x => x.id === id);
     const record = {
       id, houseNumber: search.houseNumber, street: search.street, borough: search.borough,
       grade: search.gradeInfo.grade, score: search.gradeInfo.score,
       openViolations: rowsOf('violations').filter(r => r.violationstatus === 'Open').length,
       evictions: rowsOf('evictions').length,
       bedbugs: !!(latestBedbug && Number(latestBedbug.infested_dwelling_unit_count) > 0),
+      rent: existing ? existing.rent : null, // preserve any rent the user already typed in, across a recheck
       savedAt: new Date().toISOString()
     };
     const list = loadWatchlist();
@@ -2042,31 +2190,53 @@
     persistWatchlist(loadWatchlist().filter(x => x.id !== id));
     renderWatchlistPanel();
   }
+  function updateWatchlistRent(id, rentValue){
+    const list = loadWatchlist();
+    const item = list.find(x => x.id === id);
+    if(!item) return;
+    const n = Number(rentValue);
+    item.rent = (rentValue === '' || isNaN(n)) ? null : n;
+    persistWatchlist(list); // silent — no re-render, so the input keeps focus while typing
+  }
+  // Comparison table so candidates can be judged side by side rather than scrolling
+  // through separate cards. Monthly rent is the one field with no public source —
+  // it's typed in here purely for the user's own comparison.
   function renderWatchlistPanel(){
     const list = loadWatchlist();
     if(!list.length){
       watchlistContainer.innerHTML = `<div class="card"><p class="empty">No saved addresses yet. Search an address in "Check an Address" and click "⭐ Save to Watchlist" to start comparing candidates.</p></div>`;
       return;
     }
+    const rentValues = list.map(i => i.rent).filter(r => r != null && r > 0);
+    const cheapestRent = rentValues.length ? Math.min(...rentValues) : null;
+
+    const rows = list.map(item => `
+      <tr>
+        <td class="cmp-addr">${esc(item.houseNumber)} ${esc(item.street)}, ${esc(BORO_NAMES[item.borough]||item.borough)}</td>
+        <td><span class="grade-badge grade-${item.grade}"><span class="letter">${item.grade}</span></span> ${item.score}/100</td>
+        <td class="${item.openViolations>0?'status-open':'status-closed'}">${item.openViolations}</td>
+        <td class="${item.evictions>0?'status-open':'status-closed'}">${item.evictions}</td>
+        <td>${item.bedbugs ? '🐛 Yes' : '✅ No'}</td>
+        <td>
+          <input type="number" class="cmp-rent" data-id="${esc(item.id)}" min="0" placeholder="$/mo" value="${item.rent != null ? item.rent : ''}">
+          ${item.rent != null && item.rent === cheapestRent && rentValues.length > 1 ? ' <span class="badge" style="color:var(--good); border-color:var(--good);">lowest</span>' : ''}
+        </td>
+        <td class="muted">${fmtDate(item.savedAt)}</td>
+        <td class="cmp-actions">
+          <button type="button" class="secondary recheck-btn" data-id="${esc(item.id)}" title="Recheck this address">🔄</button>
+          <button type="button" class="secondary remove-btn" data-id="${esc(item.id)}" title="Remove">🗑️</button>
+        </td>
+      </tr>`).join('');
+
     watchlistContainer.innerHTML = `<div class="card full">
       <div class="section-title"><h2>⭐ My Watchlist</h2><span class="badge">${list.length} saved</span></div>
-      ${list.map(item => `
-        <div class="watchlist-card">
-          <div>
-            <div class="addr">${esc(item.houseNumber)} ${esc(item.street)}, ${esc(BORO_NAMES[item.borough]||item.borough)}</div>
-            <div class="meta">
-              <span class="grade-badge grade-${item.grade}"><span class="letter">${item.grade}</span> ${item.score}/100</span>
-              <span>${item.openViolations} open violation${item.openViolations===1?'':'s'}</span>
-              <span>${item.evictions} eviction${item.evictions===1?'':'s'}</span>
-              <span>${item.bedbugs ? '🐛 Bedbugs reported' : '✅ No recent bedbugs'}</span>
-              <span>Saved ${fmtDate(item.savedAt)}</span>
-            </div>
-          </div>
-          <div class="watchlist-actions">
-            <button type="button" class="secondary recheck-btn" data-id="${esc(item.id)}">🔄 Recheck</button>
-            <button type="button" class="secondary remove-btn" data-id="${esc(item.id)}">🗑️ Remove</button>
-          </div>
-        </div>`).join('')}
+      <p class="hint">Compare candidates side by side. Add a monthly rent per address to compare cost too — it's just for your own reference, not pulled from any listing.</p>
+      <div class="cmp-table-wrap">
+        <table class="cmp-table">
+          <thead><tr><th>Address</th><th>Grade</th><th>Open violations</th><th>Evictions</th><th>Bedbugs</th><th>Monthly rent</th><th>Saved</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
     </div>`;
   }
   watchlistContainer.addEventListener('click', e => {
@@ -2083,7 +2253,209 @@
       runSearch();
     }
   });
+  watchlistContainer.addEventListener('change', e => {
+    const rentInput = e.target.closest('.cmp-rent');
+    if(rentInput) updateWatchlistRent(rentInput.dataset.id, rentInput.value);
+  });
   persistWatchlist(loadWatchlist()); // paint the (n) count on load without touching stored data
+
+  // ---------- Renter Tools: affordability calculator, lease scanner, checklist, rights ----------
+  function fmtMoney(n){
+    return '$' + Math.round(n).toLocaleString('en-US');
+  }
+
+  const calcRunBtn = document.getElementById('calcRunBtn');
+  const calcResultEl = document.getElementById('calcResult');
+  calcRunBtn.addEventListener('click', () => {
+    const rent = Number(document.getElementById('calcRent').value) || 0;
+    const income = Number(document.getElementById('calcIncome').value) || 0;
+    const deposit = document.getElementById('calcDeposit').value === ''
+      ? rent // NY law: security deposit can't exceed one month's rent, so default to a sane guess
+      : Number(document.getElementById('calcDeposit').value) || 0;
+    const feeType = document.getElementById('calcBrokerFeeType').value;
+    const feeValue = Number(document.getElementById('calcBrokerFeeValue').value) || 0;
+    const applicants = Math.max(1, Number(document.getElementById('calcAppFee').value) || 1);
+
+    if(rent <= 0){
+      calcResultEl.innerHTML = `<p class="err">Enter a monthly rent to calculate.</p>`;
+      return;
+    }
+
+    let brokerFee = 0;
+    if(feeType === 'percent') brokerFee = rent * 12 * (feeValue / 100);
+    else if(feeType === 'flat') brokerFee = feeValue;
+
+    const appFeeCapPerPerson = 20; // NYS caps most rental application fees at $20
+    const appFees = appFeeCapPerPerson * applicants;
+    const firstMonth = rent;
+    const total = firstMonth + deposit + brokerFee + appFees;
+
+    const flags = [];
+    if(deposit > rent){
+      flags.push(`This deposit (${fmtMoney(deposit)}) is more than one month's rent (${fmtMoney(rent)}). Under NY's Housing Stability and Tenant Protection Act of 2019, security deposits statewide are capped at one month's rent — worth confirming with the landlord.`);
+    }
+
+    let ratioHtml = '';
+    if(income > 0){
+      const ratio = (rent * 12) / income;
+      const pct = Math.round(ratio * 100);
+      const tone = ratio <= 0.30 ? 'good' : ratio <= 0.40 ? 'warn' : 'bad';
+      const label = ratio <= 0.30 ? 'Comfortable' : ratio <= 0.40 ? 'Tight' : 'Stretched';
+      ratioHtml = `<div class="calc-ratio ${tone}">${label} — rent is ${pct}% of gross income</div>
+        <p class="hint" style="margin-top:8px;">The common guideline is to keep rent at or under 30% of gross income. Many NYC landlords also require annual income of 40× the monthly rent (or a guarantor at ~80×) to approve an application — check the listing.</p>`;
+    }
+
+    calcResultEl.innerHTML = `
+      <div class="calc-total">
+        <div class="n">${fmtMoney(total)}</div>
+        <div class="l">Estimated total to move in</div>
+      </div>
+      <div class="calc-line"><span>First month's rent</span><span class="amt">${fmtMoney(firstMonth)}</span></div>
+      <div class="calc-line"><span>Security deposit</span><span class="amt">${fmtMoney(deposit)}</span></div>
+      <div class="calc-line"><span>Broker fee</span><span class="amt">${fmtMoney(brokerFee)}</span></div>
+      <div class="calc-line"><span>Application fee${applicants>1?` (${applicants} applicants × $${appFeeCapPerPerson})`:''}</span><span class="amt">${fmtMoney(appFees)}</span></div>
+      ${ratioHtml}
+      ${flags.map(f => `<div class="calc-flag"><span class="ico">⚠️</span><span>${esc(f)}</span></div>`).join('')}
+      <p class="hint" style="margin-top:12px;">Estimate only — actual move-in costs vary by building. Application fees above $20/applicant, deposits above one month's rent, or broker fees charged to you for a listing the landlord's own broker posted are all worth double-checking against current NYC/NY State tenant law.</p>
+    `;
+  });
+
+  const leaseScanBtn = document.getElementById('leaseScanBtn');
+  const leaseClearBtn = document.getElementById('leaseClearBtn');
+  const leaseTextEl = document.getElementById('leaseText');
+  const leaseResultEl = document.getElementById('leaseResult');
+
+  // [pattern(s) to match, severity, title, explanation] — keyword-matched, not exhaustive.
+  // Severity is "worth asking about" (medium) vs. "worth verifying against the law before
+  // signing" (high) — never a claim that the clause is definitely illegal or unenforceable.
+  const LEASE_FLAG_PATTERNS = [
+    { test:/non-?refundable/i, severity:'high', title:'"Non-refundable" fee or deposit',
+      explain:'Security deposits in NY must be refundable (minus lawful deductions) and returned within 14 days of move-out with an itemized list of any deductions. A fee labeled "non-refundable" may be an attempt to relabel part of the deposit — worth clarifying what this charge actually is.' },
+    { test:/waive[s]?\s+(the\s+)?(right|claim)/i, severity:'high', title:'Tenant "waives" a right',
+      explain:'Many tenant protections (habitability, retaliation protection, etc.) can\'t be legally waived by lease language, regardless of what the lease says. Worth confirming which right this refers to.' },
+    { test:/as-?is\s+condition|accepts?\s+the\s+(apartment|unit|premises)\s+as-?is/i, severity:'medium', title:'"As-is" condition clause',
+      explain:'Even with an "as-is" clause, landlords are still legally required to maintain a habitable apartment (the "warranty of habitability") — heat, hot water, working locks, no serious pest or safety issues.' },
+    { test:/change\s+the\s+locks|remove\s+(the\s+)?tenant.{0,20}belongings|self-?help\s+eviction/i, severity:'high', title:'Landlord may change locks / remove belongings',
+      explain:'"Self-help" evictions — changing locks, removing belongings, or shutting off utilities to force a tenant out without a court order — are illegal in NY regardless of lease terms. Evictions must go through housing court.' },
+    { test:/credit\s+(check|report)\s+fee|application\s+fee/i, severity:'medium', title:'Application / credit check fee',
+      explain:'NY State caps most rental application fees (including credit/background checks) at $20 per applicant, or the landlord\'s actual cost if lower. Worth checking the amount being charged.' },
+    { test:/no\s+pets?\s+(under\s+any\s+circumstances|whatsoever|permitted)/i, severity:'medium', title:'Absolute no-pets clause',
+      explain:'A blanket no-pets clause generally doesn\'t override separate legal requirements to accommodate service animals or emotional support animals under fair housing law.' },
+    { test:/automatically?\s+renew|evergreen\s+clause/i, severity:'medium', title:'Automatic lease renewal',
+      explain:'Check the notice window required to opt out before it renews — missing a short window can lock you in for another term.' },
+    { test:/sublet(ting)?\s+(is\s+)?(strictly\s+)?prohibited|no\s+subletting\s+under\s+any/i, severity:'medium', title:'Outright sublet ban',
+      explain:'NY Real Property Law gives tenants in buildings with 4+ units some statutory right to request permission to sublet, subject to the landlord\'s reasonable consent — an absolute ban may not be fully enforceable.' },
+    { test:/tenant\s+(is\s+)?responsible\s+for\s+all\s+repairs|no\s+repairs?\s+by\s+(the\s+)?landlord/i, severity:'high', title:'Tenant responsible for all repairs',
+      explain:'The warranty of habitability generally can\'t be shifted entirely onto the tenant — landlords remain responsible for keeping the unit livable regardless of lease language assigning "all" repairs to the tenant.' },
+    { test:/waives?\s+(the\s+)?right\s+to\s+a\s+jury\s+trial/i, severity:'medium', title:'Waives right to a jury trial',
+      explain:'Common in NYC leases and generally enforceable, but worth knowing it\'s there — it affects how a future dispute with the landlord would be resolved.' },
+    { test:/joint\s+and\s+several(ly)?\s+liab/i, severity:'medium', title:'Joint and several liability',
+      explain:'If you have roommates, this typically means each of you can be held responsible for the full rent if another roommate doesn\'t pay — not illegal, but worth knowing before signing with roommates.' },
+    { test:/attorney.{0,15}fees?.{0,40}(landlord|owner)/i, severity:'medium', title:'One-sided attorney fees clause',
+      explain:'If the lease lets the landlord recover attorney fees in a dispute but doesn\'t give the tenant the same right, that asymmetry is worth noting — some NYC leases are required to make this reciprocal.' }
+  ];
+
+  function scanLease(text){
+    const flags = [];
+    LEASE_FLAG_PATTERNS.forEach(p => {
+      const match = text.match(p.test);
+      if(match){
+        const idx = match.index;
+        const start = Math.max(0, idx - 60);
+        const end = Math.min(text.length, idx + match[0].length + 60);
+        const quote = (start>0?'…':'') + text.slice(start, end).trim().replace(/\s+/g,' ') + (end<text.length?'…':'');
+        flags.push({...p, quote});
+      }
+    });
+    return flags;
+  }
+
+  leaseScanBtn.addEventListener('click', () => {
+    const text = leaseTextEl.value || '';
+    if(!text.trim()){
+      leaseResultEl.innerHTML = `<p class="err">Paste some lease text first.</p>`;
+      return;
+    }
+    const flags = scanLease(text);
+    if(!flags.length){
+      leaseResultEl.innerHTML = `<p class="empty">No patterns from our checklist matched. This isn't a clean bill of health — the scanner only catches known patterns — but nothing obvious jumped out.</p>`;
+      return;
+    }
+    const high = flags.filter(f=>f.severity==='high').length;
+    leaseResultEl.innerHTML = `
+      <p class="hint" style="margin-bottom:10px;">${flags.length} clause${flags.length===1?'':'s'} worth a closer look${high?`, including ${high} worth verifying against current law before you sign`:''}.</p>
+      ${flags.map(f => `
+        <div class="lease-flag ${f.severity}">
+          <div class="lf-title"><span class="lf-sev">${f.severity === 'high' ? 'Verify before signing' : 'Worth asking about'}</span> ${esc(f.title)}</div>
+          <div class="lf-body">${esc(f.explain)}</div>
+          <span class="lf-quote">${esc(f.quote)}</span>
+        </div>`).join('')}
+    `;
+  });
+  leaseClearBtn.addEventListener('click', () => {
+    leaseTextEl.value = '';
+    leaseResultEl.innerHTML = '';
+  });
+
+  // ---------- Document checklist (persists checked state locally) ----------
+  const DOC_CHECKLIST_ITEMS = [
+    {id:'id', title:'Photo ID', note:'Driver\'s license, state ID, or passport for every adult applicant.'},
+    {id:'income', title:'Proof of income', note:'2–3 recent pay stubs, an offer letter, or 2 years of tax returns if self-employed.'},
+    {id:'employer', title:'Employer verification letter', note:'Confirms your position, salary, and start date — some buildings require this in addition to pay stubs.'},
+    {id:'bank', title:'Bank statements', note:'Usually the last 2–3 months, especially if income is variable or you\'re self-employed.'},
+    {id:'credit', title:'Credit report authorization', note:'Landlords typically run this themselves — the fee is capped at $20/applicant in NY. Some buildings accept a report you already have.'},
+    {id:'reference', title:'Previous landlord reference', note:'Name and contact info, or a reference letter if you have one.'},
+    {id:'guarantor', title:'Guarantor documents (if needed)', note:'If your income doesn\'t meet the building\'s requirement (commonly ~40× monthly rent), a guarantor\'s ID + proof of income (commonly ~80×) may be required.'},
+    {id:'funds', title:'Funds ready for move-in', note:'First month\'s rent, security deposit (legally capped at one month\'s rent), and any broker fee — see the calculator above.'},
+    {id:'appfee', title:'Application fee', note:'Bring a card or check — capped at $20 per applicant under NY law.'}
+  ];
+  const CHECKLIST_STATE_KEY = 'nycAptChecklistState';
+  function loadChecklistState(){
+    try{ return JSON.parse(localStorage.getItem(CHECKLIST_STATE_KEY)) || {}; }
+    catch(e){ return {}; }
+  }
+  function renderChecklist(){
+    const state = loadChecklistState();
+    const list = document.getElementById('docChecklist');
+    list.innerHTML = DOC_CHECKLIST_ITEMS.map(item => `
+      <li class="${state[item.id] ? 'checked' : ''}" data-id="${item.id}">
+        <input type="checkbox" ${state[item.id] ? 'checked' : ''}>
+        <div>
+          <div class="ci-title">${esc(item.title)}</div>
+          <div class="ci-note">${esc(item.note)}</div>
+        </div>
+      </li>`).join('');
+  }
+  document.getElementById('docChecklist').addEventListener('change', e => {
+    const li = e.target.closest('li[data-id]');
+    if(!li) return;
+    const state = loadChecklistState();
+    state[li.dataset.id] = e.target.checked;
+    localStorage.setItem(CHECKLIST_STATE_KEY, JSON.stringify(state));
+    li.classList.toggle('checked', e.target.checked);
+  });
+  renderChecklist();
+
+  // ---------- Know Your Rights ----------
+  const RIGHTS_ITEMS = [
+    {title:'Warranty of habitability', body:'Landlords must keep the apartment livable — working heat (Oct 1–May 31), hot water year-round, no serious pest infestations, working smoke/CO detectors — regardless of what the lease says, including "as-is" language.'},
+    {title:'Security deposit rules', body:'Capped at one month\'s rent statewide since 2019. Must be returned within 14 days of move-out, with an itemized list of any deductions if the landlord keeps part of it.'},
+    {title:'Application fees', body:'Capped at $20 per applicant (or the landlord\'s actual cost, if lower) for a credit or background check.'},
+    {title:'No illegal lockouts', body:'A landlord can\'t change your locks, remove your belongings, or shut off utilities to force you out — even if you\'re behind on rent. Eviction has to go through housing court.'},
+    {title:'Bedbug disclosure', body:'NYC building owners must file an annual bedbug history report and disclose the building\'s infestation history to prospective tenants — this app\'s Bedbug Filings section pulls that same public data.'},
+    {title:'Source-of-income & discrimination protections', body:'NYC Human Rights Law bars housing discrimination based on source of income (including housing vouchers), and federal Fair Housing Act protections apply on top of that.'},
+    {title:'Free tenant help', raw:true, body:`
+      <a href="https://www.metcouncilonhousing.org/" target="_blank" rel="noopener">Met Council on Housing</a> — tenant rights hotline<br>
+      <a href="https://www.courts.state.ny.us/courts/nyc/housing/" target="_blank" rel="noopener">NYC Housing Court</a> resources<br>
+      <a href="https://www.legalaidnyc.org/" target="_blank" rel="noopener">The Legal Aid Society</a> — free legal help for eligible tenants<br>
+      <a href="https://hcr.ny.gov/tenants-rights-guide" target="_blank" rel="noopener">NYS Homes & Community Renewal — Tenants' Rights Guide</a>
+    `}
+  ];
+  document.getElementById('rightsAccordion').innerHTML = RIGHTS_ITEMS.map(r => `
+    <details class="rights-item">
+      <summary>${esc(r.title)}</summary>
+      <div class="ri-body">${r.raw ? r.body : esc(r.body)}</div>
+    </details>`).join('');
 
   // ---------- Explore a Neighborhood: rank buildings by violation history ----------
   function titleCase(s){ return String(s||'').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()); }
