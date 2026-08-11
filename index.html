@@ -28,6 +28,13 @@
   header{margin-bottom:24px;}
   h1{font-size:1.6rem; margin:0 0 4px;}
   .sub{color:var(--muted); font-size:0.95rem; margin:0;}
+  .header-top{display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;}
+  .auth-area{display:flex; align-items:center; gap:10px; flex:none; padding-top:2px;}
+  .auth-area img{width:28px; height:28px; border-radius:50%; flex:none;}
+  .auth-area .auth-name{font-size:0.85rem; font-weight:600; white-space:nowrap;}
+  .auth-area .auth-sync{font-size:0.72rem; color:var(--muted); white-space:nowrap;}
+  .auth-area button{font-size:0.85rem; padding:8px 14px;}
+  @media (max-width:640px){ .header-top{flex-direction:column;} }
   .card{
     background:var(--panel); border:1px solid var(--border); border-radius:14px;
     padding:20px; margin-bottom:18px;
@@ -330,8 +337,16 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>🏢 NYC Apartment Search</h1>
-    <p class="sub">Check a specific address, discover well-maintained buildings in a neighborhood, or track candidates as you shop — all built on public NYC Open Data, not scraped listings.</p>
+    <div class="header-top">
+      <div>
+        <h1>🏢 NYC Apartment Search</h1>
+        <p class="sub">Check a specific address, discover well-maintained buildings in a neighborhood, or track candidates as you shop — all built on public NYC Open Data, not scraped listings.</p>
+      </div>
+      <div class="auth-area" id="authArea">
+        <button type="button" class="secondary" id="signInBtn">Sign in with Google</button>
+        <span class="auth-sync">Saved on this device only</span>
+      </div>
+    </div>
   </header>
 
   <div class="tabs" role="tablist">
@@ -2163,6 +2178,9 @@
     localStorage.setItem(WATCHLIST_KEY, JSON.stringify(list));
     const n = list.length;
     document.getElementById('watchlistCount').textContent = n ? `(${n})` : '';
+    if(fbUser) pushToCloud(); // fbUser/pushToCloud are defined further down but in the
+                              // same scope — safe, since this only runs on user action,
+                              // long after the whole script has finished its first pass.
   }
   function watchlistId(houseNumber, street, borough){
     return `${borough}|${houseNumber}|${streetTokens(street).join(' ')}`;
@@ -2433,6 +2451,7 @@
     state[li.dataset.id] = e.target.checked;
     localStorage.setItem(CHECKLIST_STATE_KEY, JSON.stringify(state));
     li.classList.toggle('checked', e.target.checked);
+    if(fbUser) pushToCloud();
   });
   renderChecklist();
 
@@ -2646,6 +2665,136 @@
     document.getElementById('borough').value = row.dataset.boro;
     runSearch();
   });
+
+  // ---------- Accounts: Google sign-in + cloud sync (Firebase Auth + Firestore) ----------
+  // Loaded via dynamic import() from inside this classic script (not a <script type="module">)
+  // so it can share scope directly with loadWatchlist/persistWatchlist/renderWatchlistPanel/
+  // loadChecklistState/renderChecklist above rather than needing a window-global bridge.
+  //
+  // This apiKey is a public client identifier, not a secret — Firebase access control is
+  // enforced by Firestore security rules (each user can only read/write their own document),
+  // not by hiding this value. Safe to have visible in client-side JS.
+  const firebaseConfig = {
+    apiKey: "AIzaSyCXE3Eek_b6ZY8_AdpAtSsQD08LtxSyxYQ",
+    authDomain: "nyc-bulding-report.firebaseapp.com",
+    projectId: "nyc-bulding-report",
+    storageBucket: "nyc-bulding-report.firebasestorage.app",
+    messagingSenderId: "567105277720",
+    appId: "1:567105277720:web:f39e77008a84cbce4ad86d"
+    // measurementId intentionally omitted — this app doesn't use Firebase Analytics.
+  };
+  const FB_SDK = 'https://www.gstatic.com/firebasejs/11.6.0/';
+
+  let fbAuth = null, fbDb = null, fbUser = null, fbDocRef = null, fbAuthMod = null, fbFsMod = null;
+
+  function renderAuthArea(){
+    const area = document.getElementById('authArea');
+    if(!area) return;
+    if(fbUser){
+      area.innerHTML = `
+        ${fbUser.photoURL ? `<img src="${esc(fbUser.photoURL)}" alt="">` : ''}
+        <span class="auth-name">${esc(fbUser.displayName || fbUser.email || 'Signed in')}</span>
+        <span class="auth-sync" id="authSyncStatus">Syncing…</span>
+        <button type="button" class="secondary" id="signOutBtn">Sign out</button>
+      `;
+      document.getElementById('signOutBtn').addEventListener('click', () => {
+        fbAuthMod.signOut(fbAuth).catch(err => console.error('Sign-out failed', err));
+      });
+    } else {
+      area.innerHTML = `
+        <button type="button" class="secondary" id="signInBtn">Sign in with Google</button>
+        <span class="auth-sync">Saved on this device only</span>
+      `;
+      document.getElementById('signInBtn').addEventListener('click', () => {
+        if(!fbAuthMod || !fbAuth){
+          alert('Sign-in is still loading — try again in a moment.');
+          return;
+        }
+        const provider = new fbAuthMod.GoogleAuthProvider();
+        fbAuthMod.signInWithPopup(fbAuth, provider).catch(err => {
+          console.error('Sign-in failed', err);
+          alert('Sign-in failed: ' + err.message);
+        });
+      });
+    }
+  }
+  renderAuthArea(); // paint the signed-out state immediately, before Firebase finishes loading
+
+  async function pushToCloud(){
+    if(!fbDocRef) return;
+    const status = document.getElementById('authSyncStatus');
+    try{
+      await fbFsMod.setDoc(fbDocRef, {
+        watchlist: loadWatchlist(),
+        checklistState: loadChecklistState(),
+        updatedAt: new Date().toISOString()
+      });
+      if(status) status.textContent = 'Synced';
+    }catch(e){
+      console.error('Cloud sync (push) failed', e);
+      if(status) status.textContent = 'Sync error — saved on this device only';
+    }
+  }
+
+  // Runs once right after sign-in. Cloud data (if any) is merged with whatever's
+  // already on this device — by watchlist id — rather than one silently overwriting
+  // the other, so saving addresses before ever signing in doesn't lose them.
+  async function syncFromCloudOnSignIn(){
+    if(!fbDocRef) return;
+    const status = document.getElementById('authSyncStatus');
+    try{
+      const snap = await fbFsMod.getDoc(fbDocRef);
+      if(snap.exists()){
+        const data = snap.data() || {};
+        const cloudList = Array.isArray(data.watchlist) ? data.watchlist : [];
+        const cloudChecklist = (data.checklistState && typeof data.checklistState === 'object') ? data.checklistState : {};
+        const localList = loadWatchlist();
+        const mergedList = [...cloudList];
+        localList.forEach(item => { if(!mergedList.some(x => x.id === item.id)) mergedList.push(item); });
+        persistWatchlist(mergedList); // this itself calls pushToCloud() again once fbUser is set — fine, idempotent
+        localStorage.setItem(CHECKLIST_STATE_KEY, JSON.stringify({...cloudChecklist, ...loadChecklistState()}));
+        renderChecklist();
+      } else {
+        await pushToCloud(); // first sign-in on this account — seed the cloud doc from local data
+      }
+      if(document.getElementById('tab-watchlist').classList.contains('active')) renderWatchlistPanel();
+      if(status) status.textContent = 'Synced';
+    }catch(e){
+      console.error('Cloud sync (pull) failed', e);
+      if(status) status.textContent = 'Sync error — using this device\'s saved data';
+    }
+  }
+
+  async function initFirebase(){
+    try{
+      const [appMod, authMod, fsMod] = await Promise.all([
+        import(FB_SDK + 'firebase-app.js'),
+        import(FB_SDK + 'firebase-auth.js'),
+        import(FB_SDK + 'firebase-firestore.js')
+      ]);
+      const app = appMod.initializeApp(firebaseConfig);
+      fbAuth = authMod.getAuth(app);
+      fbDb = fsMod.getFirestore(app);
+      fbAuthMod = authMod;
+      fbFsMod = fsMod;
+
+      authMod.onAuthStateChanged(fbAuth, user => {
+        fbUser = user;
+        renderAuthArea();
+        if(user){
+          fbDocRef = fsMod.doc(fbDb, 'users', user.uid);
+          syncFromCloudOnSignIn();
+        } else {
+          fbDocRef = null;
+        }
+      });
+    }catch(e){
+      console.error('Firebase failed to load — falling back to device-only storage.', e);
+      const area = document.getElementById('authArea');
+      if(area) area.innerHTML = `<span class="auth-sync">Cloud sign-in unavailable right now — your data still saves on this device.</span>`;
+    }
+  }
+  initFirebase();
 })();
 </script>
 </body>
