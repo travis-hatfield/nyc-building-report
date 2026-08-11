@@ -520,6 +520,13 @@
   // Cache for storing dataset rows to avoid storing large JSON in HTML attributes
   const datasetRowsCache = {};
 
+  // Firebase auth/sync state — declared here (not down by initFirebase where it's
+  // populated) because persistWatchlist() references fbUser on every call, including
+  // one that fires during this script's very first top-to-bottom pass. A `let` declared
+  // later is in the temporal dead zone until its own line runs, so that early call would
+  // throw ReferenceError if this lived next to the rest of the Firebase code instead.
+  let fbAuth = null, fbDb = null, fbUser = null, fbDocRef = null, fbAuthMod = null, fbFsMod = null;
+
   // ---------- Dataset configuration (NYC Open Data / Socrata) ----------
   const DATASETS = [
     {
@@ -2684,8 +2691,8 @@
     // measurementId intentionally omitted — this app doesn't use Firebase Analytics.
   };
   const FB_SDK = 'https://www.gstatic.com/firebasejs/11.6.0/';
-
-  let fbAuth = null, fbDb = null, fbUser = null, fbDocRef = null, fbAuthMod = null, fbFsMod = null;
+  // fbAuth/fbDb/fbUser/fbDocRef/fbAuthMod/fbFsMod are declared near the top of this
+  // script (see comment there) so persistWatchlist's early call doesn't hit the TDZ.
 
   function renderAuthArea(){
     const area = document.getElementById('authArea');
