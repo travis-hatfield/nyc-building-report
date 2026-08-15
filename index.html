@@ -316,6 +316,50 @@
   table.cmp-table .cmp-actions{display:flex; gap:6px;}
   table.cmp-table .cmp-actions button{padding:5px 9px; font-size:0.78rem;}
 
+  /* ---------- Find Listings tab ---------- */
+  .ls-summary{
+    margin:16px 0 12px; padding:12px 14px; border-radius:8px; background:var(--panel2);
+    border:1px dashed var(--border); font-size:0.86rem; color:var(--muted); line-height:1.6;
+  }
+  .ls-summary strong{color:var(--text);}
+  .ls-links{display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;}
+  a.ls-link{
+    display:block; padding:12px 14px; border-radius:10px; background:var(--panel2);
+    border:1px solid var(--border); text-decoration:none; color:var(--text);
+    transition:border-color .12s ease, transform .12s ease;
+  }
+  a.ls-link:hover{border-color:var(--accent); transform:translateY(-1px);}
+  a.ls-link .ls-site{font-weight:700; font-size:0.98rem; display:flex; justify-content:space-between; align-items:center; gap:8px;}
+  a.ls-link .ls-caption{font-size:0.78rem; color:var(--muted); margin-top:4px; line-height:1.4;}
+
+  .saved-listing{
+    display:flex; justify-content:space-between; align-items:flex-start; gap:14px; flex-wrap:wrap;
+    padding:14px; border-radius:10px; background:var(--panel2); border:1px solid var(--border);
+    margin-bottom:10px;
+  }
+  .saved-listing .sl-main{flex:1; min-width:220px;}
+  .saved-listing .sl-site{
+    font-size:0.7rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted);
+    font-weight:600; margin-bottom:2px;
+  }
+  .saved-listing .sl-addr{font-weight:600; font-size:0.98rem; word-break:break-word;}
+  .saved-listing .sl-url{font-size:0.78rem; color:var(--muted); word-break:break-all; margin-top:2px;}
+  .saved-listing .sl-note{
+    font-size:0.86rem; color:var(--text); margin-top:6px; padding:6px 10px;
+    background:var(--panel); border-radius:6px; border-left:3px solid var(--accent); font-style:italic;
+  }
+  .saved-listing .sl-meta{font-size:0.78rem; color:var(--muted); margin-top:6px;}
+  .saved-listing .sl-actions{display:flex; gap:6px; flex-wrap:wrap; align-items:flex-start;}
+  .saved-listing .sl-actions button,
+  .saved-listing .sl-actions a{
+    padding:7px 12px; font-size:0.82rem; border-radius:8px; text-decoration:none;
+    display:inline-block; text-align:center; line-height:1.2; cursor:pointer;
+    border:1px solid var(--border); background:var(--panel); color:var(--text); font-weight:600;
+  }
+  .saved-listing .sl-actions a.sl-open{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .saved-listing .sl-actions a.sl-open:hover,
+  .saved-listing .sl-actions button:hover{opacity:0.9;}
+
   #results{display:none;}
   /* Multi-column (not grid) so cards keep their own natural height — a grid's row
      height matches its tallest cell, which left ugly gaps next to short cards
@@ -351,6 +395,7 @@
 
   <div class="tabs" role="tablist">
     <button class="tab-btn active" data-tab="check" role="tab" aria-selected="true">🔎 Check an Address</button>
+    <button class="tab-btn" data-tab="listings" role="tab" aria-selected="false">🏙️ Find Listings <span id="savedListingsCount" class="tab-count"></span></button>
     <button class="tab-btn" data-tab="explore" role="tab" aria-selected="false">🗺️ Explore a Neighborhood</button>
     <button class="tab-btn" data-tab="watchlist" role="tab" aria-selected="false">⭐ My Watchlist <span id="watchlistCount" class="tab-count"></span></button>
     <button class="tab-btn" data-tab="tools" role="tab" aria-selected="false">🧰 Renter Tools</button>
@@ -435,6 +480,121 @@
 
   <div id="tab-watchlist" class="tab-panel">
     <div id="watchlistContainer"></div>
+  </div>
+
+  <div id="tab-listings" class="tab-panel">
+    <div class="card">
+      <div class="section-title"><h2>🏙️ Search NYC Listings</h2></div>
+      <p class="hint">This form fills in your criteria across several listing sites and opens each in a new tab — we can't pull listings inline (those sites block automated access), but StreetEasy in particular lets us sort by "newest listed" via URL, so the most recently posted matches come first. Filter support varies by site; if a page looks unfiltered, adjust it there.</p>
+
+      <div class="row3" style="margin-top:14px;">
+        <div class="field">
+          <label for="lsLocation">Neighborhood or area (optional)</label>
+          <input type="text" id="lsLocation" placeholder="e.g. Astoria, Bed-Stuy, Washington Heights">
+        </div>
+        <div class="field">
+          <label for="lsBorough">Borough</label>
+          <select id="lsBorough">
+            <option value="">All NYC</option>
+            <option value="MANHATTAN">Manhattan</option>
+            <option value="BROOKLYN">Brooklyn</option>
+            <option value="QUEENS">Queens</option>
+            <option value="BRONX">Bronx</option>
+            <option value="STATEN ISLAND">Staten Island</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="lsListedWithin">Listed within</label>
+          <select id="lsListedWithin">
+            <option value="0">Any time</option>
+            <option value="1">Last 24 hours</option>
+            <option value="3">Last 3 days</option>
+            <option value="7" selected>Last 7 days</option>
+            <option value="14">Last 14 days</option>
+            <option value="30">Last 30 days</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row3" style="margin-top:14px;">
+        <div class="field">
+          <label for="lsMinRent">Min rent ($/mo)</label>
+          <input type="number" id="lsMinRent" min="0" placeholder="e.g. 2000">
+        </div>
+        <div class="field">
+          <label for="lsMaxRent">Max rent ($/mo)</label>
+          <input type="number" id="lsMaxRent" min="0" placeholder="e.g. 3500">
+        </div>
+        <div class="field">
+          <label for="lsBeds">Bedrooms</label>
+          <select id="lsBeds">
+            <option value="">Any</option>
+            <option value="0">Studio</option>
+            <option value="1">1 BR</option>
+            <option value="2">2 BR</option>
+            <option value="3">3 BR</option>
+            <option value="4">4+ BR</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row3" style="margin-top:14px;">
+        <div class="field">
+          <label for="lsBaths">Bathrooms (min)</label>
+          <select id="lsBaths">
+            <option value="">Any</option>
+            <option value="1">1+</option>
+            <option value="1.5">1.5+</option>
+            <option value="2">2+</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="lsPets">Pets</label>
+          <select id="lsPets">
+            <option value="">Any</option>
+            <option value="any">Pets allowed</option>
+            <option value="cats">Cats OK</option>
+            <option value="dogs">Dogs OK</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="lsSort">Sort by</label>
+          <select id="lsSort">
+            <option value="newest" selected>Newest first</option>
+            <option value="price-asc">Price: low → high</option>
+            <option value="price-desc">Price: high → low</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="lsSearchBtn">🏙️ Show filtered searches</button>
+        <button class="secondary" id="lsClearBtn" type="button">Clear</button>
+      </div>
+
+      <div id="lsSearchResults"></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title"><h2>💾 Saved Listings</h2></div>
+      <p class="hint">Different from Watchlist — Watchlist tracks <em>buildings</em> you've researched. Save Listings tracks specific <em>listings</em> (an individual apartment posting) so you can jump back to it later. Syncs to your account when signed in.</p>
+      <div class="row" style="margin-top:14px;">
+        <div class="field">
+          <label for="savedListingInput">Paste a listing URL</label>
+          <input type="text" id="savedListingInput" placeholder="https://streeteasy.com/rental/... or any listing URL" autocomplete="off">
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <div class="field">
+          <label for="savedListingNote">Optional note (e.g. "great light, weird landlord")</label>
+          <input type="text" id="savedListingNote" placeholder="Anything you want to remember about this one" autocomplete="off">
+        </div>
+      </div>
+      <div class="actions">
+        <button id="savedListingSaveBtn">💾 Save listing</button>
+      </div>
+      <div id="savedListingsContainer" style="margin-top:16px;"></div>
+    </div>
   </div>
 
   <div id="tab-tools" class="tab-panel">
@@ -2170,6 +2330,7 @@
       b.setAttribute('aria-selected', active ? 'true' : 'false');
     });
     if(tab === 'watchlist') renderWatchlistPanel();
+    if(tab === 'listings') renderSavedListings(); // reflect any cloud updates arrived since last time
   }
   document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
 
@@ -2483,6 +2644,351 @@
       <div class="ri-body">${r.raw ? r.body : esc(r.body)}</div>
     </details>`).join('');
 
+  // ---------- Find Listings: multi-site deep-link search + saved listings ----------
+  // We can't fetch listings inline (StreetEasy/OpenIgloo/Zillow all block automated
+  // access and none expose a public rental-search API). What we CAN do is construct
+  // each site's URL with the user's filters pre-applied, then open the site's own
+  // search page for them. URL formats vary by site — some accept every filter, others
+  // only accept location and beds — so the summary card above the links spells out
+  // which filters got applied, and the hint below reminds the user to adjust on-site
+  // if a page loads unfiltered.
+
+  const seBoroSlug = {MANHATTAN:'manhattan', BROOKLYN:'brooklyn', QUEENS:'queens', BRONX:'bronx', 'STATEN ISLAND':'staten-island'};
+  const acBoroSlug = {MANHATTAN:'new-york-ny', BROOKLYN:'brooklyn-ny', QUEENS:'queens-ny', BRONX:'bronx-ny', 'STATEN ISLAND':'staten-island-ny'};
+  const rhBoroSlug = {MANHATTAN:'nyc', BROOKLYN:'brooklyn', QUEENS:'queens', BRONX:'bronx', 'STATEN ISLAND':'staten-island'};
+
+  function slugifyLoc(s){
+    return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  }
+
+  // Build a StreetEasy /for-rent URL with pipe-separated filters. StreetEasy's URL
+  // filter schema is the richest of any site here — location, price, beds, pets, and
+  // sort-by-newest all work off the URL alone, no on-site clicking needed.
+  function buildStreetEasyUrl(f){
+    let loc;
+    if(f.location){
+      loc = slugifyLoc(f.location);
+    } else if(f.borough){
+      loc = seBoroSlug[f.borough] || 'nyc';
+    } else {
+      loc = 'nyc';
+    }
+    const parts = [];
+    if(f.minRent || f.maxRent){
+      parts.push(`price:${f.minRent||0}-${f.maxRent||''}`);
+    }
+    if(f.beds !== '' && f.beds != null){
+      parts.push(`beds:${f.beds}`);
+    }
+    if(f.pets === 'any' || f.pets === 'dogs') parts.push('dogs_allowed:1');
+    if(f.pets === 'any' || f.pets === 'cats') parts.push('cats_allowed:1');
+    if(f.listedWithin && Number(f.listedWithin) > 0){
+      parts.push(`days_on_market:${f.listedWithin}`);
+    }
+    if(f.sort === 'newest') parts.push('sort_by:listed_desc');
+    else if(f.sort === 'price-asc') parts.push('sort_by:price_asc');
+    else if(f.sort === 'price-desc') parts.push('sort_by:price_desc');
+
+    const filterStr = parts.length ? '/' + parts.join('%7C') : '';
+    return `https://streeteasy.com/for-rent/${loc}${filterStr}`;
+  }
+
+  function buildZillowUrl(f){
+    let loc;
+    if(f.borough && f.location){
+      loc = `${slugifyLoc(f.location)}-${slugifyLoc(BORO_NAMES[f.borough])}-ny`;
+    } else if(f.borough){
+      loc = `${slugifyLoc(BORO_NAMES[f.borough])}-ny`;
+    } else if(f.location){
+      loc = `${slugifyLoc(f.location)}-new-york-ny`;
+    } else {
+      loc = 'new-york-ny';
+    }
+    return `https://www.zillow.com/${loc}/rentals/`;
+  }
+
+  // OpenIgloo's URL filter surface is minimal — link to /listings and pass a location
+  // hint via ?search. Users filter beds/price/etc on their site.
+  function buildOpenIglooUrl(f){
+    const params = new URLSearchParams();
+    if(f.location) params.set('search', f.location);
+    else if(f.borough) params.set('search', BORO_NAMES[f.borough]);
+    const q = params.toString();
+    return `https://www.openigloo.com/listings${q ? '?' + q : ''}`;
+  }
+
+  function buildApartmentsComUrl(f){
+    const loc = f.borough ? acBoroSlug[f.borough] : 'new-york-ny';
+    const segments = [loc];
+    if(f.beds !== '' && f.beds != null){
+      if(f.beds === '0') segments.push('studios');
+      else segments.push(`${f.beds}-bedrooms`);
+    }
+    if(f.minRent || f.maxRent){
+      segments.push(`${f.minRent||0}-to-${f.maxRent||''}`);
+    }
+    if(f.pets && f.pets !== '') segments.push('pet-friendly');
+    return `https://www.apartments.com/${segments.join('/')}/`;
+  }
+
+  function buildPadMapperUrl(f){
+    const loc = f.borough === 'BROOKLYN' ? 'brooklyn-ny'
+               : f.borough === 'QUEENS' ? 'queens-ny'
+               : f.borough === 'BRONX' ? 'bronx-ny'
+               : f.borough === 'STATEN ISLAND' ? 'staten-island-ny'
+               : 'new-york-ny';
+    const segments = ['apartments', loc];
+    if(f.beds !== '' && f.beds != null){
+      if(f.beds === '0') segments.push('studio');
+      else segments.push(`${f.beds}-bedroom`);
+    }
+    if(f.minRent || f.maxRent){
+      segments.push(`${f.minRent||0}-${f.maxRent||10000}-rent`);
+    }
+    if(f.pets && f.pets !== '') segments.push('pets-allowed');
+    return `https://www.padmapper.com/${segments.join('/')}`;
+  }
+
+  function buildRentHopUrl(f){
+    const loc = f.borough ? (rhBoroSlug[f.borough] || 'nyc') : 'nyc';
+    const params = new URLSearchParams();
+    if(f.minRent) params.set('min_price', f.minRent);
+    if(f.maxRent) params.set('max_price', f.maxRent);
+    if(f.beds !== '' && f.beds != null){
+      params.set('min_bedrooms', f.beds);
+      params.set('max_bedrooms', f.beds);
+    }
+    if(f.baths) params.set('min_bathrooms', f.baths);
+    if(f.sort === 'newest') params.set('sort', 'posted');
+    else if(f.sort === 'price-asc') params.set('sort', 'price_low');
+    else if(f.sort === 'price-desc') params.set('sort', 'price_high');
+    const q = params.toString();
+    return `https://www.renthop.com/${loc}/apartments-for-rent${q ? '?' + q : ''}`;
+  }
+
+  // Catch-all — Google search phrased so the top results are typically listing pages
+  // themselves, useful for sites we haven't hard-coded (Compass, Naked Apartments,
+  // small brokerage sites, etc.).
+  function buildGoogleListingSearchUrl(f){
+    const parts = ['apartments for rent'];
+    if(f.location) parts.push(f.location);
+    if(f.borough) parts.push(BORO_NAMES[f.borough]);
+    if(!f.location && !f.borough) parts.push('NYC');
+    if(f.beds === '0') parts.push('studio');
+    else if(f.beds) parts.push(`${f.beds} bedroom`);
+    if(f.maxRent) parts.push(`under $${f.maxRent}`);
+    if(f.pets) parts.push('pets allowed');
+    if(f.sort === 'newest') parts.push('new listings');
+    return `https://www.google.com/search?q=${encodeURIComponent(parts.join(' '))}`;
+  }
+
+  function buildListingSearchLinks(f){
+    return [
+      {site:'StreetEasy', icon:'🏙️', url:buildStreetEasyUrl(f), caption:'Best filter coverage · sorts by newest listed'},
+      {site:'OpenIgloo', icon:'🧊', url:buildOpenIglooUrl(f), caption:'Includes tenant reviews of buildings'},
+      {site:'Zillow', icon:'🔑', url:buildZillowUrl(f), caption:'Big inventory · use on-site filters if needed'},
+      {site:'Apartments.com', icon:'🏘️', url:buildApartmentsComUrl(f), caption:'National platform, strong NYC coverage'},
+      {site:'PadMapper', icon:'🗺️', url:buildPadMapperUrl(f), caption:'Map-first · aggregates from several sources'},
+      {site:'RentHop', icon:'🐇', url:buildRentHopUrl(f), caption:'Ranks by data quality · newest-sort in URL'},
+      {site:'Google', icon:'🔎', url:buildGoogleListingSearchUrl(f), caption:'Catch-all — surfaces smaller brokerage sites too'}
+    ];
+  }
+
+  function collectListingFilters(){
+    return {
+      location: document.getElementById('lsLocation').value.trim(),
+      borough: document.getElementById('lsBorough').value,
+      minRent: document.getElementById('lsMinRent').value.trim(),
+      maxRent: document.getElementById('lsMaxRent').value.trim(),
+      beds: document.getElementById('lsBeds').value,
+      baths: document.getElementById('lsBaths').value,
+      pets: document.getElementById('lsPets').value,
+      listedWithin: document.getElementById('lsListedWithin').value,
+      sort: document.getElementById('lsSort').value
+    };
+  }
+
+  function renderListingSearchResults(){
+    const f = collectListingFilters();
+    const links = buildListingSearchLinks(f);
+
+    const parts = [];
+    if(f.location && f.borough) parts.push(`<strong>${esc(f.location)}</strong>, ${esc(BORO_NAMES[f.borough])}`);
+    else if(f.location) parts.push(`<strong>${esc(f.location)}</strong>`);
+    else if(f.borough) parts.push(`<strong>${esc(BORO_NAMES[f.borough])}</strong>`);
+    else parts.push('<strong>all of NYC</strong>');
+    if(f.beds !== '' && f.beds != null){
+      parts.push(f.beds === '0' ? '<strong>studio</strong>' : `<strong>${esc(f.beds)}${f.beds==='4'?'+':''} BR</strong>`);
+    }
+    if(f.baths) parts.push(`<strong>${esc(f.baths)}+ bath</strong>`);
+    if(f.minRent || f.maxRent){
+      const price = `${f.minRent?'$'+f.minRent:''}${f.minRent&&f.maxRent?'–':(f.maxRent?'up to ':'')}${f.maxRent?'$'+f.maxRent:''}`;
+      parts.push(`<strong>${price}</strong>/mo`);
+    }
+    const petLabels = {any:'pets OK', cats:'cats OK', dogs:'dogs OK'};
+    if(petLabels[f.pets]) parts.push(`<strong>${petLabels[f.pets]}</strong>`);
+    if(f.listedWithin && Number(f.listedWithin) > 0){
+      parts.push(`listed in the last <strong>${esc(f.listedWithin)} day${Number(f.listedWithin)===1?'':'s'}</strong>`);
+    }
+    const sortLabels = {newest:'newest first', 'price-asc':'cheapest first', 'price-desc':'priciest first'};
+    if(sortLabels[f.sort]) parts.push(`sorted <strong>${sortLabels[f.sort]}</strong>`);
+
+    document.getElementById('lsSearchResults').innerHTML = `
+      <div class="ls-summary">Search: ${parts.join(', ')}. Click a site below to open its filtered results in a new tab.</div>
+      <div class="ls-links">
+        ${links.map(l => `
+          <a class="ls-link" href="${esc(l.url)}" target="_blank" rel="noopener">
+            <div class="ls-site">${l.icon} ${esc(l.site)} <span style="color:var(--muted); font-weight:400;">↗</span></div>
+            <div class="ls-caption">${esc(l.caption)}</div>
+          </a>`).join('')}
+      </div>
+      <p class="hint" style="margin-top:12px;">If a site's page loads unfiltered, its URL scheme may not accept one of the filters — adjust it on the site. StreetEasy accepts the most (price, beds, pets, listing date, sort); OpenIgloo the fewest.</p>
+    `;
+  }
+
+  document.getElementById('lsSearchBtn').addEventListener('click', renderListingSearchResults);
+  document.getElementById('lsClearBtn').addEventListener('click', () => {
+    ['lsLocation','lsMinRent','lsMaxRent'].forEach(id => { document.getElementById(id).value = ''; });
+    ['lsBorough','lsBeds','lsBaths','lsPets'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('lsListedWithin').value = '7';
+    document.getElementById('lsSort').value = 'newest';
+    document.getElementById('lsSearchResults').innerHTML = '';
+  });
+
+  // ----- Saved Listings storage (parallel to the Watchlist) -----
+  // Watchlist = buildings the user has researched; Saved Listings = specific listing
+  // URLs. Deliberately separate keys and separate render surfaces so the two concepts
+  // don't blur — a building can have several listings over time.
+  const SAVED_LISTINGS_KEY = 'nycAptSavedListings';
+  const savedListingsContainer = document.getElementById('savedListingsContainer');
+
+  function loadSavedListings(){
+    try{ return JSON.parse(localStorage.getItem(SAVED_LISTINGS_KEY)) || []; }
+    catch(e){ return []; }
+  }
+  function persistSavedListings(list){
+    localStorage.setItem(SAVED_LISTINGS_KEY, JSON.stringify(list));
+    const badge = document.getElementById('savedListingsCount');
+    if(badge) badge.textContent = list.length ? `(${list.length})` : '';
+    if(fbUser) pushToCloud();
+  }
+  function detectListingSite(url){
+    const u = url.toLowerCase();
+    if(u.includes('streeteasy.com')) return 'StreetEasy';
+    if(u.includes('openigloo.com')) return 'OpenIgloo';
+    if(u.includes('zillow.com')) return 'Zillow';
+    if(u.includes('apartments.com')) return 'Apartments.com';
+    if(u.includes('padmapper.com')) return 'PadMapper';
+    if(u.includes('renthop.com')) return 'RentHop';
+    if(u.includes('compass.com')) return 'Compass';
+    if(u.includes('nakedapartments.com') || u.includes('naked-apartments')) return 'Naked Apartments';
+    if(u.includes('trulia.com')) return 'Trulia';
+    return 'Other';
+  }
+  // Normalize a URL for dedup: strip query and hash, drop trailing slashes and case-
+  // fold the origin. Keeps the path intact since that's what identifies the listing.
+  function savedListingId(url){
+    try{
+      const u = new URL(url);
+      return (u.origin + u.pathname).toLowerCase().replace(/\/+$/,'');
+    }catch(e){
+      return String(url).replace(/[?#].*$/,'').replace(/\/+$/,'').toLowerCase();
+    }
+  }
+
+  function saveListing(){
+    const urlInput = document.getElementById('savedListingInput');
+    const noteInput = document.getElementById('savedListingNote');
+    const url = urlInput.value.trim();
+    const note = noteInput.value.trim();
+    if(!url){
+      alert('Paste a listing URL first.');
+      return;
+    }
+    if(!/^https?:\/\//i.test(url)){
+      alert('Please paste a full URL starting with http:// or https://');
+      return;
+    }
+    const list = loadSavedListings();
+    const id = savedListingId(url);
+    const site = detectListingSite(url);
+    // parseInput already handles StreetEasy + OpenIgloo URLs and extracts the address;
+    // for other sites it'll return empty fields, and the render code handles that by
+    // hiding the "Research building" button rather than showing a broken one.
+    const parsed = parseInput(url);
+    const record = {
+      id, url, site, note,
+      houseNumber: parsed.houseNumber || '',
+      street: parsed.street || '',
+      borough: parsed.borough || '',
+      savedAt: new Date().toISOString()
+    };
+    const idx = list.findIndex(x => x.id === id);
+    if(idx === -1) list.unshift(record);
+    else list[idx] = {...list[idx], ...record, note: note || list[idx].note};
+    persistSavedListings(list);
+    urlInput.value = '';
+    noteInput.value = '';
+    renderSavedListings();
+  }
+
+  function removeSavedListing(id){
+    persistSavedListings(loadSavedListings().filter(x => x.id !== id));
+    renderSavedListings();
+  }
+
+  function renderSavedListings(){
+    const list = loadSavedListings();
+    if(!list.length){
+      savedListingsContainer.innerHTML = `<p class="empty">No saved listings yet. Paste a listing URL above to save it for later.</p>`;
+      return;
+    }
+    savedListingsContainer.innerHTML = list.map(item => {
+      const hasAddr = !!(item.houseNumber && item.street && item.borough);
+      const addrDisplay = hasAddr
+        ? `${esc(item.houseNumber)} ${esc(item.street)}, ${esc(BORO_NAMES[item.borough] || item.borough)}`
+        : 'Address not detected in URL';
+      const urlDisplay = item.url.length > 80 ? esc(item.url.slice(0, 77)) + '…' : esc(item.url);
+      return `
+        <div class="saved-listing" data-id="${esc(item.id)}">
+          <div class="sl-main">
+            <div class="sl-site">${esc(item.site)}</div>
+            <div class="sl-addr">${addrDisplay}</div>
+            <div class="sl-url">${urlDisplay}</div>
+            ${item.note ? `<div class="sl-note">${esc(item.note)}</div>` : ''}
+            <div class="sl-meta">Saved ${fmtDate(item.savedAt)}</div>
+          </div>
+          <div class="sl-actions">
+            <a class="sl-open" href="${esc(item.url)}" target="_blank" rel="noopener">🔗 Open listing</a>
+            ${hasAddr ? `<button type="button" class="sl-research" data-id="${esc(item.id)}">🔍 Research building</button>` : ''}
+            <button type="button" class="sl-remove" data-id="${esc(item.id)}" title="Remove">🗑️</button>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  document.getElementById('savedListingSaveBtn').addEventListener('click', saveListing);
+  document.getElementById('savedListingInput').addEventListener('keydown', e => {
+    if(e.key === 'Enter') saveListing();
+  });
+  savedListingsContainer.addEventListener('click', e => {
+    const removeBtn = e.target.closest('.sl-remove');
+    if(removeBtn){ removeSavedListing(removeBtn.dataset.id); return; }
+    const researchBtn = e.target.closest('.sl-research');
+    if(researchBtn){
+      const item = loadSavedListings().find(x => x.id === researchBtn.dataset.id);
+      if(!item || !item.houseNumber) return;
+      switchTab('check');
+      document.getElementById('houseNumber').value = item.houseNumber;
+      document.getElementById('streetName').value = item.street;
+      document.getElementById('borough').value = item.borough;
+      runSearch();
+    }
+  });
+
+  persistSavedListings(loadSavedListings()); // paint the (n) count on load without touching stored data
+  renderSavedListings();
+
   // ---------- Explore a Neighborhood: rank buildings by violation history ----------
   function titleCase(s){ return String(s||'').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()); }
   function buildingRowHtml(b, tone){
@@ -2734,6 +3240,7 @@
       await fbFsMod.setDoc(fbDocRef, {
         watchlist: loadWatchlist(),
         checklistState: loadChecklistState(),
+        savedListings: loadSavedListings(),
         updatedAt: new Date().toISOString()
       });
       if(status) status.textContent = 'Synced';
@@ -2744,8 +3251,9 @@
   }
 
   // Runs once right after sign-in. Cloud data (if any) is merged with whatever's
-  // already on this device — by watchlist id — rather than one silently overwriting
-  // the other, so saving addresses before ever signing in doesn't lose them.
+  // already on this device — by id, per collection — rather than one silently
+  // overwriting the other, so saving addresses or listings before ever signing
+  // in doesn't lose them.
   async function syncFromCloudOnSignIn(){
     if(!fbDocRef) return;
     const status = document.getElementById('authSyncStatus');
@@ -2755,10 +3263,19 @@
         const data = snap.data() || {};
         const cloudList = Array.isArray(data.watchlist) ? data.watchlist : [];
         const cloudChecklist = (data.checklistState && typeof data.checklistState === 'object') ? data.checklistState : {};
+        const cloudSaved = Array.isArray(data.savedListings) ? data.savedListings : [];
+
         const localList = loadWatchlist();
         const mergedList = [...cloudList];
         localList.forEach(item => { if(!mergedList.some(x => x.id === item.id)) mergedList.push(item); });
         persistWatchlist(mergedList); // this itself calls pushToCloud() again once fbUser is set — fine, idempotent
+
+        const localSaved = loadSavedListings();
+        const mergedSaved = [...cloudSaved];
+        localSaved.forEach(item => { if(!mergedSaved.some(x => x.id === item.id)) mergedSaved.push(item); });
+        persistSavedListings(mergedSaved);
+        renderSavedListings();
+
         localStorage.setItem(CHECKLIST_STATE_KEY, JSON.stringify({...cloudChecklist, ...loadChecklistState()}));
         renderChecklist();
       } else {
