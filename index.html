@@ -360,6 +360,63 @@
   .saved-listing .sl-actions a.sl-open:hover,
   .saved-listing .sl-actions button:hover{opacity:0.9;}
 
+  /* ---------- What's Nearby tab: Leaflet map + POI listings ---------- */
+  .nearby-toggles{display:flex; flex-wrap:wrap; gap:8px 14px; padding:6px 0;}
+  .nearby-toggle{
+    display:inline-flex; align-items:center; gap:6px; font-size:0.88rem;
+    color:var(--text); font-weight:500; letter-spacing:normal; text-transform:none;
+    cursor:pointer; padding:6px 12px; border-radius:999px; background:var(--panel2);
+    border:1px solid var(--border);
+  }
+  .nearby-toggle input{margin:0; accent-color:var(--accent);}
+  .nearby-status{margin-top:14px; font-size:0.9rem;}
+  .nearby-status .err{color:var(--bad);}
+  .nearby-map{
+    width:100%; height:520px; margin-top:14px; border-radius:10px;
+    border:1px solid var(--border); background:var(--panel2); display:none;
+  }
+  .nearby-map.ready{display:block;}
+  /* Leaflet's default popup background is white; force it to match the app's panel
+     so it doesn't glare in dark mode. */
+  .nearby-map .leaflet-popup-content-wrapper,
+  .nearby-map .leaflet-popup-tip{
+    background:var(--panel); color:var(--text); border:1px solid var(--border);
+    box-shadow:0 4px 14px rgba(0,0,0,.25);
+  }
+  .nearby-map .leaflet-popup-content{margin:10px 12px; font-size:0.88rem; line-height:1.45;}
+  .nearby-map .leaflet-popup-content a{color:var(--link);}
+  .nearby-map .leaflet-control-attribution{
+    background:rgba(255,255,255,.8); font-size:10px; color:#333;
+  }
+  @media (prefers-color-scheme: dark){
+    .nearby-map .leaflet-control-attribution{background:rgba(0,0,0,.6); color:#ccc;}
+  }
+  .nearby-marker{
+    display:flex; align-items:center; justify-content:center;
+    width:28px; height:28px; border-radius:50% 50% 50% 0;
+    transform:rotate(-45deg); background:var(--accent); color:#fff;
+    font-size:14px; border:2px solid #fff; box-shadow:0 2px 4px rgba(0,0,0,.3);
+  }
+  .nearby-marker span{transform:rotate(45deg);}
+  .nearby-marker.cat-transit{background:#1976d2;}
+  .nearby-marker.cat-coffee{background:#795548;}
+  .nearby-marker.cat-grocery{background:#43a047;}
+  .nearby-marker.cat-attractions{background:#8e24aa;}
+  .nearby-marker.cat-parks{background:#2e7d32;}
+  .nearby-marker.cat-home{background:var(--bad); width:32px; height:32px; font-size:16px;}
+  .nearby-list{margin-top:18px; display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px;}
+  .nearby-list .nl-cat{
+    background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:12px 14px;
+  }
+  .nearby-list .nl-cat h4{margin:0 0 6px; font-size:0.92rem; display:flex; justify-content:space-between;}
+  .nearby-list .nl-cat h4 .count{color:var(--muted); font-weight:500; font-size:0.82rem;}
+  .nearby-list .nl-item{
+    font-size:0.85rem; padding:5px 0; border-top:1px solid var(--border);
+    display:flex; justify-content:space-between; gap:8px;
+  }
+  .nearby-list .nl-item:first-of-type{border-top:none;}
+  .nearby-list .nl-item .nl-dist{color:var(--muted); font-size:0.78rem; white-space:nowrap;}
+
   #results{display:none;}
   /* Multi-column (not grid) so cards keep their own natural height — a grid's row
      height matches its tallest cell, which left ugly gaps next to short cards
@@ -396,6 +453,7 @@
   <div class="tabs" role="tablist">
     <button class="tab-btn active" data-tab="check" role="tab" aria-selected="true">🔎 Check an Address</button>
     <button class="tab-btn" data-tab="listings" role="tab" aria-selected="false">🏙️ Find Listings <span id="savedListingsCount" class="tab-count"></span></button>
+    <button class="tab-btn" data-tab="nearby" role="tab" aria-selected="false">🗺️ What's Nearby</button>
     <button class="tab-btn" data-tab="explore" role="tab" aria-selected="false">🗺️ Explore a Neighborhood</button>
     <button class="tab-btn" data-tab="watchlist" role="tab" aria-selected="false">⭐ My Watchlist <span id="watchlistCount" class="tab-count"></span></button>
     <button class="tab-btn" data-tab="tools" role="tab" aria-selected="false">🧰 Renter Tools</button>
@@ -449,6 +507,47 @@
     </div>
 
     <div id="results"></div>
+  </div>
+
+  <div id="tab-nearby" class="tab-panel">
+    <div class="card">
+      <div class="section-title"><h2>🗺️ What's Nearby</h2></div>
+      <p class="hint">Paste a StreetEasy/OpenIgloo URL or type an address to see the neighborhood on a map with transit, coffee, groceries, and attractions within walking distance. All map data comes from OpenStreetMap — no listings sites involved.</p>
+      <div class="row" style="margin-top:14px;">
+        <div class="field">
+          <label for="nearbyInput">Listing link or address</label>
+          <input type="text" id="nearbyInput" placeholder="Paste a StreetEasy/OpenIgloo link, or type an address" autocomplete="off">
+        </div>
+      </div>
+      <div class="row3" style="margin-top:14px;">
+        <div class="field">
+          <label for="nearbyRadius">Walking radius</label>
+          <select id="nearbyRadius">
+            <option value="0.25">¼ mile (~5 min walk)</option>
+            <option value="0.5" selected>½ mile (~10 min walk)</option>
+            <option value="0.75">¾ mile (~15 min walk)</option>
+            <option value="1">1 mile (~20 min walk)</option>
+          </select>
+        </div>
+        <div class="field" style="grid-column:span 2;">
+          <label>Show on map</label>
+          <div class="nearby-toggles">
+            <label class="nearby-toggle"><input type="checkbox" data-cat="transit" checked> 🚇 Transit</label>
+            <label class="nearby-toggle"><input type="checkbox" data-cat="coffee" checked> ☕ Coffee</label>
+            <label class="nearby-toggle"><input type="checkbox" data-cat="grocery" checked> 🛒 Groceries</label>
+            <label class="nearby-toggle"><input type="checkbox" data-cat="attractions" checked> 🎭 Attractions</label>
+            <label class="nearby-toggle"><input type="checkbox" data-cat="parks"> 🌳 Parks</label>
+          </div>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="nearbyGoBtn">🗺️ Show map</button>
+        <button class="secondary" id="nearbyClearBtn" type="button">Clear</button>
+      </div>
+      <div id="nearbyStatus" class="nearby-status"></div>
+      <div id="nearbyMap" class="nearby-map"></div>
+      <div id="nearbyList"></div>
+    </div>
   </div>
 
   <div id="tab-explore" class="tab-panel">
@@ -3034,6 +3133,291 @@
 
   persistSavedListings(loadSavedListings()); // paint the (n) count on load without touching stored data
   renderSavedListings();
+
+  // ---------- What's Nearby: Leaflet map + OpenStreetMap POIs ----------
+  // Both geocoding (Nominatim) and POI search (Overpass) are free, no-key APIs from
+  // the OpenStreetMap ecosystem. Nominatim asks callers to set a descriptive
+  // User-Agent and stay under 1 req/sec — we're well below that (one geocode per
+  // user click). Overpass tolerates browser-origin queries, so no proxy needed.
+
+  const NEARBY_CATEGORIES = {
+    transit:    {icon:'🚇', label:'Transit', color:'#1976d2'},
+    coffee:     {icon:'☕', label:'Coffee', color:'#795548'},
+    grocery:    {icon:'🛒', label:'Groceries', color:'#43a047'},
+    attractions:{icon:'🎭', label:'Attractions', color:'#8e24aa'},
+    parks:      {icon:'🌳', label:'Parks', color:'#2e7d32'}
+  };
+
+  // Overpass query fragments per category — kept in one place so it's easy to see
+  // what OSM tags we're relying on for each category. Anything tagged in OSM but
+  // not listed here won't show up on the map — the tradeoff is completeness vs.
+  // noise (adding e.g. `amenity:fast_food` under coffee would surface McDonald's,
+  // which isn't the "coffee shops" the user asked for).
+  const OVERPASS_TAGS = {
+    transit:    ['node["railway"="station"]["station"="subway"]',
+                 'node["public_transport"="station"]["subway"="yes"]'],
+    coffee:     ['node["amenity"="cafe"]', 'way["amenity"="cafe"]'],
+    grocery:    ['node["shop"~"^(supermarket|convenience|greengrocer|deli|health_food)$"]',
+                 'way["shop"~"^(supermarket|convenience|greengrocer|deli|health_food)$"]'],
+    attractions:['node["tourism"~"^(attraction|museum|artwork|viewpoint|gallery|theatre)$"]',
+                 'way["tourism"~"^(attraction|museum|artwork|viewpoint|gallery|theatre)$"]',
+                 'node["amenity"="theatre"]', 'way["amenity"="theatre"]'],
+    parks:      ['way["leisure"="park"]', 'node["leisure"="park"]',
+                 'way["leisure"="garden"]']
+  };
+
+  let nearbyMap = null;           // Leaflet map instance
+  let nearbyLayers = {};          // per-category LayerGroup
+  let nearbyHomeMarker = null;    // the "you are here" pin
+  let nearbyCurrentCoords = null; // last geocoded lat/lon, for re-render on toggle
+  let nearbyCurrentPois = null;   // last Overpass result set, for re-render on toggle
+  let leafletLoadingPromise = null;
+
+  // Load Leaflet from a CDN on first use. Kept out of the initial page bundle
+  // because the map is optional — most sessions never open this tab.
+  function loadLeaflet(){
+    if(window.L) return Promise.resolve(window.L);
+    if(leafletLoadingPromise) return leafletLoadingPromise;
+    leafletLoadingPromise = new Promise((resolve, reject) => {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      css.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
+      css.crossOrigin = '';
+      document.head.appendChild(css);
+      const js = document.createElement('script');
+      js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      js.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+      js.crossOrigin = '';
+      js.onload = () => resolve(window.L);
+      js.onerror = () => reject(new Error('Failed to load Leaflet from CDN'));
+      document.head.appendChild(js);
+    });
+    return leafletLoadingPromise;
+  }
+
+  // Nominatim (OpenStreetMap geocoding). Free, no key. Returns the first match.
+  async function geocodeAddress(address){
+    const url = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
+      q: address, format: 'json', limit: '1', countrycodes: 'us',
+      viewbox: '-74.26,40.92,-73.68,40.48', // NYC bounding box
+      bounded: '1'
+    });
+    const res = await fetch(url, {headers: {'Accept': 'application/json'}});
+    if(!res.ok) throw new Error(`Nominatim ${res.status}`);
+    const data = await res.json();
+    if(!data.length) throw new Error('Address not found');
+    return {
+      lat: Number(data[0].lat), lon: Number(data[0].lon),
+      displayName: data[0].display_name
+    };
+  }
+
+  // Overpass query for POIs within a bounding box around the target address.
+  // We ask for all requested categories in one query (Overpass fans out internally
+  // faster than issuing sequential HTTP calls). `out center` returns just the
+  // centroid for ways (buildings with area), keeping the response small.
+  async function fetchNearbyPOIs(lat, lon, radiusMi, cats){
+    // Bounding box in decimal degrees. 1 deg latitude ≈ 69 miles; longitude is
+    // narrower at NYC's latitude, corrected by cos(lat).
+    const latDelta = radiusMi / 69;
+    const lonDelta = radiusMi / (69 * Math.cos(lat * Math.PI / 180));
+    const bbox = `${lat-latDelta},${lon-lonDelta},${lat+latDelta},${lon+lonDelta}`;
+    const parts = [];
+    cats.forEach(cat => {
+      (OVERPASS_TAGS[cat] || []).forEach(sel => {
+        parts.push(`${sel}(${bbox});`);
+      });
+    });
+    const query = `[out:json][timeout:25];(${parts.join('')});out center;`;
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'data=' + encodeURIComponent(query)
+    });
+    if(!res.ok) throw new Error(`Overpass ${res.status}`);
+    const data = await res.json();
+    // Tag each element with its category based on which OSM tag it matched, so
+    // the renderer can color-code without re-running the tag logic.
+    const categorize = el => {
+      const t = el.tags || {};
+      if(t.railway === 'station' || t.subway === 'yes') return 'transit';
+      if(t.amenity === 'cafe') return 'coffee';
+      if(t.shop && /^(supermarket|convenience|greengrocer|deli|health_food)$/.test(t.shop)) return 'grocery';
+      if(t.tourism && /^(attraction|museum|artwork|viewpoint|gallery|theatre)$/.test(t.tourism)) return 'attractions';
+      if(t.amenity === 'theatre') return 'attractions';
+      if(t.leisure === 'park' || t.leisure === 'garden') return 'parks';
+      return null;
+    };
+    return (data.elements || []).map(el => {
+      const c = categorize(el);
+      const point = el.type === 'node' ? {lat: el.lat, lon: el.lon}
+                  : (el.center ? {lat: el.center.lat, lon: el.center.lon} : null);
+      if(!c || !point || !el.tags) return null;
+      return {
+        cat: c,
+        lat: point.lat, lon: point.lon,
+        name: el.tags.name || el.tags['brand'] || NEARBY_CATEGORIES[c].label,
+        addr: [el.tags['addr:housenumber'], el.tags['addr:street']].filter(Boolean).join(' ') || '',
+        raw: el
+      };
+    }).filter(Boolean);
+  }
+
+  function selectedNearbyCats(){
+    return Array.from(document.querySelectorAll('.nearby-toggle input:checked'))
+      .map(cb => cb.dataset.cat);
+  }
+
+  function buildDivIcon(L, cat, isHome){
+    const inner = isHome ? '📍' : NEARBY_CATEGORIES[cat].icon;
+    const cls = isHome ? 'nearby-marker cat-home' : `nearby-marker cat-${cat}`;
+    return L.divIcon({
+      html: `<div class="${cls}"><span>${inner}</span></div>`,
+      className: '', // suppress Leaflet's default marker box
+      iconSize: isHome ? [32,32] : [28,28],
+      iconAnchor: isHome ? [16,32] : [14,28],
+      popupAnchor: [0, isHome ? -30 : -26]
+    });
+  }
+
+  function renderNearbyMap(){
+    if(!nearbyMap || !nearbyCurrentCoords || !nearbyCurrentPois) return;
+    const L = window.L;
+    const visible = new Set(selectedNearbyCats());
+
+    // Clear existing layer groups then rebuild those that are toggled on. Building
+    // a fresh layerGroup per render is cheaper than tracking per-marker visibility.
+    Object.values(nearbyLayers).forEach(lg => nearbyMap.removeLayer(lg));
+    nearbyLayers = {};
+
+    nearbyCurrentPois.forEach(p => {
+      if(!visible.has(p.cat)) return;
+      if(!nearbyLayers[p.cat]) nearbyLayers[p.cat] = L.layerGroup().addTo(nearbyMap);
+      const dist = haversineMiles(nearbyCurrentCoords.lat, nearbyCurrentCoords.lon, p.lat, p.lon);
+      const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}`;
+      const popupHtml = `
+        <strong>${esc(p.name)}</strong><br>
+        <span style="color:var(--muted);">${esc(NEARBY_CATEGORIES[p.cat].label)}${p.addr ? ' · ' + esc(p.addr) : ''}</span><br>
+        ${dist.toFixed(2)} mi away · <a href="${gmapsUrl}" target="_blank" rel="noopener">Directions ↗</a>
+      `;
+      L.marker([p.lat, p.lon], {icon: buildDivIcon(L, p.cat, false)})
+        .bindPopup(popupHtml)
+        .addTo(nearbyLayers[p.cat]);
+    });
+  }
+
+  function renderNearbyList(){
+    const container = document.getElementById('nearbyList');
+    if(!nearbyCurrentPois || !nearbyCurrentCoords){ container.innerHTML = ''; return; }
+    const visible = new Set(selectedNearbyCats());
+    const byCat = {};
+    nearbyCurrentPois.forEach(p => {
+      if(!visible.has(p.cat)) return;
+      if(!byCat[p.cat]) byCat[p.cat] = [];
+      byCat[p.cat].push({...p, miles: haversineMiles(nearbyCurrentCoords.lat, nearbyCurrentCoords.lon, p.lat, p.lon)});
+    });
+    Object.values(byCat).forEach(arr => arr.sort((a,b) => a.miles - b.miles));
+    const cats = Object.keys(NEARBY_CATEGORIES).filter(c => byCat[c] && byCat[c].length);
+    if(!cats.length){ container.innerHTML = '<p class="empty">Nothing found within this radius — try a bigger radius or a different address.</p>'; return; }
+    container.innerHTML = `<div class="nearby-list">${cats.map(c => {
+      const items = byCat[c].slice(0, 8); // top 8 nearest per category
+      const total = byCat[c].length;
+      return `<div class="nl-cat">
+        <h4>${NEARBY_CATEGORIES[c].icon} ${esc(NEARBY_CATEGORIES[c].label)}<span class="count">${total} within ${document.getElementById('nearbyRadius').value} mi</span></h4>
+        ${items.map(p => `<div class="nl-item"><span>${esc(p.name)}</span><span class="nl-dist">${p.miles.toFixed(2)} mi</span></div>`).join('')}
+        ${total > items.length ? `<div class="nl-item"><span class="muted" style="font-size:0.78rem;">+${total - items.length} more on the map</span></div>` : ''}
+      </div>`;
+    }).join('')}</div>`;
+  }
+
+  async function runNearbySearch(){
+    const input = document.getElementById('nearbyInput');
+    const raw = input.value.trim();
+    if(!raw){ alert('Paste a listing link or type an address first.'); return; }
+    const status = document.getElementById('nearbyStatus');
+    const mapEl = document.getElementById('nearbyMap');
+    const listEl = document.getElementById('nearbyList');
+    status.innerHTML = '<span class="loading"><span class="spinner"></span> Loading map & finding places nearby…</span>';
+    listEl.innerHTML = '';
+
+    try{
+      // If the user pasted a StreetEasy/OpenIgloo URL, try to reconstruct a
+      // human-readable address string from the parsed components before geocoding.
+      const parsed = parseInput(raw);
+      let addressForGeocoder;
+      if(parsed.houseNumber && parsed.street){
+        addressForGeocoder = `${parsed.houseNumber} ${parsed.street}, ${BORO_NAMES[parsed.borough] || 'New York'}, NY`;
+      } else {
+        // treat as a raw address string, but append NYC if the user forgot
+        addressForGeocoder = /new york|nyc|manhattan|brooklyn|queens|bronx|staten/i.test(raw) ? raw : `${raw}, New York, NY`;
+      }
+
+      const [_, hit] = await Promise.all([loadLeaflet(), geocodeAddress(addressForGeocoder)]);
+      nearbyCurrentCoords = {lat: hit.lat, lon: hit.lon};
+
+      // Initialize (or recenter) the map. Keeping one map instance across searches
+      // avoids Leaflet's "Map container is already initialized" error.
+      const L = window.L;
+      if(!nearbyMap){
+        nearbyMap = L.map('nearbyMap').setView([hit.lat, hit.lon], 15);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
+        }).addTo(nearbyMap);
+      } else {
+        nearbyMap.setView([hit.lat, hit.lon], 15);
+      }
+      mapEl.classList.add('ready');
+      // Leaflet needs an invalidateSize() after a container becomes visible
+      // (going from display:none to display:block), otherwise the tiles render
+      // as a broken grey grid until the user resizes the window.
+      setTimeout(() => nearbyMap.invalidateSize(), 50);
+
+      // Home marker
+      if(nearbyHomeMarker) nearbyMap.removeLayer(nearbyHomeMarker);
+      nearbyHomeMarker = L.marker([hit.lat, hit.lon], {icon: buildDivIcon(L, 'home', true), zIndexOffset: 1000})
+        .bindPopup(`<strong>${esc(hit.displayName.split(',').slice(0,2).join(','))}</strong>`)
+        .addTo(nearbyMap);
+
+      // POI fetch (always fetches every category — we filter client-side on toggle).
+      const radius = Number(document.getElementById('nearbyRadius').value) || 0.5;
+      const allCats = Object.keys(NEARBY_CATEGORIES);
+      nearbyCurrentPois = await fetchNearbyPOIs(hit.lat, hit.lon, radius, allCats);
+      renderNearbyMap();
+      renderNearbyList();
+      status.innerHTML = `<span style="color:var(--muted);">Centered on <strong>${esc(hit.displayName.split(',').slice(0,3).join(','))}</strong> · showing places within ${radius} mi.</span>`;
+    }catch(e){
+      console.error(e);
+      status.innerHTML = `<span class="err">⚠ ${esc(e.message || 'Something went wrong.')} — try a more specific address (e.g. "123 West 45th Street, Manhattan").</span>`;
+    }
+  }
+
+  document.getElementById('nearbyGoBtn').addEventListener('click', runNearbySearch);
+  document.getElementById('nearbyInput').addEventListener('keydown', e => {
+    if(e.key === 'Enter') runNearbySearch();
+  });
+  document.getElementById('nearbyClearBtn').addEventListener('click', () => {
+    document.getElementById('nearbyInput').value = '';
+    document.getElementById('nearbyStatus').innerHTML = '';
+    document.getElementById('nearbyList').innerHTML = '';
+    document.getElementById('nearbyMap').classList.remove('ready');
+    if(nearbyMap){
+      Object.values(nearbyLayers).forEach(lg => nearbyMap.removeLayer(lg));
+      nearbyLayers = {};
+      if(nearbyHomeMarker){ nearbyMap.removeLayer(nearbyHomeMarker); nearbyHomeMarker = null; }
+    }
+    nearbyCurrentCoords = null;
+    nearbyCurrentPois = null;
+  });
+  // Category toggles + radius change both re-render off cached POI data (no refetch).
+  document.querySelectorAll('.nearby-toggle input').forEach(cb => {
+    cb.addEventListener('change', () => { renderNearbyMap(); renderNearbyList(); });
+  });
+  document.getElementById('nearbyRadius').addEventListener('change', () => {
+    // Radius change needs a refetch since it defines Overpass's bounding box.
+    if(nearbyCurrentCoords) runNearbySearch();
+  });
 
   // ---------- Explore a Neighborhood: rank buildings by violation history ----------
   function titleCase(s){ return String(s||'').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()); }
