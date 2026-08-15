@@ -360,6 +360,53 @@
   .saved-listing .sl-actions a.sl-open:hover,
   .saved-listing .sl-actions button:hover{opacity:0.9;}
 
+  /* ---------- Commute anchor ---------- */
+  .commute-current{
+    padding:12px 14px; border-radius:10px; background:var(--panel2);
+    border:1px solid var(--border); font-size:0.92rem; margin-top:8px; display:none;
+  }
+  .commute-current.set{ display:block; }
+  .commute-current .cc-label{ color:var(--muted); font-size:0.72rem; text-transform:uppercase; letter-spacing:.04em; font-weight:600; margin-bottom:4px; }
+  .commute-current .cc-addr{ font-weight:600; word-break:break-word; }
+  .commute-chip{
+    display:inline-flex; align-items:center; gap:6px; font-size:0.85rem;
+    padding:6px 12px; border-radius:999px; border:1px solid var(--border);
+    background:var(--panel2); color:var(--text); text-decoration:none; font-weight:600;
+  }
+  .commute-chip:hover{ border-color:var(--accent); }
+  .commute-chip .cc-miles{ font-variant-numeric:tabular-nums; }
+
+  /* ---------- Rent-stabilization banner (positive signal, green) ---------- */
+  .rent-stab-banner{
+    background:rgba(76,175,125,0.10); border:2px solid var(--good); border-radius:12px;
+    padding:16px 20px; margin-bottom:18px;
+  }
+  .rent-stab-banner .rs-title{
+    font-size:1.05rem; font-weight:700; color:var(--good); margin-bottom:6px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .rent-stab-banner .rs-body{ font-size:0.93rem; line-height:1.5; margin-bottom:8px; }
+  .rent-stab-banner .rs-caveat{ font-size:0.82rem; color:var(--muted); }
+  .rent-stab-banner .rs-caveat a{ color:var(--link); }
+
+  /* ---------- Worst Landlord Watchlist banner ---------- */
+  .worst-landlord-banner{
+    background:rgba(226,104,95,0.10); border:2px solid var(--bad); border-radius:12px;
+    padding:16px 20px; margin-bottom:18px;
+  }
+  .worst-landlord-banner .wl-title{
+    font-size:1.05rem; font-weight:700; color:var(--bad); margin-bottom:6px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .worst-landlord-banner .wl-body{ font-size:0.95rem; line-height:1.5; margin-bottom:8px; }
+  .worst-landlord-banner .wl-caveat{ font-size:0.82rem; color:var(--muted); }
+  .worst-landlord-banner .wl-caveat a{ color:var(--link); }
+  .worst-landlord-badge{
+    display:inline-block; font-size:0.72rem; padding:2px 8px; border-radius:999px;
+    background:var(--bad); color:#fff; font-weight:700; margin-left:6px;
+    text-transform:uppercase; letter-spacing:.03em;
+  }
+
   /* ---------- What's Nearby tab: Leaflet map + POI listings ---------- */
   .nearby-toggles{display:flex; flex-wrap:wrap; gap:8px 14px; padding:6px 0;}
   .nearby-toggle{
@@ -700,6 +747,23 @@
 
   <div id="tab-tools" class="tab-panel">
     <div class="card">
+      <div class="section-title"><h2>🚌 My Commute Anchor</h2></div>
+      <p class="hint">Save one work/school address here. Every building report will show how far it is and offer one-click Google Maps transit directions from that building to here. Synced to your account when signed in.</p>
+      <div id="commuteCurrent" class="commute-current"></div>
+      <div class="row" style="margin-top:12px;">
+        <div class="field">
+          <label for="commuteInput">Address, cross-street, or place name</label>
+          <input type="text" id="commuteInput" placeholder="e.g. 350 5th Avenue, or Times Square, or Grand Central" autocomplete="off">
+        </div>
+      </div>
+      <div class="actions">
+        <button id="commuteSaveBtn">🚌 Save commute anchor</button>
+        <button class="secondary" id="commuteClearBtn" type="button">Clear</button>
+      </div>
+      <div id="commuteStatus" class="hint" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
       <div class="section-title"><h2>💰 Upfront-Cost &amp; Affordability Calculator</h2></div>
       <p class="hint">Estimates what you'd actually need on hand to move in, and whether the rent fits your budget. Nothing here is sent anywhere — it's calculated in your browser.</p>
       <div class="row3" style="margin-top:14px;">
@@ -872,6 +936,103 @@
   const BORO_NAMES = {MANHATTAN:'Manhattan', BROOKLYN:'Brooklyn', QUEENS:'Queens', BRONX:'Bronx', 'STATEN ISLAND':'Staten Island'};
   // Standard NYC borough codes, used by datasets (like DOHMH rodent inspections) that key on the number instead of the name.
   const BORO_CODES = {MANHATTAN:'1', BRONX:'2', BROOKLYN:'3', QUEENS:'4', 'STATEN ISLAND':'5'};
+
+  // Top of the NYC Public Advocate's Worst Landlord Watchlist for 2025
+  // (released Jan 2026, covering 2025 violation data). The Watchlist site
+  // (landlordwatchlist.com) is client-side rendered with no reliable JSON
+  // endpoint we can hit from a browser — the data below was pulled from
+  // multiple press sources reporting the top ranks. UPDATE ANNUALLY when the
+  // Public Advocate publishes the next list (typically January of the new
+  // year — search "NYC Public Advocate Worst Landlord Watchlist").
+  //
+  // We only carry the top 10 rather than all 100 because:
+  //  (a) getting the full 100 with structured rank data requires manually
+  //      parsing the watchlist site (JS-heavy, no export)
+  //  (b) the top 10 catches the worst offenders — the tail of a "worst 100"
+  //      list is by definition less severe
+  //  (c) an outdated match risks false-positives (someone with a common name
+  //      whose namesake is on last year's list but not this year's)
+  const WORST_LANDLORDS_YEAR = 2025;
+  const WORST_LANDLORDS_URL = 'https://www.landlordwatchlist.com/everylandlord';
+  const WORST_LANDLORDS = [
+    {rank:1,  name:'Margaret Brunn',   openViolations:4872, buildings:24, company:'A&E Real Estate Holdings'},
+    {rank:2,  name:'Donald Hastings',  openViolations:3889, buildings:36, company:'A&E Real Estate Holdings'},
+    {rank:3,  name:'Barry Singer',     openViolations:2885, buildings:15, company:null},
+    {rank:4,  name:'Joseph Cafiero',   openViolations:2871, buildings:19, company:null},
+    {rank:5,  name:'Peter Fine',       openViolations:2206, buildings:7,  company:null},
+    {rank:6,  name:'Robyn Lucas',      openViolations:2101, buildings:14, company:null},
+    {rank:7,  name:'Yonatan Bahumi',   openViolations:1801, buildings:34, company:null},
+    {rank:8,  name:'Claudette Henry',  openViolations:1738, buildings:25, company:null},
+    {rank:9,  name:'Joseph Pistilli',  openViolations:1656, buildings:8,  company:null},
+    {rank:10, name:'David Tennenbaum', openViolations:1549, buildings:14, company:null}
+  ];
+
+  // Normalize a name for matching: uppercase, letters and spaces only, collapse
+  // runs of whitespace. Turns "O'Connor, Jr." into "O CONNOR JR" so punctuation
+  // and case differences don't block a real match.
+  function normalizeName(s){
+    return String(s || '').toUpperCase().replace(/[^A-Z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  // Cross-reference HPD registration contacts against the Worst Landlord list.
+  // Requires every word of the watchlist name to appear as a whole word in the
+  // contact name — a bit conservative (won't match "Margaret A. Brunn" against
+  // a contact recorded as just "M. Brunn") but the alternative (partial-word
+  // match) false-matched too often on very common names in testing.
+  // Returns a de-duplicated array of {worstLandlord, matchedName} objects.
+  function checkWorstLandlordMatches(contactRows){
+    if(!Array.isArray(contactRows)) return [];
+    const matches = [];
+    const seen = new Set();
+    contactRows.forEach(r => {
+      const candidates = [
+        [r.firstname, r.middleinitial, r.lastname].filter(Boolean).join(' '),
+        r.corporationname
+      ].filter(Boolean).map(normalizeName);
+      WORST_LANDLORDS.forEach(bad => {
+        if(seen.has(bad.rank)) return;
+        const badWords = normalizeName(bad.name).split(' ').filter(w => w.length >= 2);
+        if(!badWords.length) return;
+        for(const cand of candidates){
+          const candWords = new Set(cand.split(' '));
+          if(badWords.every(w => candWords.has(w))){
+            matches.push({
+              worstLandlord: bad,
+              matchedName: [r.firstname, r.middleinitial, r.lastname].filter(Boolean).join(' ') || r.corporationname
+            });
+            seen.add(bad.rank);
+            break;
+          }
+        }
+      });
+    });
+    return matches;
+  }
+
+  function renderWorstLandlordBanner(matches){
+    if(!matches.length) return '';
+    // If multiple watchlist names matched (unusual but possible when a building's
+    // registered agents overlap with more than one #1-#10 spot), show the
+    // highest-ranked one at the top.
+    const primary = matches.slice().sort((a,b) => a.worstLandlord.rank - b.worstLandlord.rank)[0].worstLandlord;
+    const primaryName = matches.find(m => m.worstLandlord.rank === primary.rank).matchedName;
+    const others = matches.filter(m => m.worstLandlord.rank !== primary.rank);
+    return `<div class="card full worst-landlord-banner">
+      <div class="wl-title">🚨 On the ${WORST_LANDLORDS_YEAR} NYC Worst Landlord Watchlist</div>
+      <div class="wl-body">
+        A registered contact for this building, <strong>${esc(primaryName)}</strong>, matches
+        <strong>#${primary.rank}</strong> on the Public Advocate's ${WORST_LANDLORDS_YEAR} Worst Landlord Watchlist —
+        <strong>${primary.openViolations.toLocaleString()} open HPD violation${primary.openViolations===1?'':'s'}</strong>
+        across <strong>${primary.buildings} building${primary.buildings===1?'':'s'}</strong>${primary.company ? ` (${esc(primary.company)})` : ''}.
+        ${others.length ? `<br>Additional matches: ${others.map(m => `#${m.worstLandlord.rank} ${esc(m.worstLandlord.name)}`).join(', ')}.` : ''}
+      </div>
+      <div class="wl-caveat">
+        Common names can false-match — confirm on the
+        <a href="${WORST_LANDLORDS_URL}" target="_blank" rel="noopener">official Watchlist ↗</a>
+        before treating this as definitive.
+      </div>
+    </div>`;
+  }
 
   // DOB's official complaint category codes, from nyc.gov/assets/buildings/pdf/complaint_category.pdf (Rev. 09/21).
   // The API returns numeric codes zero-padded ("04", not "4"); lettered codes are used as printed.
@@ -1948,6 +2109,34 @@
     return html;
   }
 
+  // Positive-framed banner shown at the top of the report when the building has an
+  // active 421-a or J-51 tax exemption. Those programs require the beneficiary
+  // building to keep its residential units rent-stabilized during the benefit
+  // period, so the presence of one is a genuine positive signal for a renter (rent
+  // increases capped by the Rent Guidelines Board instead of the landlord's
+  // discretion at renewal). Careful with the copy: we can't guarantee a specific
+  // unit is stabilized (only that the building has stabilized units), and the
+  // condo/co-op BBL caveat still applies — see renderTaxExemptions above.
+  function renderRentStabBanner(bbl, result){
+    if(!bbl || !result || result.status !== 'fulfilled') return '';
+    const decoded = result.value && result.value.decoded;
+    if(!Array.isArray(decoded) || !decoded.length) return '';
+    const flagged = decoded.filter(d => d.flagged);
+    if(!flagged.length) return '';
+    const programs = flagged.map(f => f.desc).join(' + ');
+    return `<div class="card full rent-stab-banner">
+      <div class="rs-title">🏷️ Likely rent-stabilized</div>
+      <div class="rs-body">
+        This building has an active <strong>${esc(programs)}</strong> tax exemption on file — buildings receiving these benefits are generally required to keep affected units <strong>rent-stabilized</strong> for the benefit period. Rent increases would be capped by the <a href="https://rentguidelinesboard.cityofnewyork.us/current-guidelines/" target="_blank" rel="noopener">Rent Guidelines Board's</a> annual limits (typically 2–5%) instead of whatever the landlord sets at renewal.
+      </div>
+      <div class="rs-caveat">
+        This doesn't confirm <em>your specific unit</em> is stabilized — request a
+        <a href="https://hcr.ny.gov/rent-history" target="_blank" rel="noopener">DHCR rent history ↗</a>
+        (free, sent by mail in ~2 weeks) to verify. See the "Tax Exemptions" section below for the full record.
+      </div>
+    </div>`;
+  }
+
   // ---------- Building Grade: NYC-restaurant-style A–F letter grade from the same data ----------
   // Transparent, hand-weighted scoring (not a black box) — the point is a fast, familiar
   // gut-check, not a precise ranking. Every deduction is shown in the "why" breakdown.
@@ -2134,9 +2323,12 @@
           <a href="https://www.localize.city/" target="_blank" rel="noopener">🔍 Localize.city (permits &amp; construction) ↗</a>
           <a href="https://www.floodhelpny.org/" target="_blank" rel="noopener">🌊 Check flood risk (FloodHelpNY) ↗</a>
           <span id="parksLinkSlot"></span>
+          <span id="commuteChipSlot"></span>
         </div>
         <p class="hint" style="margin-top:10px;">Tip: once you know the owner's name below (see "Registered Owner / Managing Agent"), Ctrl+F for it on the Watchlist page, or search it directly on <a href="https://whoownswhat.justfix.org/en/" target="_blank" rel="noopener">Who Owns What</a> to see every building tied to them.</p>
       </div>
+      <div id="worstLandlordSlot"></div>
+      <div id="rentStabSlot"></div>
       <div class="card full" id="sec-listings">
         <div class="section-title"><h2>🔑 Current Listings for This Building</h2></div>
         <div class="top-links" style="margin-top:0;">
@@ -2256,6 +2448,7 @@
     } else {
       document.getElementById('parksLinkSlot').innerHTML =
         `<a href="https://www.google.com/maps/search/parks/@${coords.lat},${coords.lon},15z" target="_blank" rel="noopener">🌳 Find nearby parks ↗</a>`;
+      renderCommuteChip(coords); // shows distance-to-work chip if user has a commute anchor saved
       Promise.allSettled([fetchNearestSubwayStations(coords), fetchCrimeSnapshot(coords), fetchCrashSnapshot(coords)])
         .then(([subwayResult, crimeResult, crashResult]) => {
           transitBody.innerHTML = renderTransitSafety(coords, subwayResult, crimeResult, crashResult);
@@ -2268,7 +2461,11 @@
       exemptionsBody.innerHTML = renderTaxExemptions(null);
     } else {
       fetchTaxExemptions(bbl)
-        .then(value => { exemptionsBody.innerHTML = renderTaxExemptions(bbl, {status:'fulfilled', value}); })
+        .then(value => {
+          const result = {status:'fulfilled', value};
+          exemptionsBody.innerHTML = renderTaxExemptions(bbl, result);
+          document.getElementById('rentStabSlot').innerHTML = renderRentStabBanner(bbl, result);
+        })
         .catch(reason => { exemptionsBody.innerHTML = renderTaxExemptions(bbl, {status:'rejected', reason}); });
     }
 
@@ -2280,6 +2477,29 @@
       try{
         const {rows, url} = await fetchContactsForRegistration(latestRegId);
         contactsBody.innerHTML = renderContacts(rows) + sourceLinks(CONTACTS.landing, url);
+        // Cross-reference against the Worst Landlord Watchlist. Runs after
+        // contacts load (not during initial red-flags render) because the
+        // list of contacts isn't available until this async fetch resolves.
+        const wlMatches = checkWorstLandlordMatches(rows);
+        if(wlMatches.length){
+          document.getElementById('worstLandlordSlot').innerHTML = renderWorstLandlordBanner(wlMatches);
+          // Also prepend a red-flag entry so the "Possible Red Flags" section
+          // reflects it — otherwise the two callouts read as if they might be
+          // about different things.
+          const redFlagsBody = document.querySelector('#sec-redflags .body');
+          if(redFlagsBody){
+            const primary = wlMatches.slice().sort((a,b) => a.worstLandlord.rank - b.worstLandlord.rank)[0];
+            const wlLi = `<li style="margin-bottom:10px;">🚨 <strong>Registered contact ${esc(primary.matchedName)} matches #${primary.worstLandlord.rank} on the ${WORST_LANDLORDS_YEAR} Worst Landlord Watchlist.</strong> <a href="#worstLandlordSlot">See banner ↑</a> · <a href="${WORST_LANDLORDS_URL}" target="_blank" rel="noopener">View source ↗</a></li>`;
+            const ul = redFlagsBody.querySelector('ul');
+            if(ul){
+              ul.insertAdjacentHTML('afterbegin', wlLi);
+            } else {
+              // If the red flags section was previously empty ("no major red flags"),
+              // replace its content with a new list containing just this entry.
+              redFlagsBody.innerHTML = `<ul style="margin:0; padding-left:22px;">${wlLi}</ul>`;
+            }
+          }
+        }
       }catch(e){
         contactsBody.innerHTML = errBlock(e.message) + `<div class="src-links"><a href="${CONTACTS.landing}" target="_blank" rel="noopener">📄 Open dataset on NYC Open Data ↗</a></div>`;
       }
@@ -2545,6 +2765,83 @@
     if(rentInput) updateWatchlistRent(rentInput.dataset.id, rentInput.value);
   });
   persistWatchlist(loadWatchlist()); // paint the (n) count on load without touching stored data
+
+  // ---------- Commute anchor (stored per user, shown as a chip on every report) ----------
+  // Reuses geocodeAddress() from the What's Nearby tab. Stored in localStorage with
+  // {address, displayName, lat, lon, savedAt} — we geocode once at save time so the
+  // per-report distance render is instant (no network hop per building search).
+  const COMMUTE_KEY = 'nycAptCommuteAnchor';
+  function loadCommuteAnchor(){
+    try{ return JSON.parse(localStorage.getItem(COMMUTE_KEY)) || null; }
+    catch(e){ return null; }
+  }
+  function persistCommuteAnchor(anchor){
+    if(anchor) localStorage.setItem(COMMUTE_KEY, JSON.stringify(anchor));
+    else localStorage.removeItem(COMMUTE_KEY);
+    renderCommuteCurrent();
+    if(fbUser) pushToCloud();
+  }
+  function renderCommuteCurrent(){
+    const el = document.getElementById('commuteCurrent');
+    if(!el) return;
+    const anchor = loadCommuteAnchor();
+    if(anchor){
+      el.classList.add('set');
+      el.innerHTML = `
+        <div class="cc-label">Currently saved</div>
+        <div class="cc-addr">${esc(anchor.displayName || anchor.address)}</div>
+      `;
+    } else {
+      el.classList.remove('set');
+      el.innerHTML = '';
+    }
+  }
+  async function saveCommuteAnchor(){
+    const input = document.getElementById('commuteInput');
+    const status = document.getElementById('commuteStatus');
+    const raw = input.value.trim();
+    if(!raw){ status.innerHTML = '<span class="err">Enter an address first.</span>'; return; }
+    status.innerHTML = '<span class="loading"><span class="spinner"></span> Looking up address…</span>';
+    try{
+      // Nudge the geocoder toward an NYC-area match when the user typed something
+      // ambiguous like a bare place name ("Times Square") without a state.
+      const q = /new york|nyc|manhattan|brooklyn|queens|bronx|staten/i.test(raw) ? raw : `${raw}, New York, NY`;
+      const hit = await geocodeAddress(q);
+      persistCommuteAnchor({
+        address: raw,
+        displayName: hit.displayName,
+        lat: hit.lat,
+        lon: hit.lon,
+        savedAt: new Date().toISOString()
+      });
+      input.value = '';
+      status.innerHTML = `<span style="color:var(--good);">✅ Saved: ${esc(hit.displayName.split(',').slice(0,3).join(','))}</span>`;
+    }catch(e){
+      status.innerHTML = `<span class="err">⚠ ${esc(e.message || 'Address not found')}. Try adding the borough or ZIP.</span>`;
+    }
+  }
+  function renderCommuteChip(buildingCoords){
+    const slot = document.getElementById('commuteChipSlot');
+    if(!slot) return;
+    slot.innerHTML = '';
+    const anchor = loadCommuteAnchor();
+    if(!anchor || !buildingCoords) return;
+    const miles = haversineMiles(buildingCoords.lat, buildingCoords.lon, anchor.lat, anchor.lon);
+    const dirUrl = `https://www.google.com/maps/dir/?api=1` +
+      `&origin=${buildingCoords.lat},${buildingCoords.lon}` +
+      `&destination=${anchor.lat},${anchor.lon}` +
+      `&travelmode=transit`;
+    const label = anchor.displayName ? anchor.displayName.split(',')[0] : anchor.address;
+    slot.innerHTML = `<a class="commute-chip" href="${esc(dirUrl)}" target="_blank" rel="noopener" title="Google Maps transit directions to ${esc(label)}">🚌 <span class="cc-miles">${miles.toFixed(1)} mi</span> to ${esc(label)} ↗</a>`;
+  }
+  document.getElementById('commuteSaveBtn').addEventListener('click', saveCommuteAnchor);
+  document.getElementById('commuteInput').addEventListener('keydown', e => { if(e.key==='Enter') saveCommuteAnchor(); });
+  document.getElementById('commuteClearBtn').addEventListener('click', () => {
+    persistCommuteAnchor(null);
+    document.getElementById('commuteInput').value = '';
+    document.getElementById('commuteStatus').innerHTML = '';
+  });
+  renderCommuteCurrent();
 
   // ---------- Renter Tools: affordability calculator, lease scanner, checklist, rights ----------
   function fmtMoney(n){
@@ -3792,6 +4089,7 @@
         watchlist: loadWatchlist(),
         checklistState: loadChecklistState(),
         savedListings: loadSavedListings(),
+        commuteAnchor: loadCommuteAnchor(),
         updatedAt: new Date().toISOString()
       });
       if(status) status.textContent = 'Synced';
@@ -3829,6 +4127,14 @@
 
         localStorage.setItem(CHECKLIST_STATE_KEY, JSON.stringify({...cloudChecklist, ...loadChecklistState()}));
         renderChecklist();
+
+        // Commute anchor: cloud wins if it's set and local isn't. If both are set,
+        // local wins on the assumption the user updated it since their last sync.
+        // (Unlike watchlist/savedListings, this is a single record — no merge.)
+        const localCommute = loadCommuteAnchor();
+        if(data.commuteAnchor && typeof data.commuteAnchor === 'object' && !localCommute){
+          persistCommuteAnchor(data.commuteAnchor);
+        }
       } else {
         await pushToCloud(); // first sign-in on this account — seed the cloud doc from local data
       }
