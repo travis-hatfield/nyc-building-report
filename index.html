@@ -3230,12 +3230,33 @@
       });
     });
     const query = `[out:json][timeout:25];(${parts.join('')});out center;`;
-    const res = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: 'data=' + encodeURIComponent(query)
-    });
-    if(!res.ok) throw new Error(`Overpass ${res.status}`);
+    // Multiple Overpass mirrors — the primary `overpass-api.de` endpoint's CORS
+    // response is inconsistent from browsers (verified: works from curl, blocked
+    // from fetch), so we try `overpass.kumi.systems` first (widely used as the
+    // browser-friendly mirror) and fall back to alternates only if that one
+    // fails. The last one is the main endpoint as a final fallback, in case the
+    // mirrors happen to be down.
+    const endpoints = [
+      'https://overpass.kumi.systems/api/interpreter',
+      'https://overpass.private.coffee/api/interpreter',
+      'https://lz4.overpass-api.de/api/interpreter',
+      'https://overpass-api.de/api/interpreter'
+    ];
+    let res, lastErr;
+    for(const url of endpoints){
+      try{
+        res = await fetch(url, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: 'data=' + encodeURIComponent(query)
+        });
+        if(res.ok) break;
+        lastErr = new Error(`Overpass mirror at ${url.match(/\/\/([^/]+)/)[1]} returned ${res.status}`);
+      }catch(e){
+        lastErr = e; // network / CORS error — try next mirror
+      }
+    }
+    if(!res || !res.ok) throw lastErr || new Error('All Overpass mirrors failed');
     const data = await res.json();
     // Tag each element with its category based on which OSM tag it matched, so
     // the renderer can color-code without re-running the tag logic.
