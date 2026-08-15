@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NYC Apartment Search &amp; Building Report</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/assets/app.ico" sizes="any">
+<link rel="apple-touch-icon" href="/assets/icon-256.png">
+<meta name="theme-color" content="#182233" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="NYC Bldg Report">
+<meta name="description" content="Research NYC apartments — HPD violations, complaints, evictions, landlord history, transit and safety — from public NYC Open Data.">
+
 <style>
   :root{
     --bg:#0f1720; --panel:#182233; --panel2:#1f2c40; --border:#2c3b52;
@@ -360,6 +369,43 @@
   .saved-listing .sl-actions a.sl-open:hover,
   .saved-listing .sl-actions button:hover{opacity:0.9;}
 
+  /* ---------- Print styles: clean single-column PDF export ----------
+     Triggered by browser Print (Ctrl/Cmd-P → Save as PDF, or print-to-printer).
+     Hides all the interactive chrome (tabs, forms, buttons) and expands every
+     <details> so the printed page shows the full report top-to-bottom without
+     any "Show 5 individual violations" placeholders. */
+  @media print {
+    .tabs, .actions, header .auth-area,
+    .field, input, select, textarea, button,
+    .top-links button, .top-links{ display:none !important; }
+    /* Restore top-links contents (links only) except buttons already hidden above */
+    .top-links a{ display:inline-block !important; margin-right:12px; color:#000 !important; text-decoration:underline; font-size:0.85rem; }
+    .top-links{ display:block !important; margin-top:8px; padding-top:8px; border-top:1px solid #ccc; }
+    /* Force a light, print-friendly palette regardless of the user's theme */
+    :root, :root[data-theme="dark"]{
+      --bg:#fff !important; --panel:#fff !important; --panel2:#f4f4f4 !important;
+      --border:#ccc !important; --text:#000 !important; --muted:#555 !important;
+      --accent:#000 !important; --link:#0645ad !important;
+      --good:#0a5a2d !important; --warn:#7a5300 !important; --bad:#8a2318 !important;
+    }
+    body{ background:#fff !important; color:#000 !important; font-size:11pt; }
+    #results.show{ display:block !important; columns:1 !important; }
+    .card{ break-inside:avoid; page-break-inside:avoid; border:1px solid #ccc !important; margin-bottom:14pt !important; box-shadow:none !important; }
+    details{ display:block !important; }
+    details > summary{ display:none !important; }
+    details > :not(summary){ display:block !important; }
+    /* Hide app-wide elements that aren't part of the report itself */
+    .tab-panel:not(#tab-check), footer{ display:none !important; }
+    /* Force the check tab active regardless of what the user was on */
+    #tab-check{ display:block !important; }
+    /* Hide the initial search form on the check tab — only show results */
+    #tab-check > .card:first-child{ display:none !important; }
+    a[href^="http"]::after{ content:" (" attr(href) ")"; font-size:8pt; color:#555; }
+    /* But don't append the URL to internal-nav links or button-styled links */
+    a[href^="#"]::after, a.ls-open::after, .top-links a::after,
+    .commute-chip::after{ content:"" !important; }
+  }
+
   /* ---------- Commute anchor ---------- */
   .commute-current{
     padding:12px 14px; border-radius:10px; background:var(--panel2);
@@ -375,6 +421,28 @@
   }
   .commute-chip:hover{ border-color:var(--accent); }
   .commute-chip .cc-miles{ font-variant-numeric:tabular-nums; }
+
+  /* ---------- Affordable Housing tab: project cards ---------- */
+  .aff-project-list{display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:12px; margin-top:14px;}
+  .aff-project{
+    background:var(--panel2); border:1px solid var(--border); border-radius:10px;
+    padding:14px; display:flex; flex-direction:column; gap:6px;
+  }
+  .aff-project .ap-name{font-weight:700; font-size:0.94rem; line-height:1.3;}
+  .aff-project .ap-addr{font-size:0.85rem; color:var(--muted);}
+  .aff-project .ap-meta{font-size:0.8rem; color:var(--muted); display:flex; flex-wrap:wrap; gap:8px 14px; margin-top:4px;}
+  .aff-project .ap-tiers{
+    font-size:0.78rem; color:var(--muted); padding-top:6px; margin-top:6px;
+    border-top:1px solid var(--border);
+  }
+  .aff-project .ap-tier{display:inline-block; margin-right:10px;}
+  .aff-project .ap-tier .n{font-weight:600; color:var(--text);}
+  .aff-project .ap-actions{display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;}
+  .aff-project .ap-actions a{
+    font-size:0.78rem; padding:5px 10px; border-radius:6px; text-decoration:none;
+    background:var(--panel); border:1px solid var(--border); color:var(--text); font-weight:600;
+  }
+  .aff-project .ap-actions a:hover{border-color:var(--accent);}
 
   /* ---------- Rent-stabilization banner (positive signal, green) ---------- */
   .rent-stab-banner{
@@ -501,6 +569,7 @@
     <button class="tab-btn active" data-tab="check" role="tab" aria-selected="true">🔎 Check an Address</button>
     <button class="tab-btn" data-tab="listings" role="tab" aria-selected="false">🏙️ Find Listings <span id="savedListingsCount" class="tab-count"></span></button>
     <button class="tab-btn" data-tab="nearby" role="tab" aria-selected="false">🗺️ What's Nearby</button>
+    <button class="tab-btn" data-tab="affordable" role="tab" aria-selected="false">🏠 Affordable Housing</button>
     <button class="tab-btn" data-tab="explore" role="tab" aria-selected="false">🗺️ Explore a Neighborhood</button>
     <button class="tab-btn" data-tab="watchlist" role="tab" aria-selected="false">⭐ My Watchlist <span id="watchlistCount" class="tab-count"></span></button>
     <button class="tab-btn" data-tab="tools" role="tab" aria-selected="false">🧰 Renter Tools</button>
@@ -594,6 +663,65 @@
       <div id="nearbyStatus" class="nearby-status"></div>
       <div id="nearbyMap" class="nearby-map"></div>
       <div id="nearbyList"></div>
+    </div>
+  </div>
+
+  <div id="tab-affordable" class="tab-panel">
+    <div class="card">
+      <div class="section-title"><h2>🏠 Affordable Housing Projects</h2></div>
+      <p class="hint">Browse affordable housing projects built or preserved by HPD across NYC — filter by borough, unit size, and income tier. <strong>This shows the affordable housing supply, not current lottery listings.</strong> To apply to a specific lottery, use <a href="https://housingconnect.nyc.gov/PublicWeb/" target="_blank" rel="noopener">NYC Housing Connect ↗</a> — that's where open lotteries and their application deadlines live.</p>
+      <div class="row3" style="margin-top:14px;">
+        <div class="field">
+          <label for="affBorough">Borough</label>
+          <select id="affBorough">
+            <option value="">All NYC</option>
+            <option value="Manhattan">Manhattan</option>
+            <option value="Brooklyn">Brooklyn</option>
+            <option value="Queens">Queens</option>
+            <option value="Bronx">Bronx</option>
+            <option value="Staten Island">Staten Island</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="affBeds">Bedroom size (min)</label>
+          <select id="affBeds">
+            <option value="">Any</option>
+            <option value="studio_units">Studio</option>
+            <option value="_1_br_units">1 BR+</option>
+            <option value="_2_br_units">2 BR+</option>
+            <option value="_3_br_units">3 BR+</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="affIncome">Income tier</label>
+          <select id="affIncome">
+            <option value="">Any</option>
+            <option value="extremely_low_income_units">Extremely low (~30% AMI)</option>
+            <option value="very_low_income_units">Very low (~50% AMI)</option>
+            <option value="low_income_units">Low (~80% AMI)</option>
+            <option value="other_income_units">Moderate/middle (100%+ AMI)</option>
+          </select>
+        </div>
+      </div>
+      <div class="row3" style="margin-top:14px;">
+        <div class="field">
+          <label for="affSinceYear">Only projects since</label>
+          <select id="affSinceYear">
+            <option value="2015">2015</option>
+            <option value="2018">2018</option>
+            <option value="2020">2020</option>
+            <option value="2022" selected>2022</option>
+            <option value="2024">2024</option>
+            <option value="2025">2025</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint" style="margin-top:8px;">Area Median Income (AMI) tiers set eligibility — a household of 4 at 80% AMI in NYC is roughly $130K/year; 30% AMI is roughly $49K. Each project reports how many units it dedicates to each tier — a project with 100 "extremely low" units means it must rent 100 apartments only to eligible low-income households.</p>
+      <div class="actions">
+        <button id="affSearchBtn">🏠 Search projects</button>
+      </div>
+      <div id="affStatus" class="nearby-status"></div>
+      <div id="affResults"></div>
     </div>
   </div>
 
@@ -2316,6 +2444,8 @@
           <span class="badge">${esc(houseNumber)} ${esc(streetRaw)}, ${esc(BORO_NAMES[borough]||borough)}</span>
           <span id="gradeBadgeSlot"></span>
           <button id="saveWatchlistBtn" class="secondary" type="button">⭐ Save to Watchlist</button>
+          <button id="shareReportBtn" class="secondary" type="button" title="Copy a shareable URL to the clipboard">🔗 Share</button>
+          <button id="printReportBtn" class="secondary" type="button" title="Open browser Print dialog (use 'Save as PDF' for a clean PDF)">🖨️ Print / PDF</button>
           <a href="${wowUrl}" target="_blank" rel="noopener">🏘️ Who Owns What (portfolio, rent-stab &amp; sale history) ↗</a>
           <a href="https://hpdonline.nyc.gov/hpdonline/" target="_blank" rel="noopener">🏠 Search on HPD Online ↗</a>
           <a href="https://a810-bisweb.nyc.gov/bisweb/bispi00.jsp" target="_blank" rel="noopener">🏗️ Search on DOB NOW / BIS ↗</a>
@@ -2531,6 +2661,24 @@
   });
 
   searchBtn.addEventListener('click', runSearch);
+
+  // Auto-run search from URL params. Enables shareable report links —
+  // ?a=123&s=West+45+Street&b=MANHATTAN populates the form and kicks off the
+  // search on load. Ignored if the borough doesn't match a valid option, so a
+  // malformed link falls back to a normal empty landing page.
+  (function autoRunFromUrl(){
+    const p = new URLSearchParams(location.search);
+    const a = p.get('a'), s = p.get('s'), b = p.get('b');
+    if(!a || !s || !b) return;
+    const boroSelect = document.getElementById('borough');
+    const boroValid = Array.from(boroSelect.options).some(o => o.value === b);
+    if(!boroValid) return;
+    document.getElementById('houseNumber').value = a;
+    document.getElementById('streetName').value = s;
+    boroSelect.value = b;
+    // Kick off after other init has finished registering listeners.
+    setTimeout(runSearch, 0);
+  })();
   document.getElementById('clearBtn').addEventListener('click', () => {
     ueInput.value=''; document.getElementById('houseNumber').value='';
     document.getElementById('streetName').value=''; document.getElementById('borough').value='';
@@ -2621,6 +2769,31 @@
       setTimeout(() => { saveBtn.textContent = '⭐ Save to Watchlist'; saveBtn.disabled = false; }, 1500);
       return;
     }
+    const shareBtn = e.target.closest('#shareReportBtn');
+    if(shareBtn){
+      if(!currentSearch) return;
+      const params = new URLSearchParams({
+        a: currentSearch.houseNumber,
+        s: currentSearch.street,
+        b: currentSearch.borough
+      });
+      const shareUrl = `${location.origin}${location.pathname}?${params}`;
+      // navigator.clipboard needs a user gesture — the click provides that.
+      // Falls back to a manual prompt on browsers where it's blocked (e.g.
+      // insecure http origins).
+      const showCopied = () => {
+        shareBtn.textContent = '✅ Copied!';
+        setTimeout(() => { shareBtn.textContent = '🔗 Share'; }, 1500);
+      };
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(shareUrl).then(showCopied).catch(() => window.prompt('Copy this shareable link:', shareUrl));
+      } else {
+        window.prompt('Copy this shareable link:', shareUrl);
+      }
+      return;
+    }
+    const printBtn = e.target.closest('#printReportBtn');
+    if(printBtn){ window.print(); return; }
     const clearLink = e.target.closest('.clear-filter');
     if(clearLink){
       e.preventDefault();
@@ -3837,6 +4010,149 @@
     if(nearbyCurrentCoords) runNearbySearch();
   });
 
+  // ---------- Affordable Housing tab ----------
+  // Backed by NYC Open Data's "Affordable Housing Production by Building" dataset
+  // (hg8x-zxpr). Note this shows the supply of affordable housing (built and
+  // preserved by HPD), NOT currently-open lotteries — Housing Connect itself
+  // doesn't publish a public API. Each project card links out to Housing
+  // Connect where the actual lottery listings and their deadlines live.
+  //
+  // AMI (Area Median Income) tiers per HPD's own definitions — see
+  // https://www.nyc.gov/site/hpd/services-and-information/area-median-income.page
+  const AFFORDABLE_DATASET_ID = 'hg8x-zxpr';
+  const AFFORDABLE_LANDING = 'https://data.cityofnewyork.us/Housing-Development/Affordable-Housing-Production-by-Building/hg8x-zxpr';
+
+  async function runAffordableSearch(){
+    const boro = document.getElementById('affBorough').value;
+    const bedCol = document.getElementById('affBeds').value;
+    const incomeCol = document.getElementById('affIncome').value;
+    const sinceYear = document.getElementById('affSinceYear').value;
+    const statusEl = document.getElementById('affStatus');
+    const resultsEl = document.getElementById('affResults');
+    statusEl.innerHTML = '<span class="loading"><span class="spinner"></span> Searching affordable housing projects…</span>';
+    resultsEl.innerHTML = '';
+
+    // Build Socrata SoQL where clauses. Column names include leading underscores
+    // for the bedroom fields (Socrata's rewrite of "1_br_units") — this quirks
+    // once when composing the query and never again.
+    const whereParts = [];
+    if(boro) whereParts.push(`borough='${boro}'`);
+    if(sinceYear) whereParts.push(`project_start_date >= '${sinceYear}-01-01T00:00:00'`);
+    // "Filter by bedroom" means: only projects that have at least 1 unit of that
+    // bedroom size. Similarly for income tier.
+    if(bedCol) whereParts.push(`${bedCol} > 0`);
+    if(incomeCol) whereParts.push(`${incomeCol} > 0`);
+    const where = whereParts.length ? whereParts.join(' AND ') : '';
+
+    const params = new URLSearchParams({
+      '$order': 'project_start_date DESC',
+      '$limit': '100',
+      '$select': [
+        'project_id','project_name','house_number','street_name','borough','postcode',
+        'latitude','longitude','reporting_construction_type','project_start_date',
+        'extremely_low_income_units','very_low_income_units','low_income_units','other_income_units',
+        'studio_units','_1_br_units','_2_br_units','_3_br_units','_4_br_units',
+        'all_counted_units','total_units'
+      ].join(',')
+    });
+    if(where) params.set('$where', where);
+    const url = `https://data.cityofnewyork.us/resource/${AFFORDABLE_DATASET_ID}.json?${params}`;
+
+    try{
+      const res = await fetch(url);
+      if(!res.ok) throw new Error(`NYC Open Data returned ${res.status}`);
+      const rows = await res.json();
+      // De-duplicate by project_id (the dataset lists one row per BUILDING within
+      // a project, so a multi-building project would otherwise appear N times).
+      // We aggregate unit counts across the project's buildings so the card shows
+      // the whole project's numbers, not just one building's.
+      const projectMap = new Map();
+      rows.forEach(r => {
+        const key = r.project_id;
+        if(!projectMap.has(key)){
+          projectMap.set(key, {...r, buildingCount: 1, aggregate: {
+            extremely_low: Number(r.extremely_low_income_units)||0,
+            very_low: Number(r.very_low_income_units)||0,
+            low: Number(r.low_income_units)||0,
+            other: Number(r.other_income_units)||0,
+            studio: Number(r.studio_units)||0,
+            br1: Number(r._1_br_units)||0,
+            br2: Number(r._2_br_units)||0,
+            br3: Number(r._3_br_units)||0,
+            br4: Number(r._4_br_units)||0,
+            total: Number(r.all_counted_units || r.total_units)||0
+          }});
+        } else {
+          const p = projectMap.get(key);
+          p.buildingCount++;
+          p.aggregate.extremely_low += Number(r.extremely_low_income_units)||0;
+          p.aggregate.very_low += Number(r.very_low_income_units)||0;
+          p.aggregate.low += Number(r.low_income_units)||0;
+          p.aggregate.other += Number(r.other_income_units)||0;
+          p.aggregate.studio += Number(r.studio_units)||0;
+          p.aggregate.br1 += Number(r._1_br_units)||0;
+          p.aggregate.br2 += Number(r._2_br_units)||0;
+          p.aggregate.br3 += Number(r._3_br_units)||0;
+          p.aggregate.br4 += Number(r._4_br_units)||0;
+          p.aggregate.total += Number(r.all_counted_units || r.total_units)||0;
+        }
+      });
+      const projects = Array.from(projectMap.values());
+
+      if(!projects.length){
+        statusEl.innerHTML = `<span style="color:var(--muted);">No projects matched. Try broadening the filters.</span>`;
+        return;
+      }
+      statusEl.innerHTML = `<span style="color:var(--muted);">${projects.length} project${projects.length===1?'':'s'} found${projects.length===100?' (showing first 100 — narrow filters for more specific results)':''}.</span>`;
+
+      // Titlecase the ALL-CAPS project names and street names for readability
+      const tc = s => String(s||'').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
+      const dateStr = d => d ? new Date(d).toLocaleDateString('en-US', {year:'numeric', month:'short'}) : '—';
+
+      resultsEl.innerHTML = `<div class="aff-project-list">${projects.map(p => {
+        const addr = `${p.house_number || ''} ${tc(p.street_name || '')}`.trim();
+        const fullAddr = `${addr}, ${p.borough}, NY${p.postcode ? ' ' + p.postcode : ''}`;
+        const gmapsUrl = p.latitude && p.longitude
+          ? `https://www.google.com/maps/search/?api=1&query=${p.latitude},${p.longitude}`
+          : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddr)}`;
+        // Search Housing Connect for lottery listings at this project — imperfect
+        // (their search takes street text, not a stable project id) but the best
+        // handoff we can offer with public data alone.
+        const hcSearchUrl = `https://housingconnect.nyc.gov/PublicWeb/search-results?searchText=${encodeURIComponent(addr)}`;
+        const bedParts = [];
+        if(p.aggregate.studio) bedParts.push(`${p.aggregate.studio} studio`);
+        if(p.aggregate.br1) bedParts.push(`${p.aggregate.br1} 1BR`);
+        if(p.aggregate.br2) bedParts.push(`${p.aggregate.br2} 2BR`);
+        if(p.aggregate.br3) bedParts.push(`${p.aggregate.br3} 3BR`);
+        if(p.aggregate.br4) bedParts.push(`${p.aggregate.br4} 4BR+`);
+        const tierParts = [];
+        if(p.aggregate.extremely_low) tierParts.push(`<span class="ap-tier"><span class="n">${p.aggregate.extremely_low}</span> extremely low</span>`);
+        if(p.aggregate.very_low) tierParts.push(`<span class="ap-tier"><span class="n">${p.aggregate.very_low}</span> very low</span>`);
+        if(p.aggregate.low) tierParts.push(`<span class="ap-tier"><span class="n">${p.aggregate.low}</span> low</span>`);
+        if(p.aggregate.other) tierParts.push(`<span class="ap-tier"><span class="n">${p.aggregate.other}</span> moderate+</span>`);
+        return `<div class="aff-project">
+          <div class="ap-name">${esc(tc(p.project_name))}</div>
+          <div class="ap-addr">${esc(addr)}, ${esc(p.borough)}</div>
+          <div class="ap-meta">
+            <span>${esc(p.reporting_construction_type || 'Unknown type')}</span>
+            <span>Reported ${esc(dateStr(p.project_start_date))}</span>
+            <span><strong>${p.aggregate.total.toLocaleString()}</strong> unit${p.aggregate.total===1?'':'s'}${p.buildingCount>1?` across ${p.buildingCount} buildings`:''}</span>
+          </div>
+          ${bedParts.length ? `<div class="ap-tiers">Unit mix: ${esc(bedParts.join(' · '))}</div>` : ''}
+          ${tierParts.length ? `<div class="ap-tiers">Income tiers: ${tierParts.join('')}</div>` : ''}
+          <div class="ap-actions">
+            <a href="${esc(gmapsUrl)}" target="_blank" rel="noopener">📍 Map</a>
+            <a href="${esc(hcSearchUrl)}" target="_blank" rel="noopener">🏠 Search Housing Connect ↗</a>
+          </div>
+        </div>`;
+      }).join('')}</div>
+      <p class="hint" style="margin-top:14px;">Data: HPD Affordable Housing Production by Building (<a href="${AFFORDABLE_LANDING}" target="_blank" rel="noopener">NYC Open Data ↗</a>). Reports HPD-financed affordable units, so 100% market-rate construction isn't included here. A project appearing here doesn't guarantee a currently-open lottery — check the "Search Housing Connect" link for the building.</p>`;
+    }catch(e){
+      statusEl.innerHTML = `<span class="err">⚠ ${esc(e.message || 'Search failed')}. NYC Open Data is intermittent; try again.</span>`;
+    }
+  }
+  document.getElementById('affSearchBtn').addEventListener('click', runAffordableSearch);
+
   // ---------- Explore a Neighborhood: rank buildings by violation history ----------
   function titleCase(s){ return String(s||'').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()); }
   function buildingRowHtml(b, tone){
@@ -4176,6 +4492,17 @@
     }
   }
   initFirebase();
+
+  // Service worker registration for the PWA offline shell. Runs after the initial
+  // paint has finished (defer to window.load) so it doesn't compete with first
+  // render for network. Failures are silent — the app still works without it.
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(err => {
+        console.warn('Service worker registration failed:', err);
+      });
+    });
+  }
 })();
 </script>
 </body>

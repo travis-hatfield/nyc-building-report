@@ -1,0 +1,20 @@
+{
+  "name": "NYC Apartment Search & Building Report",
+  "short_name": "NYC Bldg Report",
+  "description": "Research NYC apartments — HPD violations, complaints, evictions, landlord history, transit and safety — all from public NYC Open Data.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f1720",
+  "theme_color": "#182233",
+  "categories": ["utilities", "productivity", "lifestyle"],
+  "icons": [
+    {
+      "src": "/assets/icon-256.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
