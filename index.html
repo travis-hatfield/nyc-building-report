@@ -588,8 +588,10 @@
 
       <div class="row3" style="margin-top:14px;">
         <div class="field">
-          <label for="lsLocation">Neighborhood or area (optional)</label>
-          <input type="text" id="lsLocation" placeholder="e.g. Astoria, Bed-Stuy, Washington Heights">
+          <label for="lsLocation">Neighborhood</label>
+          <select id="lsLocation">
+            <option value="">Any (whole borough)</option>
+          </select>
         </div>
         <div class="field">
           <label for="lsBorough">Borough</label>
@@ -2756,6 +2758,81 @@
   const acBoroSlug = {MANHATTAN:'new-york-ny', BROOKLYN:'brooklyn-ny', QUEENS:'queens-ny', BRONX:'bronx-ny', 'STATEN ISLAND':'staten-island-ny'};
   const rhBoroSlug = {MANHATTAN:'nyc', BROOKLYN:'brooklyn', QUEENS:'queens', BRONX:'bronx', 'STATEN ISLAND':'staten-island'};
 
+  // Curated neighborhood list per borough — the names renters actually use, not
+  // NYC Planning's NTA names (things like "West Central Queens" don't map to how
+  // people search). Alphabetical within each borough. When the user picks "All NYC"
+  // (borough=""), the dropdown flattens to all neighborhoods labeled by borough.
+  const NEIGHBORHOODS_BY_BOROUGH = {
+    MANHATTAN: [
+      'Battery Park City','Central Harlem','Chelsea','Chinatown','East Harlem','East Village',
+      'Financial District','Flatiron','Gramercy','Greenwich Village','Hamilton Heights',
+      'Harlem','Hell’s Kitchen','Inwood','Kips Bay','Lincoln Square','Little Italy',
+      'Lower East Side','Marble Hill','Midtown East','Midtown West','Morningside Heights',
+      'Murray Hill','NoHo','Nolita','Roosevelt Island','SoHo','Stuyvesant Town','Sugar Hill',
+      'Theater District','Times Square','Tribeca','Two Bridges','Upper East Side','Upper West Side',
+      'Washington Heights','West Harlem','West Village','Yorkville'
+    ],
+    BROOKLYN: [
+      'Bay Ridge','Bedford-Stuyvesant','Bensonhurst','Bergen Beach','Boerum Hill','Borough Park',
+      'Brighton Beach','Brooklyn Heights','Brownsville','Bushwick','Canarsie','Carroll Gardens',
+      'Clinton Hill','Cobble Hill','Coney Island','Crown Heights','DUMBO','Ditmas Park','Downtown Brooklyn',
+      'Dyker Heights','East Flatbush','East New York','East Williamsburg','Flatbush','Flatlands',
+      'Fort Greene','Gowanus','Gravesend','Greenpoint','Kensington','Manhattan Beach','Marine Park',
+      'Midwood','Mill Basin','Park Slope','Prospect Heights','Prospect Lefferts Gardens','Red Hook',
+      'Sea Gate','Sheepshead Bay','Sunset Park','Vinegar Hill','Williamsburg','Windsor Terrace'
+    ],
+    QUEENS: [
+      'Astoria','Bay Terrace','Bayside','Broad Channel','College Point','Corona','Douglaston',
+      'Elmhurst','Far Rockaway','Flushing','Forest Hills','Fresh Meadows','Glendale','Howard Beach',
+      'Jackson Heights','Jamaica','Kew Gardens','Kew Gardens Hills','Little Neck','Long Island City',
+      'Maspeth','Middle Village','Ozone Park','Rego Park','Richmond Hill','Ridgewood','Rockaway Beach',
+      'Sunnyside','Whitestone','Woodhaven','Woodside'
+    ],
+    BRONX: [
+      'Baychester','Bedford Park','Belmont','Castle Hill','Clason Point','Concourse','Co-op City',
+      'Country Club','Eastchester','Fordham','Foxhurst','Highbridge','Hunts Point','Kingsbridge',
+      'Kingsbridge Heights','Longwood','Melrose','Morris Heights','Morris Park','Morrisania',
+      'Mott Haven','Norwood','Parkchester','Pelham Bay','Port Morris','Riverdale','Soundview',
+      'Spuyten Duyvil','Throgs Neck','Tremont','University Heights','Van Nest','Wakefield','Woodlawn'
+    ],
+    'STATEN ISLAND': [
+      'Annadale','Arden Heights','Bulls Head','Charleston','Dongan Hills','Eltingville','Great Kills',
+      'Grymes Hill','Huguenot','Livingston','Mariners Harbor','New Brighton','New Dorp','New Springville',
+      'Oakwood','Port Richmond','Prince’s Bay','Rosebank','St. George','Stapleton','Todt Hill',
+      'Tompkinsville','Tottenville','West Brighton','Willowbrook'
+    ]
+  };
+
+  // Populate #lsLocation options based on the currently-selected borough. When no
+  // borough is picked, flattens to every neighborhood with its borough suffix so
+  // "Astoria - Queens" is still one selectable option in the All-NYC view.
+  function populateNeighborhoodDropdown(){
+    const sel = document.getElementById('lsLocation');
+    if(!sel) return;
+    const boro = document.getElementById('lsBorough').value;
+    const prevValue = sel.value;
+    let optsHtml = '<option value="">Any (whole borough)</option>';
+    if(boro && NEIGHBORHOODS_BY_BOROUGH[boro]){
+      optsHtml += NEIGHBORHOODS_BY_BOROUGH[boro]
+        .map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    } else {
+      // All NYC — flatten with borough suffix so identical names in different
+      // boroughs (rare but happens) don't collide as duplicate options.
+      Object.entries(NEIGHBORHOODS_BY_BOROUGH).forEach(([boroCode, list]) => {
+        const boroLabel = BORO_NAMES[boroCode];
+        list.forEach(n => {
+          optsHtml += `<option value="${esc(n)}" data-boro="${esc(boroCode)}">${esc(n)} — ${esc(boroLabel)}</option>`;
+        });
+      });
+    }
+    sel.innerHTML = optsHtml;
+    // Preserve the previous selection if it's still valid in the new option set.
+    if(prevValue){
+      const stillThere = Array.from(sel.options).some(o => o.value === prevValue);
+      if(stillThere) sel.value = prevValue;
+    }
+  }
+
   function slugifyLoc(s){
     return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
   }
@@ -2993,12 +3070,35 @@
 
   document.getElementById('lsSearchBtn').addEventListener('click', renderListingSearchResults);
   document.getElementById('lsClearBtn').addEventListener('click', () => {
-    ['lsLocation','lsMinRent','lsMaxRent'].forEach(id => { document.getElementById(id).value = ''; });
+    ['lsMinRent','lsMaxRent'].forEach(id => { document.getElementById(id).value = ''; });
     ['lsBorough','lsBeds','lsBaths','lsPets'].forEach(id => { document.getElementById(id).value = ''; });
     document.getElementById('lsListedWithin').value = '7';
     document.getElementById('lsSort').value = 'newest';
     document.getElementById('lsSearchResults').innerHTML = '';
+    populateNeighborhoodDropdown(); // resets neighborhood options to All-NYC view
   });
+
+  // Repopulate the neighborhood dropdown whenever the borough changes.
+  document.getElementById('lsBorough').addEventListener('change', populateNeighborhoodDropdown);
+
+  // When a user picks a neighborhood from the All-NYC flat view, auto-set the
+  // borough to the one that neighborhood belongs to — otherwise the URL builders
+  // (which infer borough from the borough dropdown) would default to all-NYC and
+  // the site would return borough-level results instead of neighborhood-level.
+  document.getElementById('lsLocation').addEventListener('change', e => {
+    const selected = e.target.selectedOptions[0];
+    const boroFromNeighborhood = selected && selected.dataset.boro;
+    const boroSelect = document.getElementById('lsBorough');
+    if(boroFromNeighborhood && !boroSelect.value){
+      boroSelect.value = boroFromNeighborhood;
+      populateNeighborhoodDropdown();
+      // populateNeighborhoodDropdown preserves the value if it's still in-list —
+      // which it will be, since we just set borough to that neighborhood's own borough.
+    }
+  });
+
+  // Initial population — options aren't there until this runs.
+  populateNeighborhoodDropdown();
 
   // ----- Saved Listings storage (parallel to the Watchlist) -----
   // Watchlist = buildings the user has researched; Saved Listings = specific listing
