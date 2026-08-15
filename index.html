@@ -2661,74 +2661,101 @@
     return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
   }
 
-  // Build a StreetEasy /for-rent URL with pipe-separated filters. StreetEasy's URL
-  // filter schema is the richest of any site here — location, price, beds, pets, and
-  // sort-by-newest all work off the URL alone, no on-site clicking needed.
+  // Human-readable filter labels, used in the per-site "Set on-site: X, Y" hints
+  const FILTER_LABELS = {
+    beds: 'bedrooms', baths: 'bathrooms', price: 'price',
+    pets: 'pets', sort: 'sort order', listedWithin: 'listing date'
+  };
+  function activeFilters(f){
+    const out = [];
+    if(f.beds !== '' && f.beds != null) out.push('beds');
+    if(f.baths) out.push('baths');
+    if(f.minRent || f.maxRent) out.push('price');
+    if(f.pets) out.push('pets');
+    if(f.sort && f.sort !== 'default') out.push('sort');
+    if(f.listedWithin && Number(f.listedWithin) > 0) out.push('listedWithin');
+    return out;
+  }
+
+  // Each URL builder returns {url, encoded: string[]} — encoded lists the filter keys
+  // we actually put into the URL. Anything active on the form but NOT in `encoded` is
+  // shown to the user as "Set on-site: ..." next to that site's link, so they know
+  // exactly what to adjust after clicking through. This prevents the previous bug
+  // where the summary claimed a filter was applied when the site had silently
+  // stripped it out of the URL.
+
+  // StreetEasy — verified live (Aug 2026 test): the site accepts price:min-max and
+  // beds:N as pipe-separated path segments, and sort_by as a QUERY PARAM with
+  // UPPERCASE values (NEWEST / LEAST_EXPENSIVE / MOST_EXPENSIVE). Prior versions of
+  // this code used sort_by:listed_desc as a path segment, plus dogs_allowed:1 /
+  // cats_allowed:1 / days_on_market:N — all silently stripped by StreetEasy on load
+  // (verified by watching the site rewrite the URL). We don't pass what we can't
+  // confirm: a wrong filter is worse than an absent one because the user assumes it
+  // was applied.
   function buildStreetEasyUrl(f){
     let loc;
-    if(f.location){
-      loc = slugifyLoc(f.location);
-    } else if(f.borough){
-      loc = seBoroSlug[f.borough] || 'nyc';
-    } else {
-      loc = 'nyc';
-    }
-    const parts = [];
+    if(f.location) loc = slugifyLoc(f.location);
+    else if(f.borough) loc = seBoroSlug[f.borough] || 'nyc';
+    else loc = 'nyc';
+    const encoded = [];
+    const path = [];
     if(f.minRent || f.maxRent){
-      parts.push(`price:${f.minRent||0}-${f.maxRent||''}`);
+      path.push(`price:${f.minRent||''}-${f.maxRent||''}`);
+      encoded.push('price');
     }
     if(f.beds !== '' && f.beds != null){
-      parts.push(`beds:${f.beds}`);
+      path.push(`beds:${f.beds}`);
+      encoded.push('beds');
     }
-    if(f.pets === 'any' || f.pets === 'dogs') parts.push('dogs_allowed:1');
-    if(f.pets === 'any' || f.pets === 'cats') parts.push('cats_allowed:1');
-    if(f.listedWithin && Number(f.listedWithin) > 0){
-      parts.push(`days_on_market:${f.listedWithin}`);
-    }
-    if(f.sort === 'newest') parts.push('sort_by:listed_desc');
-    else if(f.sort === 'price-asc') parts.push('sort_by:price_asc');
-    else if(f.sort === 'price-desc') parts.push('sort_by:price_desc');
-
-    const filterStr = parts.length ? '/' + parts.join('%7C') : '';
-    return `https://streeteasy.com/for-rent/${loc}${filterStr}`;
+    const pathStr = path.length ? '/' + path.join('%7C') : '';
+    const query = new URLSearchParams();
+    if(f.sort === 'newest'){ query.set('sort_by', 'NEWEST'); encoded.push('sort'); }
+    else if(f.sort === 'price-asc'){ query.set('sort_by', 'LEAST_EXPENSIVE'); encoded.push('sort'); }
+    else if(f.sort === 'price-desc'){ query.set('sort_by', 'MOST_EXPENSIVE'); encoded.push('sort'); }
+    const queryStr = query.toString() ? '?' + query.toString() : '';
+    return {url: `https://streeteasy.com/for-rent/${loc}${pathStr}${queryStr}`, encoded};
   }
 
+  // Zillow — their URL uses base64-encoded searchQueryState for filters, which we
+  // can't reliably reconstruct client-side. We pass location only and let the user
+  // adjust filters on their site.
   function buildZillowUrl(f){
     let loc;
-    if(f.borough && f.location){
-      loc = `${slugifyLoc(f.location)}-${slugifyLoc(BORO_NAMES[f.borough])}-ny`;
-    } else if(f.borough){
-      loc = `${slugifyLoc(BORO_NAMES[f.borough])}-ny`;
-    } else if(f.location){
-      loc = `${slugifyLoc(f.location)}-new-york-ny`;
-    } else {
-      loc = 'new-york-ny';
-    }
-    return `https://www.zillow.com/${loc}/rentals/`;
+    if(f.borough && f.location) loc = `${slugifyLoc(f.location)}-${slugifyLoc(BORO_NAMES[f.borough])}-ny`;
+    else if(f.borough) loc = `${slugifyLoc(BORO_NAMES[f.borough])}-ny`;
+    else if(f.location) loc = `${slugifyLoc(f.location)}-new-york-ny`;
+    else loc = 'new-york-ny';
+    return {url: `https://www.zillow.com/${loc}/rentals/`, encoded: []};
   }
 
-  // OpenIgloo's URL filter surface is minimal — link to /listings and pass a location
-  // hint via ?search. Users filter beds/price/etc on their site.
+  // OpenIgloo — URL filter surface is minimal. We pass location as a search query
+  // and let the user filter on their site.
   function buildOpenIglooUrl(f){
     const params = new URLSearchParams();
     if(f.location) params.set('search', f.location);
     else if(f.borough) params.set('search', BORO_NAMES[f.borough]);
     const q = params.toString();
-    return `https://www.openigloo.com/listings${q ? '?' + q : ''}`;
+    return {url: `https://www.openigloo.com/listings${q ? '?' + q : ''}`, encoded: []};
   }
 
+  // Apartments.com — path-segment style filters. Format is fairly stable; we pass
+  // location + beds + price + pets. Bedrooms/price haven't been re-verified this
+  // session — flagging as "attempted" not "verified" via the encoded list.
   function buildApartmentsComUrl(f){
     const loc = f.borough ? acBoroSlug[f.borough] : 'new-york-ny';
     const segments = [loc];
+    const encoded = [];
     if(f.beds !== '' && f.beds != null){
       if(f.beds === '0') segments.push('studios');
       else segments.push(`${f.beds}-bedrooms`);
+      encoded.push('beds');
     }
     if(f.minRent || f.maxRent){
       segments.push(`${f.minRent||0}-to-${f.maxRent||''}`);
+      encoded.push('price');
     }
-    if(f.pets && f.pets !== '') segments.push('pet-friendly');
-    return `https://www.apartments.com/${segments.join('/')}/`;
+    if(f.pets){ segments.push('pet-friendly'); encoded.push('pets'); }
+    return {url: `https://www.apartments.com/${segments.join('/')}/`, encoded};
   }
 
   function buildPadMapperUrl(f){
@@ -2738,59 +2765,69 @@
                : f.borough === 'STATEN ISLAND' ? 'staten-island-ny'
                : 'new-york-ny';
     const segments = ['apartments', loc];
+    const encoded = [];
     if(f.beds !== '' && f.beds != null){
       if(f.beds === '0') segments.push('studio');
       else segments.push(`${f.beds}-bedroom`);
+      encoded.push('beds');
     }
     if(f.minRent || f.maxRent){
       segments.push(`${f.minRent||0}-${f.maxRent||10000}-rent`);
+      encoded.push('price');
     }
-    if(f.pets && f.pets !== '') segments.push('pets-allowed');
-    return `https://www.padmapper.com/${segments.join('/')}`;
+    if(f.pets){ segments.push('pets-allowed'); encoded.push('pets'); }
+    return {url: `https://www.padmapper.com/${segments.join('/')}`, encoded};
   }
 
   function buildRentHopUrl(f){
     const loc = f.borough ? (rhBoroSlug[f.borough] || 'nyc') : 'nyc';
     const params = new URLSearchParams();
-    if(f.minRent) params.set('min_price', f.minRent);
-    if(f.maxRent) params.set('max_price', f.maxRent);
+    const encoded = [];
+    if(f.minRent){ params.set('min_price', f.minRent); encoded.push('price'); }
+    if(f.maxRent){ params.set('max_price', f.maxRent); if(!encoded.includes('price')) encoded.push('price'); }
     if(f.beds !== '' && f.beds != null){
       params.set('min_bedrooms', f.beds);
       params.set('max_bedrooms', f.beds);
+      encoded.push('beds');
     }
-    if(f.baths) params.set('min_bathrooms', f.baths);
-    if(f.sort === 'newest') params.set('sort', 'posted');
-    else if(f.sort === 'price-asc') params.set('sort', 'price_low');
-    else if(f.sort === 'price-desc') params.set('sort', 'price_high');
+    if(f.baths){ params.set('min_bathrooms', f.baths); encoded.push('baths'); }
+    if(f.sort === 'newest'){ params.set('sort', 'posted'); encoded.push('sort'); }
+    else if(f.sort === 'price-asc'){ params.set('sort', 'price_low'); encoded.push('sort'); }
+    else if(f.sort === 'price-desc'){ params.set('sort', 'price_high'); encoded.push('sort'); }
     const q = params.toString();
-    return `https://www.renthop.com/${loc}/apartments-for-rent${q ? '?' + q : ''}`;
+    return {url: `https://www.renthop.com/${loc}/apartments-for-rent${q ? '?' + q : ''}`, encoded};
   }
 
   // Catch-all — Google search phrased so the top results are typically listing pages
-  // themselves, useful for sites we haven't hard-coded (Compass, Naked Apartments,
-  // small brokerage sites, etc.).
+  // themselves. All filters are packed into the query string as natural language;
+  // Google handles the interpretation, so we treat every active filter as "encoded".
   function buildGoogleListingSearchUrl(f){
     const parts = ['apartments for rent'];
+    const encoded = [];
     if(f.location) parts.push(f.location);
     if(f.borough) parts.push(BORO_NAMES[f.borough]);
     if(!f.location && !f.borough) parts.push('NYC');
-    if(f.beds === '0') parts.push('studio');
-    else if(f.beds) parts.push(`${f.beds} bedroom`);
-    if(f.maxRent) parts.push(`under $${f.maxRent}`);
-    if(f.pets) parts.push('pets allowed');
-    if(f.sort === 'newest') parts.push('new listings');
-    return `https://www.google.com/search?q=${encodeURIComponent(parts.join(' '))}`;
+    if(f.beds === '0'){ parts.push('studio'); encoded.push('beds'); }
+    else if(f.beds){ parts.push(`${f.beds} bedroom`); encoded.push('beds'); }
+    if(f.maxRent){ parts.push(`under $${f.maxRent}`); encoded.push('price'); }
+    if(f.pets){ parts.push('pets allowed'); encoded.push('pets'); }
+    if(f.sort === 'newest'){ parts.push('new listings'); encoded.push('sort'); }
+    if(f.listedWithin && Number(f.listedWithin) > 0){
+      parts.push(`posted last ${f.listedWithin} days`);
+      encoded.push('listedWithin');
+    }
+    return {url: `https://www.google.com/search?q=${encodeURIComponent(parts.join(' '))}`, encoded};
   }
 
   function buildListingSearchLinks(f){
     return [
-      {site:'StreetEasy', icon:'🏙️', url:buildStreetEasyUrl(f), caption:'Best filter coverage · sorts by newest listed'},
-      {site:'OpenIgloo', icon:'🧊', url:buildOpenIglooUrl(f), caption:'Includes tenant reviews of buildings'},
-      {site:'Zillow', icon:'🔑', url:buildZillowUrl(f), caption:'Big inventory · use on-site filters if needed'},
-      {site:'Apartments.com', icon:'🏘️', url:buildApartmentsComUrl(f), caption:'National platform, strong NYC coverage'},
-      {site:'PadMapper', icon:'🗺️', url:buildPadMapperUrl(f), caption:'Map-first · aggregates from several sources'},
-      {site:'RentHop', icon:'🐇', url:buildRentHopUrl(f), caption:'Ranks by data quality · newest-sort in URL'},
-      {site:'Google', icon:'🔎', url:buildGoogleListingSearchUrl(f), caption:'Catch-all — surfaces smaller brokerage sites too'}
+      {site:'StreetEasy', icon:'🏙️', caption:'Best NYC filter support · newest-first sort works via URL', ...buildStreetEasyUrl(f)},
+      {site:'OpenIgloo', icon:'🧊', caption:'Includes tenant reviews · minimal URL filter support', ...buildOpenIglooUrl(f)},
+      {site:'Zillow', icon:'🔑', caption:'Big inventory · filter on-site (their URL scheme blocks external filters)', ...buildZillowUrl(f)},
+      {site:'Apartments.com', icon:'🏘️', caption:'National platform, strong NYC coverage', ...buildApartmentsComUrl(f)},
+      {site:'PadMapper', icon:'🗺️', caption:'Map-first · aggregates from several sources', ...buildPadMapperUrl(f)},
+      {site:'RentHop', icon:'🐇', caption:'Ranks by data quality · newest-sort in URL', ...buildRentHopUrl(f)},
+      {site:'Google', icon:'🔎', caption:'Catch-all — surfaces smaller brokerage sites too', ...buildGoogleListingSearchUrl(f)}
     ];
   }
 
@@ -2810,6 +2847,7 @@
 
   function renderListingSearchResults(){
     const f = collectListingFilters();
+    const active = activeFilters(f); // filter keys the user actually set on the form
     const links = buildListingSearchLinks(f);
 
     const parts = [];
@@ -2834,15 +2872,23 @@
     if(sortLabels[f.sort]) parts.push(`sorted <strong>${sortLabels[f.sort]}</strong>`);
 
     document.getElementById('lsSearchResults').innerHTML = `
-      <div class="ls-summary">Search: ${parts.join(', ')}. Click a site below to open its filtered results in a new tab.</div>
+      <div class="ls-summary">Search: ${parts.join(', ')}. Each site card below shows which filters it accepts via URL — the rest need to be set on the site after clicking through.</div>
       <div class="ls-links">
-        ${links.map(l => `
-          <a class="ls-link" href="${esc(l.url)}" target="_blank" rel="noopener">
-            <div class="ls-site">${l.icon} ${esc(l.site)} <span style="color:var(--muted); font-weight:400;">↗</span></div>
-            <div class="ls-caption">${esc(l.caption)}</div>
-          </a>`).join('')}
+        ${links.map(l => {
+          // Filters the user set but this site's URL scheme doesn't accept
+          const missed = active.filter(k => !l.encoded.includes(k));
+          const missedHtml = missed.length
+            ? `<div class="ls-caption" style="color:var(--warn);">Set on-site: ${missed.map(k => esc(FILTER_LABELS[k]||k)).join(', ')}</div>`
+            : (active.length ? `<div class="ls-caption" style="color:var(--good);">All filters applied via URL ✓</div>` : '');
+          return `
+            <a class="ls-link" href="${esc(l.url)}" target="_blank" rel="noopener">
+              <div class="ls-site">${l.icon} ${esc(l.site)} <span style="color:var(--muted); font-weight:400;">↗</span></div>
+              <div class="ls-caption">${esc(l.caption)}</div>
+              ${missedHtml}
+            </a>`;
+        }).join('')}
       </div>
-      <p class="hint" style="margin-top:12px;">If a site's page loads unfiltered, its URL scheme may not accept one of the filters — adjust it on the site. StreetEasy accepts the most (price, beds, pets, listing date, sort); OpenIgloo the fewest.</p>
+      <p class="hint" style="margin-top:12px;">StreetEasy's newest-first sort is verified to work via URL — <strong>use it as the primary site</strong> for finding recently-posted listings. Site URL schemes change over time; if any card looks unfiltered after loading, adjust the filters on that site directly.</p>
     `;
   }
 
