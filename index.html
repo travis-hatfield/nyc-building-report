@@ -326,6 +326,17 @@
   table.cmp-table .cmp-actions button{padding:5px 9px; font-size:0.78rem;}
 
   /* ---------- Find Listings tab ---------- */
+  .ls-location-chips{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;}
+  .ls-location-chip{
+    display:inline-flex; align-items:center; gap:6px; font-size:0.8rem; font-weight:600;
+    padding:4px 6px 4px 10px; border-radius:999px; background:var(--panel2);
+    border:1px solid var(--border); color:var(--text);
+  }
+  .ls-location-chip button{
+    background:transparent; border:none; color:var(--muted); padding:0 4px; font-size:0.9rem;
+    line-height:1; cursor:pointer; border-radius:50%;
+  }
+  .ls-location-chip button:hover{color:var(--bad);}
   .ls-summary{
     margin:16px 0 12px; padding:12px 14px; border-radius:8px; background:var(--panel2);
     border:1px dashed var(--border); font-size:0.86rem; color:var(--muted); line-height:1.6;
@@ -763,10 +774,10 @@
 
       <div class="row3" style="margin-top:14px;">
         <div class="field">
-          <label for="lsLocation">Neighborhood</label>
-          <select id="lsLocation">
-            <option value="">Any (whole borough)</option>
-          </select>
+          <label for="lsLocation">Neighborhood(s)</label>
+          <select id="lsLocation" multiple size="5"></select>
+          <div id="lsLocationChips" class="ls-location-chips"></div>
+          <p class="hint" style="margin-top:4px;">Cmd/Ctrl-click (or tap on mobile) to select more than one. Leave empty for the whole borough.</p>
         </div>
         <div class="field">
           <label for="lsBorough">Borough</label>
@@ -3276,12 +3287,15 @@
   // Populate #lsLocation options based on the currently-selected borough. When no
   // borough is picked, flattens to every neighborhood with its borough suffix so
   // "Astoria - Queens" is still one selectable option in the All-NYC view.
+  // #lsLocation is a multi-select (no "Any" option needed — an empty selection
+  // already means "any"); selections are preserved across repopulation by value,
+  // same as the old single-select behavior.
   function populateNeighborhoodDropdown(){
     const sel = document.getElementById('lsLocation');
     if(!sel) return;
     const boro = document.getElementById('lsBorough').value;
-    const prevValue = sel.value;
-    let optsHtml = '<option value="">Any (whole borough)</option>';
+    const prevValues = new Set(Array.from(sel.selectedOptions).map(o => o.value));
+    let optsHtml = '';
     if(boro && NEIGHBORHOODS_BY_BOROUGH[boro]){
       optsHtml += NEIGHBORHOODS_BY_BOROUGH[boro]
         .map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
@@ -3296,12 +3310,31 @@
       });
     }
     sel.innerHTML = optsHtml;
-    // Preserve the previous selection if it's still valid in the new option set.
-    if(prevValue){
-      const stillThere = Array.from(sel.options).some(o => o.value === prevValue);
-      if(stillThere) sel.value = prevValue;
-    }
+    // Re-select whichever previously-chosen neighborhoods are still valid options.
+    Array.from(sel.options).forEach(o => { if(prevValues.has(o.value)) o.selected = true; });
+    renderLocationChips();
   }
+
+  // Chips mirror the <select multiple>'s current selection and let the user
+  // remove one without hunting for it in a multi-select list (which, unlike
+  // checkboxes, gives no visual list of "what's currently picked" once closed).
+  function renderLocationChips(){
+    const sel = document.getElementById('lsLocation');
+    const chipsEl = document.getElementById('lsLocationChips');
+    if(!sel || !chipsEl) return;
+    const chosen = Array.from(sel.selectedOptions);
+    chipsEl.innerHTML = chosen.map(o =>
+      `<span class="ls-location-chip">${esc(o.value)}<button type="button" data-remove="${esc(o.value)}" aria-label="Remove ${esc(o.value)}">×</button></span>`
+    ).join('');
+  }
+  document.getElementById('lsLocation').addEventListener('change', renderLocationChips);
+  document.getElementById('lsLocationChips').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-remove]');
+    if(!btn) return;
+    const sel = document.getElementById('lsLocation');
+    Array.from(sel.options).forEach(o => { if(o.value === btn.dataset.remove) o.selected = false; });
+    renderLocationChips();
+  });
 
   function slugifyLoc(s){
     return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
@@ -3477,10 +3510,23 @@
     ];
   }
 
-  function collectListingFilters(){
+  // Returns one entry per selected neighborhood: {name, borough}. borough comes
+  // from the option's own data-boro (set in the All-NYC flat view) when present,
+  // otherwise from the single borough dropdown — so mixing neighborhoods from
+  // different boroughs in the flat view still resolves each to the right borough.
+  function selectedNeighborhoods(){
+    const sel = document.getElementById('lsLocation');
+    const boroFromDropdown = document.getElementById('lsBorough').value;
+    return Array.from(sel.selectedOptions).map(o => ({
+      name: o.value,
+      borough: o.dataset.boro || boroFromDropdown
+    }));
+  }
+
+  function collectListingFilters(location, borough){
     return {
-      location: document.getElementById('lsLocation').value.trim(),
-      borough: document.getElementById('lsBorough').value,
+      location: location || '',
+      borough: borough || '',
       minRent: document.getElementById('lsMinRent').value.trim(),
       maxRent: document.getElementById('lsMaxRent').value.trim(),
       beds: document.getElementById('lsBeds').value,
@@ -3491,16 +3537,10 @@
     };
   }
 
-  function renderListingSearchResults(){
-    const f = collectListingFilters();
-    const active = activeFilters(f); // filter keys the user actually set on the form
-    const links = buildListingSearchLinks(f);
-
+  // Shared filter-summary phrase (bedrooms, price, pets, etc.) — same for every
+  // neighborhood section, so built once from a filters object without a location.
+  function describeNonLocationFilters(f){
     const parts = [];
-    if(f.location && f.borough) parts.push(`<strong>${esc(f.location)}</strong>, ${esc(BORO_NAMES[f.borough])}`);
-    else if(f.location) parts.push(`<strong>${esc(f.location)}</strong>`);
-    else if(f.borough) parts.push(`<strong>${esc(BORO_NAMES[f.borough])}</strong>`);
-    else parts.push('<strong>all of NYC</strong>');
     if(f.beds !== '' && f.beds != null){
       parts.push(f.beds === '0' ? '<strong>studio</strong>' : `<strong>${esc(f.beds)}${f.beds==='4'?'+':''} BR</strong>`);
     }
@@ -3516,12 +3556,13 @@
     }
     const sortLabels = {newest:'newest first', 'price-asc':'cheapest first', 'price-desc':'priciest first'};
     if(sortLabels[f.sort]) parts.push(`sorted <strong>${sortLabels[f.sort]}</strong>`);
+    return parts;
+  }
 
-    document.getElementById('lsSearchResults').innerHTML = `
-      <div class="ls-summary">Search: ${parts.join(', ')}. Each site card below shows which filters it accepts via URL — the rest need to be set on the site after clicking through.</div>
-      <div class="ls-links">
+  function renderSiteLinksHtml(f, active){
+    const links = buildListingSearchLinks(f);
+    return `<div class="ls-links">
         ${links.map(l => {
-          // Filters the user set but this site's URL scheme doesn't accept
           const missed = active.filter(k => !l.encoded.includes(k));
           const missedHtml = missed.length
             ? `<div class="ls-caption" style="color:var(--warn);">Set on-site: ${missed.map(k => esc(FILTER_LABELS[k]||k)).join(', ')}</div>`
@@ -3533,7 +3574,50 @@
               ${missedHtml}
             </a>`;
         }).join('')}
-      </div>
+      </div>`;
+  }
+
+  function renderListingSearchResults(){
+    const neighborhoods = selectedNeighborhoods();
+    const boroOnly = document.getElementById('lsBorough').value;
+
+    if(neighborhoods.length <= 1){
+      // Zero or one neighborhood picked — same single-section layout as before.
+      const chosen = neighborhoods[0];
+      const f = collectListingFilters(chosen && chosen.name, chosen ? chosen.borough : boroOnly);
+      const active = activeFilters(f);
+      const parts = [];
+      if(f.location && f.borough) parts.push(`<strong>${esc(f.location)}</strong>, ${esc(BORO_NAMES[f.borough])}`);
+      else if(f.location) parts.push(`<strong>${esc(f.location)}</strong>`);
+      else if(f.borough) parts.push(`<strong>${esc(BORO_NAMES[f.borough])}</strong>`);
+      else parts.push('<strong>all of NYC</strong>');
+      parts.push(...describeNonLocationFilters(f));
+      document.getElementById('lsSearchResults').innerHTML = `
+        <div class="ls-summary">Search: ${parts.join(', ')}. Each site card below shows which filters it accepts via URL — the rest need to be set on the site after clicking through.</div>
+        ${renderSiteLinksHtml(f, active)}
+        <p class="hint" style="margin-top:12px;">StreetEasy's newest-first sort is verified to work via URL — <strong>use it as the primary site</strong> for finding recently-posted listings. Site URL schemes change over time; if any card looks unfiltered after loading, adjust the filters on that site directly.</p>
+      `;
+      return;
+    }
+
+    // Multiple neighborhoods — most listing sites' URL schemes only accept one
+    // area per search, so instead of guessing at an unverified "combined" URL
+    // (this app doesn't encode filters it can't confirm work), we build one
+    // section per neighborhood, each with its own set of verified site links.
+    const sampleFilters = collectListingFilters('', boroOnly);
+    const sharedParts = describeNonLocationFilters(sampleFilters);
+    const sections = neighborhoods.map(n => {
+      const f = collectListingFilters(n.name, n.borough);
+      const active = activeFilters(f);
+      return `
+        <div class="ls-neighborhood-section" style="margin-top:18px;">
+          <h3 style="font-size:0.98rem; margin:0 0 8px;">${esc(n.name)}${n.borough ? `, ${esc(BORO_NAMES[n.borough])}` : ''}</h3>
+          ${renderSiteLinksHtml(f, active)}
+        </div>`;
+    }).join('');
+    document.getElementById('lsSearchResults').innerHTML = `
+      <div class="ls-summary">Search: <strong>${neighborhoods.length} neighborhoods</strong>${sharedParts.length ? ', ' + sharedParts.join(', ') : ''}. Most listing sites only support one area per link, so each neighborhood below gets its own set of site links.</div>
+      ${sections}
       <p class="hint" style="margin-top:12px;">StreetEasy's newest-first sort is verified to work via URL — <strong>use it as the primary site</strong> for finding recently-posted listings. Site URL schemes change over time; if any card looks unfiltered after loading, adjust the filters on that site directly.</p>
     `;
   }
@@ -3545,27 +3629,11 @@
     document.getElementById('lsListedWithin').value = '7';
     document.getElementById('lsSort').value = 'newest';
     document.getElementById('lsSearchResults').innerHTML = '';
-    populateNeighborhoodDropdown(); // resets neighborhood options to All-NYC view
+    populateNeighborhoodDropdown(); // resets neighborhood options to All-NYC view (and clears selection/chips)
   });
 
   // Repopulate the neighborhood dropdown whenever the borough changes.
   document.getElementById('lsBorough').addEventListener('change', populateNeighborhoodDropdown);
-
-  // When a user picks a neighborhood from the All-NYC flat view, auto-set the
-  // borough to the one that neighborhood belongs to — otherwise the URL builders
-  // (which infer borough from the borough dropdown) would default to all-NYC and
-  // the site would return borough-level results instead of neighborhood-level.
-  document.getElementById('lsLocation').addEventListener('change', e => {
-    const selected = e.target.selectedOptions[0];
-    const boroFromNeighborhood = selected && selected.dataset.boro;
-    const boroSelect = document.getElementById('lsBorough');
-    if(boroFromNeighborhood && !boroSelect.value){
-      boroSelect.value = boroFromNeighborhood;
-      populateNeighborhoodDropdown();
-      // populateNeighborhoodDropdown preserves the value if it's still in-list —
-      // which it will be, since we just set borough to that neighborhood's own borough.
-    }
-  });
 
   // Initial population — options aren't there until this runs.
   populateNeighborhoodDropdown();
