@@ -3440,7 +3440,7 @@
     const item = list.find(x => x.id === id);
     if(!item) return;
     const n = Number(rentValue);
-    item.rent = (rentValue === '' || isNaN(n)) ? null : n;
+    item.rent = (rentValue === '' || isNaN(n) || n < 0) ? null : n;
     persistWatchlist(list); // silent — no re-render, so the input keeps focus while typing
   }
   // Comparison table so candidates can be judged side by side rather than scrolling
@@ -3589,13 +3589,17 @@
   const calcRunBtn = document.getElementById('calcRunBtn');
   const calcResultEl = document.getElementById('calcResult');
   calcRunBtn.addEventListener('click', () => {
-    const rent = Number(document.getElementById('calcRent').value) || 0;
-    const income = Number(document.getElementById('calcIncome').value) || 0;
+    // Math.max(0, ...) on every one of these: the <input min="0"> attribute only
+    // blocks the spinner arrows, not a manually typed "-500" — without the guard
+    // a negative income would flip the affordability ratio's sign and show
+    // "Comfortable" for what's actually nonsense input.
+    const rent = Math.max(0, Number(document.getElementById('calcRent').value) || 0);
+    const income = Math.max(0, Number(document.getElementById('calcIncome').value) || 0);
     const deposit = document.getElementById('calcDeposit').value === ''
       ? rent // NY law: security deposit can't exceed one month's rent, so default to a sane guess
-      : Number(document.getElementById('calcDeposit').value) || 0;
+      : Math.max(0, Number(document.getElementById('calcDeposit').value) || 0);
     const feeType = document.getElementById('calcBrokerFeeType').value;
-    const feeValue = Number(document.getElementById('calcBrokerFeeValue').value) || 0;
+    const feeValue = Math.max(0, Number(document.getElementById('calcBrokerFeeValue').value) || 0);
     const applicants = Math.max(1, Number(document.getElementById('calcAppFee').value) || 1);
 
     if(rent <= 0){
@@ -4099,11 +4103,20 @@
   }
 
   function collectListingFilters(location, borough){
+    let minRent = document.getElementById('lsMinRent').value.trim();
+    let maxRent = document.getElementById('lsMaxRent').value.trim();
+    // A reversed min/max (typo, or dragging the max field down without noticing)
+    // would otherwise flow straight into every site's URL as e.g. "price:2000-1000"
+    // — some sites silently ignore that, others just return zero results, and
+    // either way the user never finds out why. Swapping is the only sane
+    // interpretation of "min $2000, max $1000" anyway.
+    if(minRent !== '' && maxRent !== '' && Number(minRent) > Number(maxRent)){
+      [minRent, maxRent] = [maxRent, minRent];
+    }
     return {
       location: location || '',
       borough: borough || '',
-      minRent: document.getElementById('lsMinRent').value.trim(),
-      maxRent: document.getElementById('lsMaxRent').value.trim(),
+      minRent, maxRent,
       beds: document.getElementById('lsBeds').value,
       baths: document.getElementById('lsBaths').value,
       pets: document.getElementById('lsPets').value,
@@ -4448,35 +4461,27 @@
     };
   }
 
-  // Overpass query for POIs within a bounding box around the target address.
-  // We ask for all requested categories in one query (Overpass fans out internally
-  // faster than issuing sequential HTTP calls). `out center` returns just the
-  // centroid for ways (buildings with area), keeping the response small.
-  async function fetchNearbyPOIs(lat, lon, radiusMi, cats){
-    // Bounding box in decimal degrees. 1 deg latitude ≈ 69 miles; longitude is
-    // narrower at NYC's latitude, corrected by cos(lat).
-    const latDelta = radiusMi / 69;
-    const lonDelta = radiusMi / (69 * Math.cos(lat * Math.PI / 180));
-    const bbox = `${lat-latDelta},${lon-lonDelta},${lat+latDelta},${lon+lonDelta}`;
-    const parts = [];
-    cats.forEach(cat => {
-      (OVERPASS_TAGS[cat] || []).forEach(sel => {
-        parts.push(`${sel}(${bbox});`);
-      });
-    });
-    const query = `[out:json][timeout:25];(${parts.join('')});out center;`;
-    // Multiple Overpass mirrors, all fired at once and raced against each other
-    // (first one to answer wins) instead of tried one-at-a-time — a single slow
-    // or hung mirror used to stall the whole search for its full timeout before
-    // the next one was even attempted. Each request also gets its own 10s abort
-    // so a dead mirror can't hold up the race at all.
-    const endpoints = [
-      'https://overpass.kumi.systems/api/interpreter',
-      'https://overpass.private.coffee/api/interpreter',
-      'https://lz4.overpass-api.de/api/interpreter',
-      'https://overpass-api.de/api/interpreter'
-    ];
-    const attempts = endpoints.map(url => {
+  // Public Overpass mirrors are individually flaky in a way that's transient, not
+  // permanent — verified directly (curl, same 4 endpoints, ~5 minutes apart):
+  // different mirrors succeeded and failed each run, including one that fully
+  // hung on one pass and returned in under a second on the next. So a mirror
+  // that's down right now is not necessarily down a few seconds from now — it's
+  // worth one full retry of the race before treating it as a real failure.
+  // overpass.osm.ch added as a 5th mirror after benchmarking it fast and
+  // CORS-enabled (Access-Control-Allow-Origin: *) alongside the existing four.
+  const OVERPASS_ENDPOINTS = [
+    'https://overpass.osm.ch/api/interpreter',
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter',
+    'https://lz4.overpass-api.de/api/interpreter'
+  ];
+
+  // Races every mirror at once (first to answer wins) instead of trying them
+  // one-at-a-time — a single slow or hung mirror used to stall the whole search
+  // for its full timeout before the next one was even attempted.
+  async function raceOverpassMirrorsOnce(query){
+    const attempts = OVERPASS_ENDPOINTS.map(url => {
       const host = url.match(/\/\/([^/]+)/)[1];
       const controller = new AbortController();
       // Don't rely on AbortController.abort(reason) actually reaching the
@@ -4506,17 +4511,48 @@
         throw e;
       });
     });
-    let res;
     try{
-      res = await Promise.any(attempts);
+      return await Promise.any(attempts);
     }catch(aggErr){
-      // Every mirror failed — surface the most useful of the bunch rather than
-      // just "the first one" (an early network error can be less informative
-      // than a later timeout, or vice versa; picking any real Error over a
-      // generic one gives the user something actionable either way).
+      // Every mirror failed on this pass — surface the most useful of the bunch
+      // rather than just "the first one" (an early network error can be less
+      // informative than a later timeout, or vice versa; picking any real Error
+      // over a generic one gives the caller something actionable either way).
       const errs = (aggErr.errors || []).filter(Boolean);
-      throw errs.find(e => e instanceof Error && e.message) || new Error('All Overpass mirrors failed — try again in a moment.');
+      throw errs.find(e => e instanceof Error && e.message) || new Error('All Overpass mirrors failed.');
     }
+  }
+
+  async function raceOverpassMirrorsWithRetry(query){
+    try{
+      return await raceOverpassMirrorsOnce(query);
+    }catch(firstErr){
+      try{
+        return await raceOverpassMirrorsOnce(query);
+      }catch(secondErr){
+        throw secondErr; // both full rounds failed — this one's real, not a blip
+      }
+    }
+  }
+
+  // Overpass query for POIs within a bounding box around the target address.
+  // We ask for all requested categories in one query (Overpass fans out internally
+  // faster than issuing sequential HTTP calls). `out center` returns just the
+  // centroid for ways (buildings with area), keeping the response small.
+  async function fetchNearbyPOIs(lat, lon, radiusMi, cats){
+    // Bounding box in decimal degrees. 1 deg latitude ≈ 69 miles; longitude is
+    // narrower at NYC's latitude, corrected by cos(lat).
+    const latDelta = radiusMi / 69;
+    const lonDelta = radiusMi / (69 * Math.cos(lat * Math.PI / 180));
+    const bbox = `${lat-latDelta},${lon-lonDelta},${lat+latDelta},${lon+lonDelta}`;
+    const parts = [];
+    cats.forEach(cat => {
+      (OVERPASS_TAGS[cat] || []).forEach(sel => {
+        parts.push(`${sel}(${bbox});`);
+      });
+    });
+    const query = `[out:json][timeout:25];(${parts.join('')});out center;`;
+    const res = await raceOverpassMirrorsWithRetry(query);
     const data = await res.json();
     // Tag each element with its category based on which OSM tag it matched, so
     // the renderer can color-code without re-running the tag logic.

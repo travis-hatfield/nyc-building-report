@@ -116,6 +116,41 @@ async function testGlobalYearFilter(){
   check('resetting to "full history" brings every row back in both sections', dataRows('hpdComplaintsDynamic') === 2 && dataRows('threeOneOneDynamic') === 2);
 }
 
+async function testNearbyOverpassRetrySucceeds(){
+  console.log('\nWhat\'s Nearby: a fully-failed first round of mirrors gets retried once before erroring');
+  // Real public Overpass mirrors were observed to be transiently flaky (verified
+  // live via curl — different mirrors failed vs. succeeded on runs seconds
+  // apart), so a genuine "all 5 mirrors failed" moment doesn't necessarily mean
+  // the data is unreachable — it's worth one full retry before giving up.
+  let overpassCalls = 0;
+  const window = newApp(() => async (url) => {
+    const u = String(url);
+    if(u.includes('nominatim')) return { ok:true, status:200, json: async () => ([{lat:'40.7484', lon:'-73.9857', display_name:'Test Address, Manhattan, NY'}]) };
+    if(u.includes('overpass')){
+      overpassCalls++;
+      if(overpassCalls <= 5) return Promise.reject(new TypeError('Failed to fetch')); // whole first round fails
+      return { ok:true, status:200, json: async () => ({elements: []}) }; // second round succeeds
+    }
+    return { ok:true, status:200, json: async () => [] };
+  });
+  window.L = {
+    map(){ return { setView(){return this;}, invalidateSize(){}, removeLayer(){} }; },
+    tileLayer(){ return { addTo(){} }; },
+    marker(){ return { bindPopup(){return this;}, addTo(){return this;} }; },
+    divIcon(){ return {}; },
+    layerGroup(){ return { addTo(){return this;} }; }
+  };
+  await wait(200);
+  const doc = window.document;
+  doc.querySelector('[data-tab="nearby"]').click();
+  doc.getElementById('nearbyInput').value = 'Test Address';
+  doc.getElementById('nearbyGoBtn').click();
+  await wait(500);
+  check('all 5 mirrors were hit twice (one retry round)', overpassCalls === 10);
+  const statusText = doc.getElementById('nearbyStatus').innerHTML;
+  check('search still succeeds after the retry', statusText.includes('Centered on') && !statusText.includes('err'));
+}
+
 async function testNearbyAbortMessage(){
   console.log('\nWhat\'s Nearby: hung Overpass mirror shows a real message, not the generic browser one');
   const window = newApp(win => async (url, opts) => {
@@ -140,7 +175,7 @@ async function testNearbyAbortMessage(){
   doc.querySelector('[data-tab="nearby"]').click();
   doc.getElementById('nearbyInput').value = 'Test Address';
   doc.getElementById('nearbyGoBtn').click();
-  await wait(21000); // must exceed fetchNearbyPOIs's 20s per-mirror timeout
+  await wait(41000); // must exceed BOTH retry rounds (20s timeout x 2, since fetchNearbyPOIs retries once)
   const statusText = doc.getElementById('nearbyStatus').innerHTML;
   check('shows a specific "timed out" message', statusText.includes('timed out'));
   check('does NOT show the generic browser abort message', !statusText.includes('signal is aborted without reason'));
@@ -175,8 +210,8 @@ async function testNearbyFetchesOnlySelectedCategories(){
   // parallel (first to answer wins) — so one fetch = 4 queries, all carrying
   // the same body. That's expected; what matters is the body content and how
   // many *distinct* fetch calls happened (queries.length / MIRROR_COUNT).
-  const MIRROR_COUNT = 4;
-  check('initial search fires exactly one round of mirror queries (4 requests)', overpassQueries.length === MIRROR_COUNT);
+  const MIRROR_COUNT = 5;
+  check(`initial search fires exactly one round of mirror queries (${MIRROR_COUNT} requests)`, overpassQueries.length === MIRROR_COUNT);
   check('initial query excludes an unchecked category (parks)', !overpassQueries[0]?.includes('leisure'));
   check('initial query includes a checked category (cafe)', overpassQueries[0]?.includes('amenity') && overpassQueries[0]?.includes('cafe'));
 
@@ -184,7 +219,7 @@ async function testNearbyFetchesOnlySelectedCategories(){
   parksToggle.checked = true;
   parksToggle.dispatchEvent(new window.Event('change', {bubbles:true}));
   await wait(500);
-  check('toggling on Parks fires exactly one more round (8 requests total)', overpassQueries.length === MIRROR_COUNT * 2);
+  check(`toggling on Parks fires exactly one more round (${MIRROR_COUNT * 2} requests total)`, overpassQueries.length === MIRROR_COUNT * 2);
   const parksQuery = overpassQueries[MIRROR_COUNT];
   check('that follow-up round only asks for parks, not everything again', parksQuery?.includes('leisure') && !parksQuery?.includes('shop'));
 
@@ -250,7 +285,8 @@ async function testRetryButton(){
   await testMultiNeighborhoodCheckboxes();
   await testRetryButton();
   await testNearbyFetchesOnlySelectedCategories();
-  await testNearbyAbortMessage(); // slowest (~21s) — runs last
+  await testNearbyOverpassRetrySucceeds();
+  await testNearbyAbortMessage(); // slowest (~41s) — runs last
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
