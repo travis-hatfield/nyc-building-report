@@ -66,6 +66,13 @@
   button:disabled{opacity:0.55; cursor:not-allowed;}
   .actions{display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;}
   .tabs{display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap;}
+  /* Below ~860px, 7 tabs no longer fit even wrapped without looking cramped/clipped
+     (verified against the actual tab label widths) — switch to a single horizontally
+     scrollable row instead, same pattern browsers use for scrollable tab strips. */
+  @media (max-width:860px){
+    .tabs{flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:4px; scrollbar-width:thin;}
+    .tabs .tab-btn{flex:none;}
+  }
   .tab-btn{
     background:var(--panel); color:var(--muted); border:1px solid var(--border);
     padding:10px 16px; border-radius:999px; font-size:0.92rem; font-weight:600;
@@ -164,16 +171,27 @@
 
   /* ============================================================
      "Case File" treatment — HPD Violations + DOB Complaints only.
-     Deliberately light-only "paper report" theme, independent of the
-     rest of the app's dark/light toggle (a considered design choice,
-     not an oversight — see design review). Entirely scoped under
-     .case-file-card / .case-file with its own --cf-* tokens so it
-     can't leak into or be affected by the app's --root tokens above.
+     A distinct "paper report" theme (serif heads, warm ink tones),
+     independent of the rest of the app's palette. Originally light-only
+     by design, but that meant two cards stayed glaring white in the
+     middle of an otherwise-dark report — now it gets its own dark
+     variant (warm charcoal "paper at night" instead of true black, so
+     it still reads as a distinct dossier rather than just blending into
+     the app's own dark cards) instead of ignoring dark mode entirely.
+     Entirely scoped under .case-file-card / .case-file with its own
+     --cf-* tokens so it can't leak into or be affected by the app's
+     --root tokens above.
      ============================================================ */
   .case-file-card{
     --cf-paper:#faf9f6; --cf-panel:#ffffff; --cf-ink:#211f1a; --cf-rule:#e3e0d7;
     --cf-accent:#7a4b1e; --cf-good:#3a6b45; --cf-warn:#9a6a1a; --cf-bad:#9c3a2b; --cf-muted:#847c6c;
     background:var(--cf-paper); border-color:var(--cf-rule); color:var(--cf-ink);
+  }
+  @media (prefers-color-scheme: dark){
+    .case-file-card{
+      --cf-paper:#26221c; --cf-panel:#2e2a22; --cf-ink:#eee7d9; --cf-rule:#4a4436;
+      --cf-accent:#d3a35c; --cf-good:#7cc99a; --cf-warn:#e6c574; --cf-bad:#e08b7d; --cf-muted:#a89d84;
+    }
   }
   .case-file-card .cf-head{ margin-bottom:4px; }
   .case-file-card .cf-head h2{
@@ -326,6 +344,31 @@
   table.cmp-table .cmp-actions button{padding:5px 9px; font-size:0.78rem;}
 
   /* ---------- Find Listings tab ---------- */
+  /* Checkbox dropdown for Find Listings' neighborhood picker — a native
+     <select multiple> has no real tap-to-toggle gesture on mobile and its
+     "currently selected" state is invisible once you scroll away, so this
+     mirrors the same checkbox-list pattern already used for What's Nearby's
+     map toggles instead. */
+  .ms-dropdown{position:relative;}
+  .ms-dropdown-btn{
+    width:100%; text-align:left; padding:10px 12px; border-radius:8px; border:1px solid var(--border);
+    background:var(--panel2); color:var(--text); font-size:0.98rem; font-weight:400;
+    display:flex; justify-content:space-between; align-items:center; gap:8px;
+  }
+  .ms-dropdown-btn::after{content:"▾"; color:var(--muted); flex:none;}
+  .ms-dropdown-btn:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+  .ms-dropdown-panel{
+    position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:30;
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    box-shadow:0 8px 24px rgba(0,0,0,.25); max-height:260px; overflow-y:auto; padding:6px;
+  }
+  .ms-dropdown-panel label{
+    display:flex; align-items:center; gap:8px; padding:8px 8px; border-radius:6px;
+    font-size:0.88rem; font-weight:500; color:var(--text); text-transform:none; letter-spacing:normal;
+    cursor:pointer;
+  }
+  .ms-dropdown-panel label:hover{background:var(--panel2);}
+  .ms-dropdown-panel input{margin:0; accent-color:var(--accent); flex:none;}
   .ls-location-chips{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;}
   .ls-location-chip{
     display:inline-flex; align-items:center; gap:6px; font-size:0.8rem; font-weight:600;
@@ -529,6 +572,8 @@
   .nearby-marker.cat-grocery{background:#43a047;}
   .nearby-marker.cat-attractions{background:#8e24aa;}
   .nearby-marker.cat-parks{background:#2e7d32;}
+  .nearby-marker.cat-laundry{background:#00897b;}
+  .nearby-marker.cat-nightlife{background:#d81b60;}
   .nearby-marker.cat-home{background:var(--bad); width:32px; height:32px; font-size:16px;}
   .nearby-list{margin-top:18px; display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px;}
   .nearby-list .nl-cat{
@@ -538,10 +583,16 @@
   .nearby-list .nl-cat h4 .count{color:var(--muted); font-weight:500; font-size:0.82rem;}
   .nearby-list .nl-item{
     font-size:0.85rem; padding:5px 0; border-top:1px solid var(--border);
-    display:flex; justify-content:space-between; gap:8px;
+    display:flex; justify-content:space-between; align-items:baseline; gap:8px; flex-wrap:wrap;
   }
   .nearby-list .nl-item:first-of-type{border-top:none;}
-  .nearby-list .nl-item .nl-dist{color:var(--muted); font-size:0.78rem; white-space:nowrap;}
+  .nearby-list .nl-item .nl-dist{color:var(--muted); font-size:0.78rem; white-space:nowrap; margin-left:auto;}
+  /* Name + "Website/Look up" link share the first column — let them wrap onto
+     their own line rather than fighting the distance badge for width on
+     narrow screens (this got noticeably tighter once the lookup link was
+     added inline next to the POI name). */
+  .nearby-list .nl-item > span:first-child{flex:1 1 auto; min-width:0;}
+  .nearby-list .nl-item > span:first-child a{white-space:nowrap;}
 
   #results{display:none;}
   /* Multi-column (not grid) so cards keep their own natural height — a grid's row
@@ -664,6 +715,8 @@
             <label class="nearby-toggle"><input type="checkbox" data-cat="grocery" checked> 🛒 Groceries</label>
             <label class="nearby-toggle"><input type="checkbox" data-cat="attractions" checked> 🎭 Attractions</label>
             <label class="nearby-toggle"><input type="checkbox" data-cat="parks"> 🌳 Parks</label>
+            <label class="nearby-toggle"><input type="checkbox" data-cat="laundry"> 🧺 Laundry</label>
+            <label class="nearby-toggle"><input type="checkbox" data-cat="nightlife"> 🍸 Nightlife</label>
           </div>
         </div>
       </div>
@@ -755,7 +808,7 @@
           </select>
         </div>
       </div>
-      <p class="hint">Matched against NYC Planning's neighborhood names (Neighborhood Tabulation Areas) in HPD's violation data — try the name as it'd appear on a city map. This ranks buildings that already have at least one violation on record; it can't yet surface buildings with a completely clean history.</p>
+      <p class="hint">Matched against NYC Planning's neighborhood names (Neighborhood Tabulation Areas) in HPD's violation data — try the name as it'd appear on a city map. <strong>Important limitation:</strong> this can only rank buildings that already have at least one violation on record in HPD's data — there's no reliable public dataset of "every residential building in this neighborhood" to cross-reference against, so a building with a genuinely spotless record never appears here at all, even in "Fewest open violations." If a specific candidate matters to you, always run it through <a href="#" data-tab-link="check">🔎 Check an Address</a> directly — that's the only way to see a true zero-violation result.</p>
       <div class="actions">
         <button id="exploreBtn">🗺️ Search neighborhood</button>
       </div>
@@ -774,10 +827,13 @@
 
       <div class="row3" style="margin-top:14px;">
         <div class="field">
-          <label for="lsLocation">Neighborhood(s)</label>
-          <select id="lsLocation" multiple size="5"></select>
+          <label for="lsLocationBtn">Neighborhood(s)</label>
+          <div class="ms-dropdown">
+            <button type="button" class="ms-dropdown-btn" id="lsLocationBtn" aria-haspopup="listbox" aria-expanded="false">Any (whole borough)</button>
+            <div class="ms-dropdown-panel" id="lsLocationPanel" role="listbox" aria-multiselectable="true" aria-label="Neighborhoods" hidden></div>
+          </div>
           <div id="lsLocationChips" class="ls-location-chips"></div>
-          <p class="hint" style="margin-top:4px;">Cmd/Ctrl-click (or tap on mobile) to select more than one. Leave empty for the whole borough.</p>
+          <p class="hint" style="margin-top:4px;">Check as many as you want — leave empty for the whole borough.</p>
         </div>
         <div class="field">
           <label for="lsBorough">Borough</label>
@@ -983,6 +1039,10 @@
 
   // Cache for storing dataset rows to avoid storing large JSON in HTML attributes
   const datasetRowsCache = {};
+  // Set fresh on every runSearch() to that search's own loadDatasetSection closure
+  // (which captures that search's ctx/resultsByKey) — the single delegated retry
+  // click handler below always calls whichever one is current.
+  let currentLoadDatasetSection = null;
 
   // Firebase auth/sync state — declared here (not down by initFirebase where it's
   // populated) because persistWatchlist() references fbUser on every call, including
@@ -1630,8 +1690,13 @@
   function loadingBlock(label){
     return `<div class="loading"><span class="spinner"></span> Searching ${esc(label)}…</div>`;
   }
-  function errBlock(msg){
-    return `<div class="err">⚠ Couldn't load this dataset (${esc(msg)}). Try the source link above to check manually.</div>`;
+  // retryKey is optional — when given (currently only the DATASETS.map loop
+  // passes one), adds a Retry button that re-fetches just that one section
+  // instead of forcing the user back through a whole new address search over
+  // what's often just a transient rate-limit or network blip.
+  function errBlock(msg, retryKey){
+    const retryHtml = retryKey ? ` <button type="button" class="secondary" style="padding:4px 10px; font-size:0.8rem;" data-retry-key="${esc(retryKey)}">🔄 Retry</button>` : '';
+    return `<div class="err">⚠ Couldn't load this dataset (${esc(msg)}). Try the source link above to check manually.${retryHtml}</div>`;
   }
   // If a fetch returns exactly `limit` rows, there may be more we didn't see — the
   // stat cards above are computed only from what was fetched, so say so plainly rather
@@ -2651,8 +2716,18 @@
     let latestRegId = null;
     const resultsByKey = {};
 
-    await Promise.all(DATASETS.map(async ds => {
+    // Pulled out of the Promise.all loop so a single failed dataset (rate limit,
+    // network blip) can be retried on its own via the button in errBlock, instead
+    // of forcing a full address re-search. Note: a retry only updates that one
+    // card's own display — it doesn't retroactively recompute the building grade,
+    // red flags, or anything else that already ran off the first (failed) fetch.
+    // That's an intentional scope limit, not an oversight: those all run once,
+    // synchronously, right after every dataset settles, and re-running that whole
+    // cascade from a single-section retry would risk other subtle inconsistencies
+    // for a fairly rare case (most failures are transient and the retry succeeds).
+    async function loadDatasetSection(ds){
       const body = document.querySelector(`#sec-${ds.key} .body`);
+      body.innerHTML = loadingBlock(ds.label);
       try{
         const {rows, url} = await fetchDataset(ds, ctx);
         resultsByKey[ds.key] = {rows, url};
@@ -2663,9 +2738,11 @@
         const truncated = rows.length === ds.limit ? truncationWarning(ds) : '';
         body.innerHTML = ds.render(rows) + truncated + sourceLinks(ds.landing, url);
       }catch(e){
-        body.innerHTML = errBlock(e.message) + `<div class="src-links"><a href="${ds.landing}" target="_blank" rel="noopener">📄 Open dataset on NYC Open Data ↗</a></div>`;
+        body.innerHTML = errBlock(e.message, ds.key) + `<div class="src-links"><a href="${ds.landing}" target="_blank" rel="noopener">📄 Open dataset on NYC Open Data ↗</a></div>`;
       }
-    }));
+    }
+    await Promise.all(DATASETS.map(loadDatasetSection));
+    currentLoadDatasetSection = loadDatasetSection; // the one delegated click listener (below, bound once) reads this
 
     // Case File year filters: on change, replace only the "dynamic" zone inside
     // each card — the <select> itself is never destroyed, so its scroll position
@@ -2916,6 +2993,12 @@
   }
 
   resultsEl.addEventListener('click', e => {
+    const retryBtn = e.target.closest('[data-retry-key]');
+    if(retryBtn){
+      const ds = DATASETS.find(d => d.key === retryBtn.dataset.retryKey);
+      if(ds && currentLoadDatasetSection) currentLoadDatasetSection(ds);
+      return;
+    }
     const saveBtn = e.target.closest('#saveWatchlistBtn');
     if(saveBtn){
       if(!currentSearch) return;
@@ -3005,6 +3088,15 @@
     if(tab === 'listings') renderSavedListings(); // reflect any cloud updates arrived since last time
   }
   document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
+  // Generic "jump to another tab" link, used inline in hint copy (e.g. Explore a
+  // Neighborhood pointing back to Check an Address) — bound once at the document
+  // level since these links can appear inside any card, not just resultsEl.
+  document.addEventListener('click', e => {
+    const link = e.target.closest('[data-tab-link]');
+    if(!link) return;
+    e.preventDefault();
+    switchTab(link.dataset.tabLink);
+  });
 
   // ---------- Watchlist: save/compare candidate addresses across visits ----------
   const WATCHLIST_KEY = 'nycAptWatchlist';
@@ -3451,55 +3543,76 @@
     ]
   };
 
-  // Populate #lsLocation options based on the currently-selected borough. When no
-  // borough is picked, flattens to every neighborhood with its borough suffix so
-  // "Astoria - Queens" is still one selectable option in the All-NYC view.
-  // #lsLocation is a multi-select (no "Any" option needed — an empty selection
-  // already means "any"); selections are preserved across repopulation by value,
-  // same as the old single-select behavior.
+  // Populates #lsLocationPanel's checkboxes based on the currently-selected
+  // borough. When no borough is picked, flattens to every neighborhood with its
+  // borough suffix so "Astoria — Queens" is still one selectable item in the
+  // All-NYC view. Checkbox items (not a native <select multiple>) so mobile gets
+  // a real tap-to-toggle gesture and the current picks stay visible as chips
+  // rather than disappearing once the dropdown closes.
   function populateNeighborhoodDropdown(){
-    const sel = document.getElementById('lsLocation');
-    if(!sel) return;
+    const panel = document.getElementById('lsLocationPanel');
+    if(!panel) return;
     const boro = document.getElementById('lsBorough').value;
-    const prevValues = new Set(Array.from(sel.selectedOptions).map(o => o.value));
-    let optsHtml = '';
+    const prevChecked = new Set(Array.from(panel.querySelectorAll('input:checked')).map(i => i.value));
+    let itemsHtml = '';
     if(boro && NEIGHBORHOODS_BY_BOROUGH[boro]){
-      optsHtml += NEIGHBORHOODS_BY_BOROUGH[boro]
-        .map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+      itemsHtml += NEIGHBORHOODS_BY_BOROUGH[boro]
+        .map(n => `<label><input type="checkbox" value="${esc(n)}"> ${esc(n)}</label>`).join('');
     } else {
       // All NYC — flatten with borough suffix so identical names in different
-      // boroughs (rare but happens) don't collide as duplicate options.
+      // boroughs (rare but happens) don't collide as duplicate items.
       Object.entries(NEIGHBORHOODS_BY_BOROUGH).forEach(([boroCode, list]) => {
         const boroLabel = BORO_NAMES[boroCode];
         list.forEach(n => {
-          optsHtml += `<option value="${esc(n)}" data-boro="${esc(boroCode)}">${esc(n)} — ${esc(boroLabel)}</option>`;
+          itemsHtml += `<label><input type="checkbox" value="${esc(n)}" data-boro="${esc(boroCode)}"> ${esc(n)} — ${esc(boroLabel)}</label>`;
         });
       });
     }
-    sel.innerHTML = optsHtml;
-    // Re-select whichever previously-chosen neighborhoods are still valid options.
-    Array.from(sel.options).forEach(o => { if(prevValues.has(o.value)) o.selected = true; });
+    panel.innerHTML = itemsHtml;
+    // Re-check whichever previously-chosen neighborhoods are still valid options.
+    panel.querySelectorAll('input').forEach(i => { if(prevChecked.has(i.value)) i.checked = true; });
     renderLocationChips();
   }
 
-  // Chips mirror the <select multiple>'s current selection and let the user
-  // remove one without hunting for it in a multi-select list (which, unlike
-  // checkboxes, gives no visual list of "what's currently picked" once closed).
-  function renderLocationChips(){
-    const sel = document.getElementById('lsLocation');
-    const chipsEl = document.getElementById('lsLocationChips');
-    if(!sel || !chipsEl) return;
-    const chosen = Array.from(sel.selectedOptions);
-    chipsEl.innerHTML = chosen.map(o =>
-      `<span class="ls-location-chip">${esc(o.value)}<button type="button" data-remove="${esc(o.value)}" aria-label="Remove ${esc(o.value)}">×</button></span>`
-    ).join('');
+  function selectedNeighborhoodInputs(){
+    return Array.from(document.querySelectorAll('#lsLocationPanel input:checked'));
   }
-  document.getElementById('lsLocation').addEventListener('change', renderLocationChips);
+
+  // Chips mirror the panel's current checked state and the dropdown button's
+  // label, so "what's currently picked" stays visible even with the panel closed.
+  function renderLocationChips(){
+    const chipsEl = document.getElementById('lsLocationChips');
+    const btn = document.getElementById('lsLocationBtn');
+    if(!chipsEl || !btn) return;
+    const chosen = selectedNeighborhoodInputs();
+    chipsEl.innerHTML = chosen.map(i =>
+      `<span class="ls-location-chip">${esc(i.value)}<button type="button" data-remove="${esc(i.value)}" aria-label="Remove ${esc(i.value)}">×</button></span>`
+    ).join('');
+    btn.textContent = chosen.length === 0 ? 'Any (whole borough)'
+      : chosen.length === 1 ? chosen[0].value
+      : `${chosen.length} neighborhoods selected`;
+  }
+
+  const lsLocationBtn = document.getElementById('lsLocationBtn');
+  const lsLocationPanel = document.getElementById('lsLocationPanel');
+  function closeLsLocationPanel(){
+    lsLocationPanel.hidden = true;
+    lsLocationBtn.setAttribute('aria-expanded', 'false');
+  }
+  lsLocationBtn.addEventListener('click', () => {
+    const opening = lsLocationPanel.hidden;
+    lsLocationPanel.hidden = !opening;
+    lsLocationBtn.setAttribute('aria-expanded', String(opening));
+  });
+  lsLocationPanel.addEventListener('change', renderLocationChips);
+  document.addEventListener('click', e => {
+    if(!lsLocationPanel.hidden && !e.target.closest('.ms-dropdown')) closeLsLocationPanel();
+  });
   document.getElementById('lsLocationChips').addEventListener('click', e => {
     const btn = e.target.closest('button[data-remove]');
     if(!btn) return;
-    const sel = document.getElementById('lsLocation');
-    Array.from(sel.options).forEach(o => { if(o.value === btn.dataset.remove) o.selected = false; });
+    const input = document.querySelector(`#lsLocationPanel input[value="${CSS.escape(btn.dataset.remove)}"]`);
+    if(input) input.checked = false;
     renderLocationChips();
   });
 
@@ -3678,15 +3791,15 @@
   }
 
   // Returns one entry per selected neighborhood: {name, borough}. borough comes
-  // from the option's own data-boro (set in the All-NYC flat view) when present,
-  // otherwise from the single borough dropdown — so mixing neighborhoods from
-  // different boroughs in the flat view still resolves each to the right borough.
+  // from the checkbox's own data-boro (set in the All-NYC flat view) when
+  // present, otherwise from the single borough dropdown — so mixing
+  // neighborhoods from different boroughs in the flat view still resolves each
+  // to the right borough.
   function selectedNeighborhoods(){
-    const sel = document.getElementById('lsLocation');
     const boroFromDropdown = document.getElementById('lsBorough').value;
-    return Array.from(sel.selectedOptions).map(o => ({
-      name: o.value,
-      borough: o.dataset.boro || boroFromDropdown
+    return selectedNeighborhoodInputs().map(i => ({
+      name: i.value,
+      borough: i.dataset.boro || boroFromDropdown
     }));
   }
 
@@ -3796,6 +3909,8 @@
     document.getElementById('lsListedWithin').value = '7';
     document.getElementById('lsSort').value = 'newest';
     document.getElementById('lsSearchResults').innerHTML = '';
+    document.querySelectorAll('#lsLocationPanel input:checked').forEach(i => { i.checked = false; });
+    closeLsLocationPanel();
     populateNeighborhoodDropdown(); // resets neighborhood options to All-NYC view (and clears selection/chips)
   });
 
@@ -3950,7 +4065,9 @@
     coffee:     {icon:'☕', label:'Coffee', color:'#795548'},
     grocery:    {icon:'🛒', label:'Groceries', color:'#43a047'},
     attractions:{icon:'🎭', label:'Attractions', color:'#8e24aa'},
-    parks:      {icon:'🌳', label:'Parks', color:'#2e7d32'}
+    parks:      {icon:'🌳', label:'Parks', color:'#2e7d32'},
+    laundry:    {icon:'🧺', label:'Laundromats', color:'#00897b'},
+    nightlife:  {icon:'🍸', label:'Bars & Nightlife', color:'#d81b60'}
   };
 
   // Overpass query fragments per category — kept in one place so it's easy to see
@@ -3977,7 +4094,14 @@
                  'way["tourism"~"^(attraction|museum|artwork|viewpoint|gallery|theatre)$"]',
                  'node["amenity"="theatre"]', 'way["amenity"="theatre"]'],
     parks:      ['way["leisure"="park"]', 'node["leisure"="park"]',
-                 'way["leisure"="garden"]']
+                 'way["leisure"="garden"]'],
+    laundry:    ['node["shop"="laundry"]', 'way["shop"="laundry"]',
+                 'node["shop"="dry_cleaning"]', 'way["shop"="dry_cleaning"]'],
+    // "Nightlife" as in "could be loud near this building at night", not a
+    // curated nightlife guide — bars/pubs/nightclubs only, not restaurants
+    // that happen to serve alcohol.
+    nightlife:  ['node["amenity"~"^(bar|pub|nightclub)$"]',
+                 'way["amenity"~"^(bar|pub|nightclub)$"]']
   };
 
   let nearbyMap = null;           // Leaflet map instance
@@ -4105,6 +4229,8 @@
       if(t.tourism && /^(attraction|museum|artwork|viewpoint|gallery|theatre)$/.test(t.tourism)) return 'attractions';
       if(t.amenity === 'theatre') return 'attractions';
       if(t.leisure === 'park' || t.leisure === 'garden') return 'parks';
+      if(t.shop === 'laundry' || t.shop === 'dry_cleaning') return 'laundry';
+      if(t.amenity && /^(bar|pub|nightclub)$/.test(t.amenity)) return 'nightlife';
       return null;
     };
     return (data.elements || []).map(el => {
@@ -4607,7 +4733,7 @@
           ${possiblyTruncated ? `<p class="hint" style="color:var(--warn);">⚠️ That's a lot of neighborhoods matched at once — this hit the per-search fetch cap, so the rankings below are drawn from a large but not exhaustive sample. Pick one of the specific neighborhoods above (e.g. just "${esc(matches[0])}") for a complete ranking.</p>` : ''}
           <div class="neighborhood-cols">
             <div>
-              <h3 style="margin:0 0 8px; font-size:1rem;">🏆 Fewest open violations</h3>
+              <h3 style="margin:0 0 8px; font-size:1rem;" title="Ranked among buildings that have at least one violation on record — buildings with zero violations aren't captured by this search at all, see note above.">🏆 Best records (among buildings with violations)</h3>
               ${cleanest.map(b => buildingRowHtml(b,'good')).join('')}
             </div>
             <div>
