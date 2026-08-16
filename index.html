@@ -3727,8 +3727,17 @@
     transit:    ['node["railway"="station"]["station"="subway"]',
                  'node["public_transport"="station"]["subway"="yes"]'],
     coffee:     ['node["amenity"="cafe"]', 'way["amenity"="cafe"]'],
-    grocery:    ['node["shop"~"^(supermarket|convenience|greengrocer|deli|health_food)$"]',
-                 'way["shop"~"^(supermarket|convenience|greengrocer|deli|health_food)$"]'],
+    // Real grocery shopping only — supermarkets, greengrocers, and health-food
+    // stores (Whole Foods, Trader Joe's, etc. are tagged shop=supermarket or
+    // shop=health_food in OSM). `convenience` and `deli` are deliberately
+    // excluded: that's what was flooding results with bodegas/corner stores.
+    // Big-box stores with grocery sections (Target, Walmart, Costco) are tagged
+    // shop=department_store / shop=wholesale in OSM, not as a grocery shop, so
+    // we pull those in by name match instead.
+    grocery:    ['node["shop"~"^(supermarket|greengrocer|health_food)$"]',
+                 'way["shop"~"^(supermarket|greengrocer|health_food)$"]',
+                 'node["shop"~"^(department_store|wholesale)$"]["name"~"Target|Walmart|Costco|Wegmans",i]',
+                 'way["shop"~"^(department_store|wholesale)$"]["name"~"Target|Walmart|Costco|Wegmans",i]'],
     attractions:['node["tourism"~"^(attraction|museum|artwork|viewpoint|gallery|theatre)$"]',
                  'way["tourism"~"^(attraction|museum|artwork|viewpoint|gallery|theatre)$"]',
                  'node["amenity"="theatre"]', 'way["amenity"="theatre"]'],
@@ -3742,6 +3751,7 @@
   let nearbyCurrentCoords = null; // last geocoded lat/lon, for re-render on toggle
   let nearbyCurrentPois = null;   // last Overpass result set, for re-render on toggle
   let leafletLoadingPromise = null;
+  const nearbyPoiCache = new Map(); // "lat,lon,radius" -> POI array, avoids refetching Overpass on repeat searches
 
   // Load Leaflet from a CDN on first use. Kept out of the initial page bundle
   // because the map is optional — most sessions never open this tab.
@@ -3800,33 +3810,37 @@
       });
     });
     const query = `[out:json][timeout:25];(${parts.join('')});out center;`;
-    // Multiple Overpass mirrors — the primary `overpass-api.de` endpoint's CORS
-    // response is inconsistent from browsers (verified: works from curl, blocked
-    // from fetch), so we try `overpass.kumi.systems` first (widely used as the
-    // browser-friendly mirror) and fall back to alternates only if that one
-    // fails. The last one is the main endpoint as a final fallback, in case the
-    // mirrors happen to be down.
+    // Multiple Overpass mirrors, all fired at once and raced against each other
+    // (first one to answer wins) instead of tried one-at-a-time — a single slow
+    // or hung mirror used to stall the whole search for its full timeout before
+    // the next one was even attempted. Each request also gets its own 10s abort
+    // so a dead mirror can't hold up the race at all.
     const endpoints = [
       'https://overpass.kumi.systems/api/interpreter',
       'https://overpass.private.coffee/api/interpreter',
       'https://lz4.overpass-api.de/api/interpreter',
       'https://overpass-api.de/api/interpreter'
     ];
-    let res, lastErr;
-    for(const url of endpoints){
-      try{
-        res = await fetch(url, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-          body: 'data=' + encodeURIComponent(query)
-        });
-        if(res.ok) break;
-        lastErr = new Error(`Overpass mirror at ${url.match(/\/\/([^/]+)/)[1]} returned ${res.status}`);
-      }catch(e){
-        lastErr = e; // network / CORS error — try next mirror
-      }
+    const attempts = endpoints.map(url => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      return fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'data=' + encodeURIComponent(query),
+        signal: controller.signal
+      }).then(res => {
+        clearTimeout(timer);
+        if(!res.ok) throw new Error(`Overpass mirror at ${url.match(/\/\/([^/]+)/)[1]} returned ${res.status}`);
+        return res;
+      }).catch(e => { clearTimeout(timer); throw e; });
+    });
+    let res;
+    try{
+      res = await Promise.any(attempts);
+    }catch(aggErr){
+      throw (aggErr.errors && aggErr.errors[0]) || new Error('All Overpass mirrors failed');
     }
-    if(!res || !res.ok) throw lastErr || new Error('All Overpass mirrors failed');
     const data = await res.json();
     // Tag each element with its category based on which OSM tag it matched, so
     // the renderer can color-code without re-running the tag logic.
@@ -3834,7 +3848,9 @@
       const t = el.tags || {};
       if(t.railway === 'station' || t.subway === 'yes') return 'transit';
       if(t.amenity === 'cafe') return 'coffee';
-      if(t.shop && /^(supermarket|convenience|greengrocer|deli|health_food)$/.test(t.shop)) return 'grocery';
+      if(t.shop && /^(supermarket|greengrocer|health_food)$/.test(t.shop)) return 'grocery';
+      if(t.shop && /^(department_store|wholesale)$/.test(t.shop) &&
+         t.name && /Target|Walmart|Costco|Wegmans/i.test(t.name)) return 'grocery';
       if(t.tourism && /^(attraction|museum|artwork|viewpoint|gallery|theatre)$/.test(t.tourism)) return 'attractions';
       if(t.amenity === 'theatre') return 'attractions';
       if(t.leisure === 'park' || t.leisure === 'garden') return 'parks';
@@ -3972,9 +3988,17 @@
         .addTo(nearbyMap);
 
       // POI fetch (always fetches every category — we filter client-side on toggle).
+      // Cached per rounded-coordinate+radius so re-searching the same spot (or
+      // Nominatim returning a near-identical hit) skips Overpass entirely.
       const radius = Number(document.getElementById('nearbyRadius').value) || 0.5;
       const allCats = Object.keys(NEARBY_CATEGORIES);
-      nearbyCurrentPois = await fetchNearbyPOIs(hit.lat, hit.lon, radius, allCats);
+      const cacheKey = `${hit.lat.toFixed(4)},${hit.lon.toFixed(4)},${radius}`;
+      if(nearbyPoiCache.has(cacheKey)){
+        nearbyCurrentPois = nearbyPoiCache.get(cacheKey);
+      } else {
+        nearbyCurrentPois = await fetchNearbyPOIs(hit.lat, hit.lon, radius, allCats);
+        nearbyPoiCache.set(cacheKey, nearbyCurrentPois);
+      }
       renderNearbyMap();
       renderNearbyList();
       status.innerHTML = `<span style="color:var(--muted);">Centered on <strong>${esc(hit.displayName.split(',').slice(0,3).join(','))}</strong> · showing places within ${radius} mi.</span>`;
