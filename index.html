@@ -245,6 +245,21 @@
   .top-links button{font-size:0.85rem; padding:7px 14px; border-radius:999px;}
   .top-links{align-items:center;}
   footer{color:var(--muted); font-size:0.78rem; text-align:center; margin-top:36px;}
+  footer a{font-weight:600;}
+  .terms-block{
+    text-align:left; max-width:760px; margin:0 auto; background:var(--panel2);
+    border:1px solid var(--border); border-radius:14px; padding:4px 16px; box-shadow:var(--shadow-sm);
+  }
+  .terms-block summary{
+    padding:12px 2px; font-weight:700; color:var(--text); font-size:0.85rem; list-style:none;
+    display:flex; justify-content:space-between; align-items:center; cursor:pointer;
+  }
+  .terms-block summary::-webkit-details-marker{display:none;}
+  .terms-block summary::after{content:"Show ▾"; color:var(--accent); font-weight:600; font-size:0.78rem;}
+  .terms-block[open] summary::after{content:"Hide ▴";}
+  .terms-block .terms-body{padding:0 2px 16px; font-size:0.82rem; line-height:1.6; color:var(--muted);}
+  .terms-block .terms-body p{margin:0 0 10px;}
+  .terms-block .terms-body strong{color:var(--text);}
   details{margin-top:8px;}
   summary{cursor:pointer; color:var(--accent); font-size:0.85rem; font-weight:600;}
   .disclaimer{font-size:0.82rem; color:var(--muted); background:var(--panel2); border:1px solid var(--border); border-radius:12px; padding:13px 15px; margin-top:10px;}
@@ -1132,7 +1147,23 @@
   </div>
 
   <footer>
-    Built on public <a href="https://opendata.cityofnewyork.us/" target="_blank" rel="noopener">NYC Open Data</a>. Not affiliated with or endorsed by StreetEasy, HPD, DOB, or NYC 311. Data may be incomplete, delayed, or mismatched to the wrong address — always verify against the linked source records before making a decision.
+    <p style="margin:0 0 10px;">
+      Built on public <a href="https://opendata.cityofnewyork.us/" target="_blank" rel="noopener">NYC Open Data</a>. Not affiliated with or endorsed by StreetEasy, HPD, DOB, NYC 311, FEMA, or any city agency. This is an independent research tool, not legal, financial, or housing advice — data may be incomplete, delayed, or mismatched to the wrong address, so always verify against the linked source records before making any decision. See full <a href="#" id="footerTermsLink">Terms &amp; Disclaimer</a>.
+    </p>
+    <details id="termsDetails" class="terms-block">
+      <summary>Terms of Use &amp; Disclaimer</summary>
+      <div class="terms-body">
+        <p>This website ("the Site") is an independent, non-commercial research tool built entirely on publicly available data from NYC Open Data, OpenStreetMap, FEMA, and related public sources. It is provided for general informational and research purposes only.</p>
+        <p><strong>No affiliation.</strong> The Site is not affiliated with, endorsed by, sponsored by, or otherwise connected to the City of New York, NYC HPD, NYC DOB, NYC 311, FEMA, StreetEasy, Zillow, OpenIgloo, Apartments.com, PadMapper, RentHop, Google, or any other agency, company, or organization referenced or linked here. All trademarks and data sources remain the property of their respective owners.</p>
+        <p><strong>Not professional advice.</strong> Nothing on the Site constitutes legal, financial, real estate, or housing advice. Building grades, "red flags," rent-stabilization signals, lease-scan results, affordability calculations, and similar features are automated summaries of public records and simple math — not a professional assessment of any specific property, landlord, or lease. Always consult a qualified attorney, licensed housing counselor, or other professional before making decisions about a rental, lease, or living situation.</p>
+        <p><strong>No warranty; verify independently.</strong> Data is pulled live from third-party public sources and may be incomplete, outdated, delayed, mismatched to the wrong address or unit, or simply wrong. The Site makes no representation or warranty of any kind, express or implied, as to the accuracy, completeness, reliability, or timeliness of any information it presents. Every section links to its original source record — always check that directly before relying on anything shown here.</p>
+        <p><strong>Use at your own risk.</strong> You use the Site entirely at your own risk. To the fullest extent permitted by law, the creator(s) of the Site disclaim all liability for any loss, damage, or harm — direct, indirect, incidental, or consequential — arising from your use of, or inability to use, the Site or any information it provides, including decisions made about renting, leasing, applying to, or living in any building referenced here.</p>
+        <p><strong>No guarantee of outcome.</strong> A building's public violation, complaint, or eviction history says nothing certain about a landlord's future conduct, a building's future condition, or the outcome of any tenancy. Past records are not a promise about the future.</p>
+        <p><strong>Third-party links.</strong> The Site links to third-party websites (StreetEasy, Zillow, Google Maps, NYC Open Data, etc.) for convenience. It does not control, and is not responsible for, the content, accuracy, availability, or practices of those sites.</p>
+        <p><strong>User-generated content.</strong> Notes, saved listings, and watchlist entries you create are stored on your own device (or your account, if signed in) and are not reviewed, moderated, or endorsed by the Site.</p>
+        <p style="margin-bottom:0;">By using the Site, you agree to these terms. If you do not agree, please do not use the Site.</p>
+      </div>
+    </details>
   </footer>
 </div>
 
@@ -5069,6 +5100,19 @@
     }
   }
   initFirebase();
+
+  // Footer "Terms & Disclaimer" link opens the collapsed <details> block below
+  // it (rather than duplicating the text inline) and scrolls it into view.
+  const footerTermsLink = document.getElementById('footerTermsLink');
+  if(footerTermsLink){
+    footerTermsLink.addEventListener('click', e => {
+      e.preventDefault();
+      const details = document.getElementById('termsDetails');
+      if(!details) return;
+      details.open = true;
+      details.scrollIntoView({behavior:'smooth', block:'center'});
+    });
+  }
 
   // Service worker registration for the PWA offline shell. Runs after the initial
   // paint has finished (defer to window.load) so it doesn't compete with first
