@@ -3388,6 +3388,15 @@
     });
     if(tab === 'watchlist') renderWatchlistPanel();
     if(tab === 'listings') renderSavedListings(); // reflect any cloud updates arrived since last time
+    if(tab === 'nearby'){
+      // If the user just ran a Check search and hopped over here, prefill the
+      // address so they don't have to retype it. Only when the input is empty —
+      // if they've already typed something in Nearby, respect that.
+      const nearbyInput = document.getElementById('nearbyInput');
+      if(nearbyInput && !nearbyInput.value.trim() && currentSearch){
+        nearbyInput.value = `${currentSearch.houseNumber} ${currentSearch.street}, ${BORO_NAMES[currentSearch.borough] || currentSearch.borough}`;
+      }
+    }
   }
   document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
   // Generic "jump to another tab" link, used inline in hint copy (e.g. Explore a
