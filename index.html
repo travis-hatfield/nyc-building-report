@@ -4059,10 +4059,13 @@
     const attempts = endpoints.map(url => {
       const host = url.match(/\/\/([^/]+)/)[1];
       const controller = new AbortController();
-      // Give the abort an explicit reason — without one, an aborted fetch's
-      // rejection message is just the browser's generic "signal is aborted
-      // without reason", which is meaningless in the on-screen error banner.
-      const timer = setTimeout(() => controller.abort(new Error(`Overpass mirror at ${host} timed out`)), 12000);
+      // Don't rely on AbortController.abort(reason) actually reaching the
+      // caught error with a usable message — that's inconsistent enough across
+      // browsers that it was still showing the generic "signal is aborted
+      // without reason" text in production. A plain local flag, checked in the
+      // .catch, works everywhere regardless of how the browser surfaces the abort.
+      let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 12000);
       return fetch(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -4074,9 +4077,8 @@
         return res;
       }).catch(e => {
         clearTimeout(timer);
-        // Re-throw with the descriptive reason for aborts; anything else
-        // (network failure, CORS) already has a usable message.
-        throw (e.name === 'AbortError' && controller.signal.reason) || e;
+        if(timedOut) throw new Error(`Overpass mirror at ${host} timed out`);
+        throw e;
       });
     });
     let res;
