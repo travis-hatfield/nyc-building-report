@@ -4112,14 +4112,35 @@
       const point = el.type === 'node' ? {lat: el.lat, lon: el.lon}
                   : (el.center ? {lat: el.center.lat, lon: el.center.lon} : null);
       if(!c || !point || !el.tags) return null;
+      const hasName = !!(el.tags.name || el.tags['brand']);
       return {
         cat: c,
         lat: point.lat, lon: point.lon,
         name: el.tags.name || el.tags['brand'] || NEARBY_CATEGORIES[c].label,
+        hasName,
+        website: el.tags.website || el.tags['contact:website'] || null,
         addr: [el.tags['addr:housenumber'], el.tags['addr:street']].filter(Boolean).join(' ') || '',
         raw: el
       };
     }).filter(Boolean);
+  }
+
+  // Not every OSM point carries a name (as seen — a grocery marker with nothing
+  // but its category tag), and even named ones rarely carry a website tag. Rather
+  // than link to an unverified guess at a Yelp/Google Maps page for a specific
+  // business, this searches Google for whatever we do know (name if we have one,
+  // otherwise the category + street address) — always resolves to something
+  // useful, never a wrong business's page.
+  function poiLookupUrl(p){
+    const q = p.hasName
+      ? `${p.name}${p.addr ? ' ' + p.addr : ''} NYC`
+      : `${NEARBY_CATEGORIES[p.cat].label} ${p.addr ? 'at ' + p.addr : `near ${p.lat.toFixed(5)},${p.lon.toFixed(5)}`} NYC`;
+    return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+  }
+  function poiLearnMoreHtml(p){
+    return p.website
+      ? `<a href="${esc(p.website)}" target="_blank" rel="noopener">Website ↗</a>`
+      : `<a href="${esc(poiLookupUrl(p))}" target="_blank" rel="noopener">🔎 Look up ↗</a>`;
   }
 
   function selectedNearbyCats(){
@@ -4154,10 +4175,11 @@
       if(!nearbyLayers[p.cat]) nearbyLayers[p.cat] = L.layerGroup().addTo(nearbyMap);
       const dist = haversineMiles(nearbyCurrentCoords.lat, nearbyCurrentCoords.lon, p.lat, p.lon);
       const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}`;
+      const displayName = p.hasName ? esc(p.name) : `Unnamed ${esc(NEARBY_CATEGORIES[p.cat].label.toLowerCase().replace(/s$/,''))}`;
       const popupHtml = `
-        <strong>${esc(p.name)}</strong><br>
+        <strong>${displayName}</strong><br>
         <span style="color:var(--muted);">${esc(NEARBY_CATEGORIES[p.cat].label)}${p.addr ? ' · ' + esc(p.addr) : ''}</span><br>
-        ${dist.toFixed(2)} mi away · <a href="${gmapsUrl}" target="_blank" rel="noopener">Directions ↗</a>
+        ${dist.toFixed(2)} mi away · <a href="${gmapsUrl}" target="_blank" rel="noopener">Directions ↗</a> · ${poiLearnMoreHtml(p)}
       `;
       L.marker([p.lat, p.lon], {icon: buildDivIcon(L, p.cat, false)})
         .bindPopup(popupHtml)
@@ -4183,7 +4205,10 @@
       const total = byCat[c].length;
       return `<div class="nl-cat">
         <h4>${NEARBY_CATEGORIES[c].icon} ${esc(NEARBY_CATEGORIES[c].label)}<span class="count">${total} within ${document.getElementById('nearbyRadius').value} mi</span></h4>
-        ${items.map(p => `<div class="nl-item"><span>${esc(p.name)}</span><span class="nl-dist">${p.miles.toFixed(2)} mi</span></div>`).join('')}
+        ${items.map(p => {
+          const displayName = p.hasName ? esc(p.name) : `Unnamed ${esc(NEARBY_CATEGORIES[p.cat].label.toLowerCase().replace(/s$/,''))}`;
+          return `<div class="nl-item"><span>${displayName} · ${poiLearnMoreHtml(p)}</span><span class="nl-dist">${p.miles.toFixed(2)} mi</span></div>`;
+        }).join('')}
         ${total > items.length ? `<div class="nl-item"><span class="muted" style="font-size:0.78rem;">+${total - items.length} more on the map</span></div>` : ''}
       </div>`;
     }).join('')}</div>`;
