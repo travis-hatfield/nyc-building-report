@@ -469,6 +469,13 @@
   }
   table.cmp-table .cmp-actions{display:flex; gap:6px;}
   table.cmp-table .cmp-actions button{padding:5px 9px; font-size:0.78rem;}
+  table.cmp-table td.cmp-listing{white-space:normal; vertical-align:middle; min-width:170px;}
+  .cmp-listing-card{display:flex; align-items:center; gap:8px;}
+  .cmp-listing-card img{width:52px; height:40px; object-fit:cover; border-radius:8px; flex:none; background:var(--panel2);}
+  .cmp-listing-info{min-width:0;}
+  .cmp-listing-price{font-weight:700; font-size:0.85rem; white-space:nowrap;}
+  .cmp-listing-info a{font-size:0.78rem; white-space:nowrap;}
+  .cmp-listing-fail{color:var(--muted); font-size:0.78rem; font-style:italic;}
 
   /* ---------- Find Listings tab ---------- */
   /* Checkbox dropdown for Find Listings' neighborhood picker — a native
@@ -3424,6 +3431,8 @@
       evictions: rowsOf('evictions').length,
       bedbugs: !!(latestBedbug && Number(latestBedbug.infested_dwelling_unit_count) > 0),
       rent: existing ? existing.rent : null, // preserve any rent the user already typed in, across a recheck
+      listingUrl: existing ? existing.listingUrl : null,
+      scraped: existing ? existing.scraped : null, // cached /api/scrape-listing result for listingUrl, or null
       savedAt: new Date().toISOString()
     };
     const list = loadWatchlist();
@@ -3442,6 +3451,55 @@
     const n = Number(rentValue);
     item.rent = (rentValue === '' || isNaN(n) || n < 0) ? null : n;
     persistWatchlist(list); // silent — no re-render, so the input keeps focus while typing
+  }
+
+  // ---------- Best-effort listing detail extraction (Watchlist "Listing" column) ----------
+  // Backed by the api/scrape-listing serverless function — see that file for the full
+  // explanation of what it does and why it has to run server-side. Reliability varies a
+  // LOT by site: verified directly before shipping this — StreetEasy, Zillow,
+  // Apartments.com, and RentHop all returned either a 403 or a JS-challenge shell with
+  // no usable data even with a realistic browser User-Agent, while OpenIgloo's pages
+  // came back with real content. This is NOT a bug when a major site fails — it's
+  // exactly the outcome flagged before building this, and the UI says so rather than
+  // implying every site works equally well.
+  function setWatchlistListingUrl(id, url){
+    const list = loadWatchlist();
+    const item = list.find(x => x.id === id);
+    if(!item) return;
+    const trimmed = (url || '').trim();
+    item.listingUrl = trimmed || null;
+    item.scraped = null; // new URL invalidates whatever was cached for the old one
+    persistWatchlist(list);
+    renderWatchlistPanel();
+    if(trimmed) fetchListingDetails(id);
+  }
+  async function fetchListingDetails(id){
+    const list = loadWatchlist();
+    const item = list.find(x => x.id === id);
+    if(!item || !item.listingUrl) return;
+    item.scraped = {loading: true};
+    persistWatchlist(list);
+    renderWatchlistPanel();
+    try{
+      const res = await fetch(`/api/scrape-listing?url=${encodeURIComponent(item.listingUrl)}`);
+      const data = await res.json();
+      const fresh = loadWatchlist();
+      const freshItem = fresh.find(x => x.id === id);
+      if(!freshItem || freshItem.listingUrl !== item.listingUrl) return; // URL changed again while this was in flight
+      freshItem.scraped = data.ok
+        ? {ok:true, title:data.title, image:data.image, price:data.price, beds:data.beds, sqft:data.sqft, source:data.source, fetchedAt:data.fetchedAt}
+        : {ok:false, error: data.error || 'Could not extract details from this listing.'};
+      persistWatchlist(fresh);
+      renderWatchlistPanel();
+    }catch(e){
+      const fresh = loadWatchlist();
+      const freshItem = fresh.find(x => x.id === id);
+      if(freshItem && freshItem.listingUrl === item.listingUrl){
+        freshItem.scraped = {ok:false, error: 'Network error reaching the extraction service.'};
+        persistWatchlist(fresh);
+        renderWatchlistPanel();
+      }
+    }
   }
   // Comparison table so candidates can be judged side by side rather than scrolling
   // through separate cards. Monthly rent is the one field with no public source —
@@ -3466,6 +3524,7 @@
           <input type="number" class="cmp-rent" data-id="${esc(item.id)}" min="0" placeholder="$/mo" value="${item.rent != null ? item.rent : ''}">
           ${item.rent != null && item.rent === cheapestRent && rentValues.length > 1 ? ' <span class="badge" style="color:var(--good); border-color:var(--good);">lowest</span>' : ''}
         </td>
+        <td class="cmp-listing">${renderCmpListingCell(item)}</td>
         <td class="muted">${fmtDate(item.savedAt)}</td>
         <td class="cmp-actions">
           <button type="button" class="secondary recheck-btn" data-id="${esc(item.id)}" title="Recheck this address">🔄</button>
@@ -3476,13 +3535,42 @@
     watchlistContainer.innerHTML = `<div class="card full">
       <div class="section-title"><h2>⭐ My Watchlist</h2><span class="badge">${list.length} saved</span></div>
       <p class="hint">Compare candidates side by side. Add a monthly rent per address to compare cost too — it's just for your own reference, not pulled from any listing.</p>
+      <p class="hint">Paste a listing URL in the "Listing" column to pull its photo/price/beds automatically where the site allows it — this is best-effort: OpenIgloo tends to work, but StreetEasy, Zillow, Apartments.com, and RentHop actively block automated requests, so "couldn't extract" there is expected, not a bug. Never guaranteed accurate — always confirm on the actual listing page.</p>
       <div class="cmp-table-wrap">
         <table class="cmp-table">
-          <thead><tr><th>Address</th><th>Grade</th><th>Open violations</th><th>Evictions</th><th>Bedbugs</th><th>Monthly rent</th><th>Saved</th><th></th></tr></thead>
+          <thead><tr><th>Address</th><th>Grade</th><th>Open violations</th><th>Evictions</th><th>Bedbugs</th><th>Monthly rent</th><th>Listing</th><th>Saved</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
     </div>`;
+  }
+
+  function renderCmpListingCell(item){
+    if(!item.listingUrl){
+      return `<button type="button" class="secondary add-listing-btn" data-id="${esc(item.id)}" style="font-size:0.78rem; padding:5px 10px;">+ Add link</button>`;
+    }
+    const s = item.scraped;
+    const removeBtn = `<button type="button" class="secondary remove-listing-btn" data-id="${esc(item.id)}" title="Remove listing link" style="padding:3px 7px; font-size:0.72rem;">✕</button>`;
+    if(!s || s.loading){
+      return `<span class="loading" style="padding:0;"><span class="spinner"></span></span> ${removeBtn}`;
+    }
+    if(!s.ok){
+      return `<span class="cmp-listing-fail" title="${esc(s.error||'')}">⚠ Couldn't extract</span>
+        <div style="margin-top:4px; display:flex; gap:4px;">
+          <a href="${esc(item.listingUrl)}" target="_blank" rel="noopener" class="secondary" style="font-size:0.72rem; padding:3px 7px; border-radius:8px; border:1px solid var(--border); text-decoration:none;">View ↗</a>
+          ${removeBtn}
+        </div>`;
+    }
+    const details = [s.price, s.beds != null ? `${s.beds} BR` : null, s.sqft != null ? `${s.sqft} ft²` : null].filter(Boolean).join(' · ');
+    return `
+      <div class="cmp-listing-card">
+        ${s.image ? `<img src="${esc(s.image)}" alt="" loading="lazy">` : ''}
+        <div class="cmp-listing-info">
+          ${details ? `<div class="cmp-listing-price">${esc(details)}</div>` : ''}
+          <a href="${esc(item.listingUrl)}" target="_blank" rel="noopener">View listing ↗</a>
+        </div>
+      </div>
+      ${removeBtn}`;
   }
   watchlistContainer.addEventListener('click', e => {
     const removeBtn = e.target.closest('.remove-btn');
@@ -3496,7 +3584,16 @@
       document.getElementById('streetName').value = item.street;
       document.getElementById('borough').value = item.borough;
       runSearch();
+      return;
     }
+    const addListingBtn = e.target.closest('.add-listing-btn');
+    if(addListingBtn){
+      const url = window.prompt('Paste a listing URL (StreetEasy, OpenIgloo, Zillow, etc.):');
+      if(url && url.trim()) setWatchlistListingUrl(addListingBtn.dataset.id, url.trim());
+      return;
+    }
+    const removeListingBtn = e.target.closest('.remove-listing-btn');
+    if(removeListingBtn){ setWatchlistListingUrl(removeListingBtn.dataset.id, ''); return; }
   });
   watchlistContainer.addEventListener('change', e => {
     const rentInput = e.target.closest('.cmp-rent');

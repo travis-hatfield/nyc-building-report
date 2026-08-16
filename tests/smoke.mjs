@@ -151,6 +151,44 @@ async function testNearbyOverpassRetrySucceeds(){
   check('search still succeeds after the retry', statusText.includes('Centered on') && !statusText.includes('err'));
 }
 
+async function testWatchlistListingScraper(){
+  console.log('\nWatchlist: listing-link scraper add/success/remove flow');
+  const window = newApp(() => async (url) => {
+    const u = String(url);
+    if(u.includes('wvxf-dwi5')) return { ok:true, status:200, json: async () => [{novissueddate:'2024-01-01', violationstatus:'Open', class:'B'}] };
+    if(u.includes('/api/scrape-listing')){
+      return { ok:true, status:200, json: async () => ({
+        ok:true, title:'Cute 1BR', image:'https://example.com/img.jpg', price:'$2,800', beds:1, sqft:600, source:'openigloo.com', fetchedAt:new Date().toISOString()
+      })};
+    }
+    return { ok:true, status:200, json: async () => [] };
+  });
+  window.prompt = () => 'https://www.openigloo.com/listing/abc123';
+  await wait(200);
+  const doc = window.document;
+  doc.getElementById('houseNumber').value = '123';
+  doc.getElementById('streetName').value = 'West 45 Street';
+  doc.getElementById('borough').value = 'MANHATTAN';
+  doc.getElementById('searchBtn').click();
+  for(let i=0;i<50;i++){ await wait(100); if(!doc.getElementById('sec-permits')?.querySelector('.loading')) break; }
+  await wait(100);
+  doc.getElementById('saveWatchlistBtn').click();
+  doc.querySelector('[data-tab="watchlist"]').click();
+  await wait(100);
+
+  const addBtn = doc.querySelector('.add-listing-btn');
+  check('"+ Add link" button shows for a watchlist item with no listing yet', !!addBtn);
+  addBtn.click(); // triggers mocked window.prompt -> setWatchlistListingUrl -> fetchListingDetails
+  await wait(200);
+  check('a successful scrape renders a listing card', !!doc.querySelector('.cmp-listing-card'));
+  check('extracted price/beds/sqft show in the card', doc.querySelector('.cmp-listing-price')?.textContent.includes('$2,800'));
+  check('extracted image renders', doc.querySelector('.cmp-listing-card img')?.src === 'https://example.com/img.jpg');
+
+  doc.querySelector('.remove-listing-btn').click();
+  await wait(100);
+  check('removing the listing link reverts to the "+ Add link" state', !!doc.querySelector('.add-listing-btn') && !doc.querySelector('.cmp-listing-card'));
+}
+
 async function testNearbyAbortMessage(){
   console.log('\nWhat\'s Nearby: hung Overpass mirror shows a real message, not the generic browser one');
   const window = newApp(win => async (url, opts) => {
@@ -284,6 +322,7 @@ async function testRetryButton(){
   await testGlobalYearFilter();
   await testMultiNeighborhoodCheckboxes();
   await testRetryButton();
+  await testWatchlistListingScraper();
   await testNearbyFetchesOnlySelectedCategories();
   await testNearbyOverpassRetrySucceeds();
   await testNearbyAbortMessage(); // slowest (~41s) — runs last

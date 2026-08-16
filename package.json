@@ -1,0 +1,9 @@
+{
+  "name": "nyc-building-report",
+  "private": true,
+  "version": "1.0.0",
+  "description": "NYC apartment/building research tool — static frontend (index.html) plus one Vercel serverless function (api/scrape-listing.js) for best-effort listing-detail extraction.",
+  "engines": {
+    "node": ">=18"
+  }
+}
