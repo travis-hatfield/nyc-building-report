@@ -3489,6 +3489,13 @@
       freshItem.scraped = data.ok
         ? {ok:true, title:data.title, image:data.image, price:data.price, beds:data.beds, sqft:data.sqft, source:data.source, fetchedAt:data.fetchedAt}
         : {ok:false, error: data.error || 'Could not extract details from this listing.'};
+      // Auto-fill Monthly Rent from the extracted price, but only if the user
+      // hasn't already typed one in — a scraped number shouldn't silently
+      // overwrite a rent they entered on purpose (e.g. a negotiated figure).
+      if(data.ok && data.price && freshItem.rent == null){
+        const n = Number(String(data.price).replace(/[^0-9.]/g, ''));
+        if(!isNaN(n) && n > 0) freshItem.rent = n;
+      }
       persistWatchlist(fresh);
       renderWatchlistPanel();
     }catch(e){
@@ -3535,7 +3542,7 @@
     watchlistContainer.innerHTML = `<div class="card full">
       <div class="section-title"><h2>⭐ My Watchlist</h2><span class="badge">${list.length} saved</span></div>
       <p class="hint">Compare candidates side by side. Add a monthly rent per address to compare cost too — it's just for your own reference, not pulled from any listing.</p>
-      <p class="hint">Paste a listing URL in the "Listing" column to pull its photo/price/beds automatically where the site allows it — this is best-effort: OpenIgloo tends to work, but StreetEasy, Zillow, Apartments.com, and RentHop actively block automated requests, so "couldn't extract" there is expected, not a bug. Never guaranteed accurate — always confirm on the actual listing page.</p>
+      <p class="hint">Paste a listing URL in the "Listing" column to pull its photo/price/beds automatically where the site allows it — Monthly Rent auto-fills from the extracted price too (only if you haven't already typed one in). This is genuinely best-effort: verified directly against each site — OpenIgloo tends to return real data, but StreetEasy, Zillow, Apartments.com, and RentHop actively block automated requests (some return a "not found" page, others a blank shell with nothing to extract), so "couldn't extract" on those is the expected, common outcome, not a bug. Never guaranteed accurate — always confirm on the actual listing page.</p>
       <div class="cmp-table-wrap">
         <table class="cmp-table">
           <thead><tr><th>Address</th><th>Grade</th><th>Open violations</th><th>Evictions</th><th>Bedbugs</th><th>Monthly rent</th><th>Listing</th><th>Saved</th><th></th></tr></thead>

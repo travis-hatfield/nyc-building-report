@@ -183,10 +183,21 @@ async function testWatchlistListingScraper(){
   check('a successful scrape renders a listing card', !!doc.querySelector('.cmp-listing-card'));
   check('extracted price/beds/sqft show in the card', doc.querySelector('.cmp-listing-price')?.textContent.includes('$2,800'));
   check('extracted image renders', doc.querySelector('.cmp-listing-card img')?.src === 'https://example.com/img.jpg');
+  check('Monthly Rent auto-fills from the extracted price ($2,800 -> 2800)', doc.querySelector('.cmp-rent')?.value === '2800');
 
   doc.querySelector('.remove-listing-btn').click();
   await wait(100);
   check('removing the listing link reverts to the "+ Add link" state', !!doc.querySelector('.add-listing-btn') && !doc.querySelector('.cmp-listing-card'));
+
+  // A rent the user already typed in on purpose (e.g. a negotiated figure)
+  // must never get silently overwritten by a later scrape.
+  const rentInput = doc.querySelector('.cmp-rent');
+  rentInput.value = '3500';
+  rentInput.dispatchEvent(new window.Event('change', {bubbles:true}));
+  await wait(50);
+  doc.querySelector('.add-listing-btn').click();
+  await wait(200);
+  check('an already-typed rent is NOT overwritten by a scraped price', doc.querySelector('.cmp-rent')?.value === '3500');
 }
 
 async function testNearbyAbortMessage(){
