@@ -3890,8 +3890,12 @@
       'https://overpass-api.de/api/interpreter'
     ];
     const attempts = endpoints.map(url => {
+      const host = url.match(/\/\/([^/]+)/)[1];
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 10000);
+      // Give the abort an explicit reason — without one, an aborted fetch's
+      // rejection message is just the browser's generic "signal is aborted
+      // without reason", which is meaningless in the on-screen error banner.
+      const timer = setTimeout(() => controller.abort(new Error(`Overpass mirror at ${host} timed out`)), 12000);
       return fetch(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -3899,15 +3903,25 @@
         signal: controller.signal
       }).then(res => {
         clearTimeout(timer);
-        if(!res.ok) throw new Error(`Overpass mirror at ${url.match(/\/\/([^/]+)/)[1]} returned ${res.status}`);
+        if(!res.ok) throw new Error(`Overpass mirror at ${host} returned ${res.status}`);
         return res;
-      }).catch(e => { clearTimeout(timer); throw e; });
+      }).catch(e => {
+        clearTimeout(timer);
+        // Re-throw with the descriptive reason for aborts; anything else
+        // (network failure, CORS) already has a usable message.
+        throw (e.name === 'AbortError' && controller.signal.reason) || e;
+      });
     });
     let res;
     try{
       res = await Promise.any(attempts);
     }catch(aggErr){
-      throw (aggErr.errors && aggErr.errors[0]) || new Error('All Overpass mirrors failed');
+      // Every mirror failed — surface the most useful of the bunch rather than
+      // just "the first one" (an early network error can be less informative
+      // than a later timeout, or vice versa; picking any real Error over a
+      // generic one gives the user something actionable either way).
+      const errs = (aggErr.errors || []).filter(Boolean);
+      throw errs.find(e => e instanceof Error && e.message) || new Error('All Overpass mirrors failed — try again in a moment.');
     }
     const data = await res.json();
     // Tag each element with its category based on which OSM tag it matched, so
