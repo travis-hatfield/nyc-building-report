@@ -74,6 +74,48 @@ async function testDobYearFilter(){
   check('filtering to 2024 onward leaves exactly 1 row', rowCount === 1);
 }
 
+async function testGlobalYearFilter(){
+  console.log('\nCheck an Address: global year filter cascades to every section at once');
+  const hpdComplaints = [
+    {major_category:'PLUMBING', received_date:'2022-01-01', complaint_status:'CLOSE'},
+    {major_category:'HEAT/HOT WATER', received_date:'2012-01-01', complaint_status:'CLOSE'},
+  ];
+  const threeOneOne = [
+    {unique_key:'1', created_date:'2024-06-01', complaint_type:'Noise', status:'Closed'},
+    {unique_key:'2', created_date:'2016-06-01', complaint_type:'Noise', status:'Closed'},
+  ];
+  const window = newApp(() => async (url) => {
+    const u = String(url);
+    if(u.includes('ygpa-z7cr')) return { ok:true, status:200, json: async () => hpdComplaints };
+    if(u.includes('erm2-nwe9')) return { ok:true, status:200, json: async () => threeOneOne };
+    return { ok:true, status:200, json: async () => [] };
+  });
+  await wait(200);
+  const doc = window.document;
+  doc.getElementById('houseNumber').value = '123';
+  doc.getElementById('streetName').value = 'West 45 Street';
+  doc.getElementById('borough').value = 'MANHATTAN';
+  doc.getElementById('searchBtn').click();
+  for(let i=0;i<50;i++){ await wait(100); if(!doc.getElementById('sec-permits')?.querySelector('.loading')) break; }
+  await wait(100);
+
+  const dataRows = id => (doc.getElementById(id).innerHTML.match(/<tr[ >]/g) || []).length - 1; // minus the header row
+  check('both sections start showing all their rows', dataRows('hpdComplaintsDynamic') === 2 && dataRows('threeOneOneDynamic') === 2);
+
+  const globalSel = doc.getElementById('globalYearFilter');
+  globalSel.value = '2020';
+  globalSel.dispatchEvent(new window.Event('change', {bubbles:true}));
+  await wait(100);
+  check('setting the global filter to 2020 drops HPD Complaints to just the 2022 row', dataRows('hpdComplaintsDynamic') === 1);
+  check('...and drops 311 Requests to just the 2024 row, in the same action', dataRows('threeOneOneDynamic') === 1);
+  check("311's own per-section select reflects the applied year", doc.getElementById('threeOneOneYearFilter').value === '2020');
+
+  globalSel.value = '';
+  globalSel.dispatchEvent(new window.Event('change', {bubbles:true}));
+  await wait(100);
+  check('resetting to "full history" brings every row back in both sections', dataRows('hpdComplaintsDynamic') === 2 && dataRows('threeOneOneDynamic') === 2);
+}
+
 async function testNearbyAbortMessage(){
   console.log('\nWhat\'s Nearby: hung Overpass mirror shows a real message, not the generic browser one');
   const window = newApp(win => async (url, opts) => {
@@ -204,6 +246,7 @@ async function testRetryButton(){
 
 (async () => {
   await testDobYearFilter();
+  await testGlobalYearFilter();
   await testMultiNeighborhoodCheckboxes();
   await testRetryButton();
   await testNearbyFetchesOnlySelectedCategories();
