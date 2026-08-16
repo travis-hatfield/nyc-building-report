@@ -1646,23 +1646,65 @@
     return Object.entries(obj||{}).map(([k,v]) => v==null ? '' : ` data-${k}="${esc(v)}"`).join('');
   }
 
+  // Registry of {dateField, buildOpts} per section scope, populated the first time
+  // each section renders — lets the single delegated year-filter change handler
+  // (bound once, near the other resultsEl listeners) rebuild any section's stats/
+  // table from a filtered row subset without every render* function needing its
+  // own bespoke change listener.
+  const sectionRebuilders = {};
+
+  // Wraps renderSection with a "Show from year" dropdown, for any list-of-cases
+  // section where older rows just add noise (311 requests, complaints, permits,
+  // etc.). buildOpts(rows) must return the same opts renderSection expects,
+  // recomputed from whichever row subset is currently in view — this matters
+  // because per-category stat counts (e.g. "Noise: 12") need to reflect the
+  // filtered set, not the full history.
+  function renderFilterableSection(rows, dateField, buildOpts){
+    const opts = buildOpts(rows);
+    sectionRebuilders[opts.scope] = {dateField, buildOpts};
+    datasetRowsCache[opts.scope] = rows;
+    if(!rows.length) return `<p class="empty">${opts.emptyMsg}</p>`;
+
+    const {min: minYear, max: maxYear} = getYearRange2(rows, dateField);
+    let yearFilterHtml = '';
+    if(maxYear > minYear){
+      let yearOptions = '';
+      for(let y = maxYear; y >= minYear; y--){
+        yearOptions += `<option value="${y}"${y === minYear ? ' selected' : ''}>${y} onwards</option>`;
+      }
+      yearFilterHtml = `<div class="field" style="max-width:220px; margin-bottom:12px;">
+        <label for="${opts.scope}YearFilter">Show from</label>
+        <select id="${opts.scope}YearFilter" data-year-scope="${opts.scope}">${yearOptions}</select>
+      </div>`;
+    }
+    return `${yearFilterHtml}<div id="${opts.scope}Dynamic">${renderSection(rows, opts)}</div>`;
+  }
+
   // Shared shape for every "stat cards + table" section: a summary-grid of clickable
   // stats, an optional plain-English note, then the rows themselves (collapsed behind
   // a <details> for long lists, capped at 150 and scroll-boxed so one huge table can't
   // blow out the whole card).
-  //   opts: {emptyMsg, scope, noun, stats?, note?, headers, rowFn, collapsible?, scrollTable?}
+  //   opts: {emptyMsg, scope, noun, stats?, note?, headers, rowFn, collapsible?, scrollTable?, linkFn?}
   //   rowFn(row) => {attrs, cells}  — attrs become <tr data-*>, cells are pre-built <td> strings
+  //   linkFn(row) => url|null — when present, adds a trailing "Details ↗" link column
   function renderSection(rows, opts){
     if(!rows.length) return `<p class="empty">${opts.emptyMsg}</p>`;
     const statsHtml = (opts.stats && opts.stats.length)
       ? `<div class="summary-grid">${opts.stats.map(s => statCard(s.n, s.label, s.tone, {scope:opts.scope, attr:s.attr, value:s.value})).join('')}</div>`
       : '';
     const noteHtml = opts.note ? `<p class="hint">${opts.note}</p>` : '';
+    const headers = opts.linkFn ? [...opts.headers, ''] : opts.headers;
     const bodyRows = rows.slice(0,150).map(r => {
       const {attrs, cells} = opts.rowFn(r);
-      return `<tr${dataAttrs(attrs)}>${cells.join('')}</tr>`;
+      const allCells = opts.linkFn
+        ? [...cells, (() => {
+            const url = opts.linkFn(r);
+            return url ? `<td><a href="${esc(url)}" target="_blank" rel="noopener">Details ↗</a></td>` : '<td></td>';
+          })()]
+        : cells;
+      return `<tr${dataAttrs(attrs)}>${allCells.join('')}</tr>`;
     }).join('');
-    let tableHtml = `<table><thead><tr>${opts.headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${bodyRows}</tbody></table>`;
+    let tableHtml = `<table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${bodyRows}</tbody></table>`;
     if(opts.scrollTable) tableHtml = `<div class="table-scroll">${tableHtml}</div>`;
     const body = opts.collapsible === false
       ? tableHtml
@@ -1755,35 +1797,38 @@
   }
 
   function renderHpdComplaints(rows){
-    const cats = {};
-    rows.forEach(r=>{ const c=r.major_category||'Other'; cats[c]=(cats[c]||0)+1; });
-    const top = Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,5);
-    return renderSection(rows, {
-      emptyMsg:'No HPD housing complaints found for this address/borough combination.',
-      scope:'hpdComplaints', noun:'complaint',
-      stats:[{n:rows.length, label:'Total complaints'}, ...top.map(([c,n])=>({n, label:c, attr:'category', value:c}))],
-      headers:['Received','Category','Status'],
-      rowFn: r => {
-        const closed = isClosed(r.complaint_status||r.problem_status);
-        return {
-          attrs:{category:r.major_category||'Other'},
-          cells:[
-            `<td>${fmtDate(r.received_date)}</td>`,
-            `<td>${esc(r.major_category)}${r.minor_category?' — '+esc(r.minor_category):''}</td>`,
-            statusCell(closed, r.complaint_status||r.problem_status||'—')
-          ]
-        };
-      }
+    return renderFilterableSection(rows, 'received_date', filteredRows => {
+      const cats = {};
+      filteredRows.forEach(r=>{ const c=r.major_category||'Other'; cats[c]=(cats[c]||0)+1; });
+      const top = Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,5);
+      return {
+        emptyMsg:'No HPD housing complaints found for this address/borough combination.',
+        scope:'hpdComplaints', noun:'complaint',
+        stats:[{n:filteredRows.length, label:'Total complaints'}, ...top.map(([c,n])=>({n, label:c, attr:'category', value:c}))],
+        headers:['Received','Category','Status'],
+        rowFn: r => {
+          const closed = isClosed(r.complaint_status||r.problem_status);
+          return {
+            attrs:{category:r.major_category||'Other'},
+            cells:[
+              `<td>${fmtDate(r.received_date)}</td>`,
+              `<td>${esc(r.major_category)}${r.minor_category?' — '+esc(r.minor_category):''}</td>`,
+              statusCell(closed, r.complaint_status||r.problem_status||'—')
+            ]
+          };
+        }
+      };
     });
   }
 
   function renderBedbugs(rows){
-    const confirmed = rows.filter(r=>Number(r.infested_dwelling_unit_count)>0);
-    return renderSection(rows, {
+    return renderFilterableSection(rows, 'filing_date', filteredRows => {
+    const confirmed = filteredRows.filter(r=>Number(r.infested_dwelling_unit_count)>0);
+    return {
       emptyMsg:'No bedbug filings found for this building. (Owners must file this report annually — a lack of filings does not guarantee a bedbug-free history.)',
       scope:'bedbugs', collapsible:false,
       stats:[
-        {n:rows.length, label:'Filing periods on record'},
+        {n:filteredRows.length, label:'Filing periods on record'},
         {n:confirmed.length, label:'Periods with reported bedbugs', tone:confirmed.length>0?'bad':'good', attr:'infested', value:'yes'}
       ],
       headers:['Filing period','Filed','Infested units','Re-infested units'],
@@ -1799,6 +1844,7 @@
           ]
         };
       }
+    };
     });
   }
 
@@ -1907,31 +1953,37 @@
   }
 
   function renderThreeOneOne(rows){
-    const types = {};
-    rows.forEach(r=>{ const t=r.complaint_type||'Other'; types[t]=(types[t]||0)+1; });
-    const top = Object.entries(types).sort((a,b)=>b[1]-a[1]).slice(0,5);
-    return renderSection(rows, {
-      emptyMsg:'No 311 service requests found for this address.',
-      scope:'threeOneOne', noun:'request',
-      stats:[{n:rows.length, label:'Total 311 requests'}, ...top.map(([t,n])=>({n, label:t, attr:'type', value:t}))],
-      headers:['Created','Type','Descriptor','Status'],
-      rowFn: r => ({
-        attrs:{type:r.complaint_type||'Other'},
-        cells:[
-          `<td>${fmtDate(r.created_date)}</td>`,
-          `<td>${esc(r.complaint_type)}</td>`,
-          `<td>${esc(r.descriptor||'')}</td>`,
-          statusCell(isClosed(r.status), r.status||'—')
-        ]
-      })
+    return renderFilterableSection(rows, 'created_date', filteredRows => {
+      const types = {};
+      filteredRows.forEach(r=>{ const t=r.complaint_type||'Other'; types[t]=(types[t]||0)+1; });
+      const top = Object.entries(types).sort((a,b)=>b[1]-a[1]).slice(0,5);
+      return {
+        emptyMsg:'No 311 service requests found for this address.',
+        scope:'threeOneOne', noun:'request',
+        stats:[{n:filteredRows.length, label:'Total 311 requests'}, ...top.map(([t,n])=>({n, label:t, attr:'type', value:t}))],
+        headers:['Created','Type','Descriptor','Status'],
+        // NYC 311's own public tracker resolves a case by "311-{unique_key}" — verified
+        // live against portal.311.nyc.gov, so this is a real per-case detail page, not
+        // just a link back to the raw dataset.
+        linkFn: r => r.unique_key ? `https://portal.311.nyc.gov/sr-details/?srnum=311-${encodeURIComponent(r.unique_key)}` : null,
+        rowFn: r => ({
+          attrs:{type:r.complaint_type||'Other'},
+          cells:[
+            `<td>${fmtDate(r.created_date)}</td>`,
+            `<td>${esc(r.complaint_type)}</td>`,
+            `<td>${esc(r.descriptor||'')}</td>`,
+            statusCell(isClosed(r.status), r.status||'—')
+          ]
+        })
+      };
     });
   }
 
   function renderEvictions(rows){
-    return renderSection(rows, {
+    return renderFilterableSection(rows, 'executed_date', filteredRows => ({
       emptyMsg:'No executed evictions found on record for this address (NYC Marshal filings, 2017–present).',
       scope:'evictions', collapsible:false,
-      stats:[{n:rows.length, label:'Executed evictions', tone:rows.length>0?'bad':'good'}],
+      stats:[{n:filteredRows.length, label:'Executed evictions', tone:filteredRows.length>0?'bad':'good'}],
       headers:['Executed','Apt','Type','Docket #'],
       rowFn: r => ({
         attrs:{},
@@ -1942,7 +1994,7 @@
           `<td class="muted">${esc(r.docket_number||'—')}</td>`
         ]
       })
-    });
+    }));
   }
 
   function renderRegistrations(rows){
@@ -1962,30 +2014,32 @@
   }
 
   function renderRodents(rows){
-    const failed = rows.filter(r => (r.result||'').includes('Failed for Rat Activity'));
-    return renderSection(rows, {
-      emptyMsg:'No DOHMH rodent inspections found on record for this address.',
-      scope:'rodents', noun:'inspection',
-      stats:[
-        {n:rows.length, label:'Total inspections'},
-        {n:failed.length, label:'Failed for rat activity', tone:failed.length>0?'bad':'good', attr:'ratActive', value:'yes'}
-      ],
-      headers:['Date','Result'],
-      rowFn: r => {
-        const active = (r.result||'').includes('Failed for Rat Activity');
-        return {
-          attrs:{ratActive: active ? 'yes' : 'no'},
-          cells:[`<td>${fmtDate(r.inspection_date)}</td>`, statusCell(!active, r.result||'—')]
-        };
-      }
+    return renderFilterableSection(rows, 'inspection_date', filteredRows => {
+      const failed = filteredRows.filter(r => (r.result||'').includes('Failed for Rat Activity'));
+      return {
+        emptyMsg:'No DOHMH rodent inspections found on record for this address.',
+        scope:'rodents', noun:'inspection',
+        stats:[
+          {n:filteredRows.length, label:'Total inspections'},
+          {n:failed.length, label:'Failed for rat activity', tone:failed.length>0?'bad':'good', attr:'ratActive', value:'yes'}
+        ],
+        headers:['Date','Result'],
+        rowFn: r => {
+          const active = (r.result||'').includes('Failed for Rat Activity');
+          return {
+            attrs:{ratActive: active ? 'yes' : 'no'},
+            cells:[`<td>${fmtDate(r.inspection_date)}</td>`, statusCell(!active, r.result||'—')]
+          };
+        }
+      };
     });
   }
 
   function renderPermits(rows){
-    return renderSection(rows, {
+    return renderFilterableSection(rows, 'latest_action_date', filteredRows => ({
       emptyMsg:'No DOB permit filings found on record for this address.',
       scope:'permits', noun:'permit filing',
-      stats:[{n:rows.length, label:'Total filings on record'}],
+      stats:[{n:filteredRows.length, label:'Total filings on record'}],
       headers:['Last updated','Type','Status','Description'],
       rowFn: r => ({
         attrs:{},
@@ -1996,7 +2050,7 @@
           `<td>${esc((r.job_description||'').slice(0,150))}</td>`
         ]
       })
-    });
+    }));
   }
 
   function renderContacts(rows){
@@ -2276,6 +2330,84 @@
     </div>`;
   }
 
+  // ---------- FEMA Flood Zone ----------
+  // FEMA's own National Flood Hazard Layer map service, queried directly by point —
+  // free, no key, and authoritative (it's literally what mortgage lenders and flood
+  // insurance are based on), so no need to hunt for an NYC Open Data mirror of it.
+  // Layer 28 ("Flood Hazard Zones") is the polygon layer that carries the actual
+  // zone designation at a given lat/lon.
+  const FEMA_NFHL_ZONES_LAYER = 'https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query';
+
+  // FLD_ZONE code -> {label, tone, risk}. Reference: FEMA's own zone definitions
+  // (https://www.fema.gov/glossary/flood-zones). "SFHA" = Special Flood Hazard
+  // Area, the zone where mortgage lenders require flood insurance.
+  function describeFloodZone(zone, subty){
+    const z = (zone || '').toUpperCase();
+    if(z === 'X' || z === 'C'){
+      const isModerate = /0\.2 PCT|500.?YEAR|MODERATE/i.test(subty || '');
+      return isModerate
+        ? {label:`Zone ${z} — moderate flood hazard (0.2% annual chance / "500-year" floodplain)`, tone:'warn', sfha:false}
+        : {label:`Zone ${z} — minimal flood hazard`, tone:'good', sfha:false};
+    }
+    if(/^V/.test(z)){
+      return {label:`Zone ${z} — coastal high-hazard area (storm surge & wave action, 1% annual chance)`, tone:'bad', sfha:true};
+    }
+    if(/^A/.test(z)){
+      return {label:`Zone ${z} — high flood hazard (1% annual chance / "100-year" floodplain)`, tone:'bad', sfha:true};
+    }
+    if(z === 'D'){
+      return {label:'Zone D — flood hazard undetermined (area not fully studied by FEMA)', tone:'warn', sfha:false};
+    }
+    return {label:`Zone ${z || 'Unknown'}`, tone:'', sfha:false};
+  }
+
+  async function fetchFloodZone(coords){
+    const params = new URLSearchParams({
+      geometry: `${coords.lon},${coords.lat}`,
+      geometryType: 'esriGeometryPoint',
+      inSR: '4326',
+      spatialRel: 'esriSpatialRelIntersects',
+      outFields: 'FLD_ZONE,ZONE_SUBTY,SFHA_TF',
+      returnGeometry: 'false',
+      f: 'json'
+    });
+    const url = `${FEMA_NFHL_ZONES_LAYER}?${params.toString()}`;
+    const res = await fetch(url, {headers:{'Accept':'application/json'}});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if(data.error) throw new Error(data.error.message || 'FEMA service error');
+    const feature = (data.features || [])[0];
+    return {feature: feature ? feature.attributes : null, url};
+  }
+
+  function renderFloodZone(coords, result){
+    if(!coords){
+      return '<p class="empty">No coordinates came back from any dataset for this address, so flood zone couldn\'t be looked up.</p>';
+    }
+    const mscUrl = `https://msc.fema.gov/portal/search?AddressQuery=${encodeURIComponent(`${coords.lat},${coords.lon}`)}`;
+    const mscLink = `<div class="src-links"><a href="${mscUrl}" target="_blank" rel="noopener">🗺️ View the official FEMA flood map for this location ↗</a></div>`;
+    if(!result || result.status !== 'fulfilled'){
+      return errBlock((result && result.reason && result.reason.message) || 'flood zone lookup failed') + mscLink;
+    }
+    const {feature, url} = result.value;
+    if(!feature){
+      return `<p class="empty">This point didn't match a mapped FEMA flood zone — either it's just outside FEMA's mapped area, or the point fell in a data gap. Check the official map to be sure.</p>${mscLink}`;
+    }
+    const {label, tone, sfha} = describeFloodZone(feature.FLD_ZONE, feature.ZONE_SUBTY);
+    const insuranceNote = sfha
+      ? `Properties in a Special Flood Hazard Area typically require flood insurance if the building has a federally-backed mortgage — worth budgeting for if you're the one paying utilities/insurance, and worth asking about for a basement or ground-floor unit specifically.`
+      : `Outside FEMA's Special Flood Hazard Area — flood insurance usually isn't required by a mortgage lender here, though it's still optional coverage worth considering near water.`;
+    return `
+      <div class="summary-grid">
+        ${statCard(feature.FLD_ZONE || '—', 'FEMA flood zone', tone)}
+      </div>
+      <p class="hint" style="margin-top:10px;"><strong>${esc(label)}</strong></p>
+      <p class="hint">${insuranceNote}</p>
+      ${mscLink}
+      <div class="src-links"><a href="${url}" target="_blank" rel="noopener">🔗 View raw query results (JSON) ↗</a></div>
+    `;
+  }
+
   // ---------- Building Grade: NYC-restaurant-style A–F letter grade from the same data ----------
   // Transparent, hand-weighted scoring (not a black box) — the point is a fast, familiar
   // gut-check, not a precise ranking. Every deduction is shown in the "why" breakdown.
@@ -2492,6 +2624,10 @@
         <div class="section-title"><h2>🏷️ Tax Exemptions &amp; Rent Stabilization</h2><span class="badge">DOF</span></div>
         <div class="body">${loadingBlock('tax exemption records')}</div>
       </div>
+      <div class="card" id="sec-floodzone">
+        <div class="section-title"><h2>🌊 Flood Zone</h2><span class="badge">FEMA</span></div>
+        <div class="body">${loadingBlock('FEMA flood zone data')}</div>
+      </div>
       ${DATASETS.map(ds => {
         // Violations + DOB Complaints get the "Case File" treatment: a doc-style
         // head (serif title, no emoji, tracked source tag) instead of the emoji
@@ -2594,6 +2730,15 @@
         .then(([subwayResult, crimeResult, crashResult]) => {
           transitBody.innerHTML = renderTransitSafety(coords, subwayResult, crimeResult, crashResult);
         });
+    }
+
+    const floodBody = document.querySelector('#sec-floodzone .body');
+    if(!coords){
+      floodBody.innerHTML = renderFloodZone(null);
+    } else {
+      fetchFloodZone(coords)
+        .then(value => { floodBody.innerHTML = renderFloodZone(coords, {status:'fulfilled', value}); })
+        .catch(reason => { floodBody.innerHTML = renderFloodZone(coords, {status:'rejected', reason}); });
     }
 
     const bbl = getBuildingBbl(resultsByKey);
@@ -2824,6 +2969,28 @@
       e.preventDefault();
       applyStatFilter(e.target);
     }
+  });
+  // Single delegated handler for every renderFilterableSection's year dropdown —
+  // rebuilds that section's stats/table from the cached full row set filtered to
+  // the chosen year, using whichever {dateField, buildOpts} it registered at
+  // render time. Re-derives from the full cache every time (never from whatever's
+  // already on screen), so flipping from "2020 onward" back to "2015 onward"
+  // correctly brings the earlier rows back.
+  resultsEl.addEventListener('change', e => {
+    const sel = e.target.closest('select[data-year-scope]');
+    if(!sel) return;
+    const scope = sel.dataset.yearScope;
+    const rebuild = sectionRebuilders[scope];
+    if(!rebuild) return;
+    const selectedYear = parseInt(sel.value);
+    if(isNaN(selectedYear)) return;
+    const allRows = datasetRowsCache[scope] || [];
+    const filtered = allRows.filter(r => {
+      const y = getYear(r[rebuild.dateField]);
+      return y === null || y >= selectedYear;
+    });
+    const dynamic = document.getElementById(`${scope}Dynamic`);
+    if(dynamic) dynamic.innerHTML = renderSection(filtered, rebuild.buildOpts(filtered));
   });
 
   // ---------- Tabs ----------
