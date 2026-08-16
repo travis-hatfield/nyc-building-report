@@ -4110,7 +4110,8 @@
   let nearbyCurrentCoords = null; // last geocoded lat/lon, for re-render on toggle
   let nearbyCurrentPois = null;   // last Overpass result set, for re-render on toggle
   let leafletLoadingPromise = null;
-  const nearbyPoiCache = new Map(); // "lat,lon,radius" -> POI array, avoids refetching Overpass on repeat searches
+  const nearbyPoiCache = new Map(); // "lat,lon,radius" -> {cats: Set<string>, pois: []} — only the categories actually fetched so far
+  let nearbyCacheKey = null; // cache key for whatever's currently shown, so toggling a category can fetch just that one
 
   // Load Leaflet from a CDN on first use. Kept out of the initial page bundle
   // because the map is optional — most sessions never open this tab.
@@ -4189,7 +4190,12 @@
       // without reason" text in production. A plain local flag, checked in the
       // .catch, works everywhere regardless of how the browser surfaces the abort.
       let timedOut = false;
-      const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 12000);
+      // 20s, not 12s — Overpass's own query timeout (below) is 25s, so a 12s
+      // client abort was cutting off mirrors that were genuinely still working,
+      // not actually hung. Now that a normal search only asks for the checked
+      // categories (not all 7), most requests should resolve in a couple of
+      // seconds anyway — 20s is headroom for a slow mirror, not the expected case.
+      const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 20000);
       return fetch(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -4249,6 +4255,24 @@
         raw: el
       };
     }).filter(Boolean);
+  }
+
+  // Fetches only whichever of `cats` haven't already been fetched for the given
+  // cache key, merges the result into nearbyCurrentPois, and updates the cache.
+  // This is what lets the initial search stay a small, fast query (just the
+  // categories checked by default) while still making a newly-toggled-on
+  // category (Parks, Laundry, Nightlife) show up on demand without ever
+  // re-fetching a category that's already in hand.
+  async function ensureNearbyCatsFetched(lat, lon, radiusMi, cats){
+    let entry = nearbyPoiCache.get(nearbyCacheKey);
+    if(!entry){ entry = {cats: new Set(), pois: []}; nearbyPoiCache.set(nearbyCacheKey, entry); }
+    const missing = cats.filter(c => !entry.cats.has(c));
+    if(missing.length){
+      const newPois = await fetchNearbyPOIs(lat, lon, radiusMi, missing);
+      entry.pois = entry.pois.concat(newPois);
+      missing.forEach(c => entry.cats.add(c));
+    }
+    nearbyCurrentPois = entry.pois;
   }
 
   // Not every OSM point carries a name (as seen — a grocery marker with nothing
@@ -4389,18 +4413,17 @@
         .bindPopup(`<strong>${esc(hit.displayName.split(',').slice(0,2).join(','))}</strong>`)
         .addTo(nearbyMap);
 
-      // POI fetch (always fetches every category — we filter client-side on toggle).
-      // Cached per rounded-coordinate+radius so re-searching the same spot (or
-      // Nominatim returning a near-identical hit) skips Overpass entirely.
+      // POI fetch — only for whichever categories are actually checked right now,
+      // not all 7. A single Overpass query covering everything at once was the
+      // most likely reason searches in dense areas (lower Manhattan, UES) were
+      // timing out: doubling the category count (adding Laundry/Nightlife) made
+      // an already-heavy combined query heavier still. Cached per rounded-
+      // coordinate+radius+category so re-searching the same spot, or toggling a
+      // category back on after it was already fetched once, never re-hits
+      // Overpass for data we already have.
       const radius = Number(document.getElementById('nearbyRadius').value) || 0.5;
-      const allCats = Object.keys(NEARBY_CATEGORIES);
-      const cacheKey = `${hit.lat.toFixed(4)},${hit.lon.toFixed(4)},${radius}`;
-      if(nearbyPoiCache.has(cacheKey)){
-        nearbyCurrentPois = nearbyPoiCache.get(cacheKey);
-      } else {
-        nearbyCurrentPois = await fetchNearbyPOIs(hit.lat, hit.lon, radius, allCats);
-        nearbyPoiCache.set(cacheKey, nearbyCurrentPois);
-      }
+      nearbyCacheKey = `${hit.lat.toFixed(4)},${hit.lon.toFixed(4)},${radius}`;
+      await ensureNearbyCatsFetched(hit.lat, hit.lon, radius, selectedNearbyCats());
       renderNearbyMap();
       renderNearbyList();
       status.innerHTML = `<span style="color:var(--muted);">Centered on <strong>${esc(hit.displayName.split(',').slice(0,3).join(','))}</strong> · showing places within ${radius} mi.</span>`;
@@ -4426,10 +4449,35 @@
     }
     nearbyCurrentCoords = null;
     nearbyCurrentPois = null;
+    nearbyCacheKey = null;
   });
-  // Category toggles + radius change both re-render off cached POI data (no refetch).
+  // Category toggles: a category already fetched just re-renders from the cache;
+  // a newly-checked category not yet fetched (e.g. turning on Parks/Laundry/
+  // Nightlife, which start unchecked) fetches only that category on demand.
   document.querySelectorAll('.nearby-toggle input').forEach(cb => {
-    cb.addEventListener('change', () => { renderNearbyMap(); renderNearbyList(); });
+    cb.addEventListener('change', async () => {
+      if(!nearbyCurrentCoords || !nearbyCacheKey) return; // no search run yet
+      if(cb.checked){
+        const radius = Number(document.getElementById('nearbyRadius').value) || 0.5;
+        const status = document.getElementById('nearbyStatus');
+        const prevStatus = status.innerHTML;
+        const entry = nearbyPoiCache.get(nearbyCacheKey);
+        const alreadyFetched = entry && entry.cats.has(cb.dataset.cat);
+        if(!alreadyFetched){
+          status.innerHTML = `<span class="loading"><span class="spinner"></span> Loading ${esc(NEARBY_CATEGORIES[cb.dataset.cat].label)}…</span>`;
+          try{
+            await ensureNearbyCatsFetched(nearbyCurrentCoords.lat, nearbyCurrentCoords.lon, radius, [cb.dataset.cat]);
+          }catch(e){
+            status.innerHTML = `<span class="err">⚠ ${esc(e.message || 'Failed to load that category.')}</span>`;
+            cb.checked = false; // toggle back off — nothing to show for it
+            return;
+          }
+          status.innerHTML = prevStatus;
+        }
+      }
+      renderNearbyMap();
+      renderNearbyList();
+    });
   });
   document.getElementById('nearbyRadius').addEventListener('change', () => {
     // Radius change needs a refetch since it defines Overpass's bounding box.
