@@ -15,32 +15,40 @@
 
 <style>
   :root{
-    --bg:#0b1016; --panel:#161f2e; --panel2:#1d2a3f; --panel-hi:#20304a; --border:#2a394f;
-    --text:#eaf0f9; --muted:#93a6c2; --accent:#4da3ff; --accent2:#22d3ee;
+    --bg:#0a0e15; --panel:#161f2e; --panel2:#1d2a3f; --panel-hi:#20304a; --border:#2a394f;
+    --text:#eaf0f9; --muted:#93a6c2;
+    --accent:#5b8cff; --accent2:#22d3ee; --accent3:#a78bfa;
     --good:#4caf7d; --warn:#e6b95c; --bad:#ea6f66; --link:#7db8ff;
-    --grad-accent:linear-gradient(135deg, var(--accent), var(--accent2));
-    --shadow-sm:0 1px 2px rgba(0,0,0,.35);
-    --shadow-md:0 10px 30px -12px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.3);
-    --shadow-lg:0 24px 60px -20px rgba(0,0,0,.65);
-    --ring:0 0 0 4px rgba(77,163,255,.22);
+    /* Three-stop violet→blue→cyan instead of a flat two-tone blue — this is
+       the one recurring accent used for every primary CTA, active tab, and
+       headline, so it carries a lot of the app's "designed" feel on its own. */
+    --grad-accent:linear-gradient(135deg, var(--accent3), var(--accent) 55%, var(--accent2));
+    --shadow-sm:0 1px 2px rgba(0,0,0,.4);
+    --shadow-md:0 10px 30px -12px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.35);
+    --shadow-lg:0 24px 60px -20px rgba(0,0,0,.7);
+    --ring:0 0 0 4px rgba(91,140,255,.25);
+    --glow:0 0 40px -8px rgba(91,140,255,.35);
   }
   @media (prefers-color-scheme: light){
     :root{
       --bg:#eef1f7; --panel:#ffffff; --panel2:#f5f7fb; --panel-hi:#eaf0fb; --border:#dde3ee;
-      --text:#151b28; --muted:#5c6b84; --accent:#1c6fe0; --accent2:#0f8a72;
+      --text:#151b28; --muted:#5c6b84;
+      --accent:#3465e0; --accent2:#0f8a72; --accent3:#7c5cf0;
       --good:#1e8a56; --warn:#a06a00; --bad:#c13c33; --link:#1c6fe0;
       --shadow-sm:0 1px 2px rgba(30,41,59,.06);
       --shadow-md:0 12px 28px -14px rgba(30,41,59,.18), 0 2px 8px rgba(30,41,59,.06);
       --shadow-lg:0 28px 64px -24px rgba(30,41,59,.24);
-      --ring:0 0 0 4px rgba(28,111,224,.15);
+      --ring:0 0 0 4px rgba(52,101,224,.16);
+      --glow:0 0 40px -10px rgba(52,101,224,.2);
     }
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
   body{
     background:
-      radial-gradient(1100px 520px at 8% -8%, rgba(77,163,255,.10), transparent 60%),
-      radial-gradient(900px 460px at 100% 0%, rgba(34,211,238,.06), transparent 55%),
+      radial-gradient(1000px 480px at 6% -10%, rgba(167,139,250,.14), transparent 60%),
+      radial-gradient(1100px 560px at 92% 0%, rgba(34,211,238,.10), transparent 55%),
+      radial-gradient(800px 500px at 50% 110%, rgba(91,140,255,.08), transparent 60%),
       var(--bg);
     background-attachment:fixed;
     color:var(--text);
@@ -48,10 +56,21 @@
     line-height:1.55; min-height:100vh;
     -webkit-font-smoothing:antialiased;
   }
-  ::selection{background:rgba(77,163,255,.35);}
+  ::selection{background:rgba(91,140,255,.35);}
   .wrap{max-width:1320px; margin:0 auto; padding:32px 20px 80px;}
   header{margin-bottom:28px;}
-  h1{font-size:1.7rem; margin:0 0 5px; letter-spacing:-.015em; font-weight:800;}
+  .h1-row{display:flex; align-items:flex-start; gap:14px;}
+  .h1-icon{
+    flex:none; width:48px; height:48px; border-radius:14px; font-size:1.5rem;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--grad-accent); box-shadow:var(--shadow-md), var(--glow);
+  }
+  h1{
+    font-size:1.75rem; margin:2px 0 5px; letter-spacing:-.02em; font-weight:800;
+    background:var(--grad-accent); -webkit-background-clip:text; background-clip:text;
+    color:transparent; -webkit-text-fill-color:transparent; width:fit-content;
+  }
+  @media (max-width:640px){ .h1-icon{width:40px; height:40px; font-size:1.3rem; border-radius:12px;} }
   .sub{color:var(--muted); font-size:0.96rem; margin:0; max-width:62ch;}
   .header-top{display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;}
   .auth-area{display:flex; align-items:center; gap:10px; flex:none; padding-top:2px;}
@@ -60,10 +79,21 @@
   .auth-area .auth-sync{font-size:0.72rem; color:var(--muted); white-space:nowrap;}
   .auth-area button{font-size:0.85rem; padding:8px 14px;}
   @media (max-width:640px){ .header-top{flex-direction:column;} }
+  /* The thin gradient strip along the top edge is the app's one recurring
+     signature detail — every card gets it, so it reads as a system rather
+     than a one-off decoration. Layered as a second background-image (not a
+     border or pseudo-element) so it still respects the card's own
+     border-radius on the corners for free. */
   .card{
-    background:linear-gradient(180deg, var(--panel-hi) 0%, var(--panel) 140px);
+    background-image:
+      linear-gradient(90deg, var(--accent3), var(--accent) 50%, var(--accent2)),
+      linear-gradient(180deg, var(--panel-hi) 0%, var(--panel) 140px);
+    background-repeat:no-repeat, no-repeat;
+    background-position:top left, top left;
+    background-size:100% 3px, 100% 100%;
+    background-color:var(--panel);
     border:1px solid var(--border); border-radius:18px;
-    padding:22px 22px 24px; margin-bottom:18px;
+    padding:25px 22px 24px; margin-bottom:18px;
     box-shadow:var(--shadow-md);
   }
   label{display:block; font-size:0.78rem; font-weight:700; color:var(--muted); margin-bottom:7px; text-transform:uppercase; letter-spacing:.045em;}
@@ -84,10 +114,10 @@
   button{
     cursor:pointer; border:none; border-radius:11px; font-weight:700; font-size:0.96rem;
     padding:11px 19px; background:var(--grad-accent); color:#fff;
-    box-shadow:0 1px 2px rgba(0,0,0,.15), 0 6px 16px -6px rgba(77,163,255,.55);
+    box-shadow:0 1px 2px rgba(0,0,0,.15), 0 6px 18px -6px rgba(91,140,255,.5), 0 6px 18px -10px rgba(167,139,250,.4);
     transition:transform .12s ease, box-shadow .12s ease, filter .12s ease, opacity .12s ease;
   }
-  button:hover:not(:disabled){transform:translateY(-1px); filter:brightness(1.06); box-shadow:0 2px 4px rgba(0,0,0,.18), 0 10px 22px -8px rgba(77,163,255,.6);}
+  button:hover:not(:disabled){transform:translateY(-1px); filter:brightness(1.08) saturate(1.1); box-shadow:0 2px 4px rgba(0,0,0,.18), 0 10px 26px -8px rgba(91,140,255,.55), 0 10px 26px -12px rgba(167,139,250,.45);}
   button:active:not(:disabled){transform:translateY(0); filter:brightness(0.98);}
   button:focus-visible{outline:none; box-shadow:var(--ring), 0 1px 2px rgba(0,0,0,.15);}
   button.secondary{
@@ -114,7 +144,7 @@
   .tab-btn:hover:not(.active){color:var(--text); border-color:color-mix(in srgb, var(--border) 40%, var(--accent)); transform:translateY(-1px);}
   .tab-btn.active{
     background:var(--grad-accent); color:#fff; border-color:transparent;
-    box-shadow:0 1px 2px rgba(0,0,0,.15), 0 8px 20px -8px rgba(77,163,255,.6);
+    box-shadow:0 1px 2px rgba(0,0,0,.15), 0 8px 22px -8px rgba(91,140,255,.55), 0 8px 22px -12px rgba(167,139,250,.4);
   }
   .tab-count{font-size:0.72rem; opacity:0.85;}
   .tab-panel{display:none;}
@@ -166,6 +196,9 @@
   }
   .stat .n{font-size:1.65rem; font-weight:800; letter-spacing:-.01em;}
   .stat .l{font-size:0.76rem; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; font-weight:600;}
+  .stat.good{border-color:color-mix(in srgb, var(--good) 35%, var(--border)); background-image:linear-gradient(165deg, color-mix(in srgb, var(--good) 12%, var(--panel-hi)), var(--panel2));}
+  .stat.warn{border-color:color-mix(in srgb, var(--warn) 35%, var(--border)); background-image:linear-gradient(165deg, color-mix(in srgb, var(--warn) 12%, var(--panel-hi)), var(--panel2));}
+  .stat.bad{border-color:color-mix(in srgb, var(--bad) 35%, var(--border)); background-image:linear-gradient(165deg, color-mix(in srgb, var(--bad) 12%, var(--panel-hi)), var(--panel2));}
   .stat.good .n{color:var(--good);}
   .stat.warn .n{color:var(--warn);}
   .stat.bad .n{color:var(--bad);}
@@ -476,7 +509,7 @@
     border:1px solid var(--border); background:var(--panel); color:var(--text); font-weight:600;
     transition:transform .12s ease, opacity .12s ease;
   }
-  .saved-listing .sl-actions a.sl-open{background:var(--grad-accent); color:#fff; border-color:transparent; box-shadow:0 4px 12px -6px rgba(77,163,255,.6);}
+  .saved-listing .sl-actions a.sl-open{background:var(--grad-accent); color:#fff; border-color:transparent; box-shadow:0 4px 14px -6px rgba(91,140,255,.55);}
   .saved-listing .sl-actions a.sl-open:hover,
   .saved-listing .sl-actions button:hover{opacity:0.9; transform:translateY(-1px);}
 
@@ -683,9 +716,12 @@
 <div class="wrap">
   <header>
     <div class="header-top">
-      <div>
-        <h1>🏢 NYC Apartment Search</h1>
-        <p class="sub">Check a specific address, discover well-maintained buildings in a neighborhood, or track candidates as you shop — all built on public NYC Open Data, not scraped listings.</p>
+      <div class="h1-row">
+        <span class="h1-icon">🏢</span>
+        <div>
+          <h1>NYC Apartment Search</h1>
+          <p class="sub">Check a specific address, discover well-maintained buildings in a neighborhood, or track candidates as you shop — all built on public NYC Open Data, not scraped listings.</p>
+        </div>
       </div>
       <div class="auth-area" id="authArea">
         <button type="button" class="secondary" id="signInBtn">Sign in with Google</button>
