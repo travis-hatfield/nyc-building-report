@@ -758,34 +758,360 @@
   @media (max-width:860px){
     #results.show{columns:1;}
   }
+
+  /* =====================================================================
+     APPLE DESIGN SYSTEM (2026 rewrite)
+     ---------------------------------------------------------------------
+     Applied as an override layer at the end of the style block so every
+     rule below beats the earlier decorative styling by source order at
+     equal specificity. Every existing class name is preserved so the
+     app's JS/DOM code needs zero changes — only the paint.
+     ===================================================================== */
+
+  /* -------- Tokens -------- */
+  :root, :root[data-theme="light"]{
+    --bg:#ffffff; --panel:#ffffff; --panel2:#f5f5f7; --panel-hi:#f5f5f7;
+    --border:#d2d2d7; --text:#1d1d1f; --muted:#6e6e73;
+    --accent:#0071e3; --accent2:#0071e3; --accent3:#0071e3;
+    --good:#00873c; --warn:#af7900; --bad:#a1102a; --link:#0071e3;
+    --grad-accent:#0071e3;
+    --shadow-sm:0 1px 2px rgba(0,0,0,.05);
+    --shadow-md:0 8px 24px -8px rgba(0,0,0,.10);
+    --shadow-lg:0 20px 60px -20px rgba(0,0,0,.18);
+    --ring:0 0 0 4px rgba(0,113,227,.18);
+    --glow:none;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#000000; --panel:#1c1c1e; --panel2:#0f0f10; --panel-hi:#2c2c2e;
+      --border:#2c2c2e; --text:#f5f5f7; --muted:#a1a1a6;
+      --accent:#2997ff; --accent2:#2997ff; --accent3:#2997ff;
+      --good:#4fd07a; --warn:#ffb020; --bad:#ff5c5c; --link:#2997ff;
+      --grad-accent:#2997ff;
+      --shadow-md:0 8px 24px -8px rgba(0,0,0,.5);
+      --shadow-lg:0 20px 60px -20px rgba(0,0,0,.6);
+      --ring:0 0 0 4px rgba(41,151,255,.28);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#000000; --panel:#1c1c1e; --panel2:#0f0f10; --panel-hi:#2c2c2e;
+    --border:#2c2c2e; --text:#f5f5f7; --muted:#a1a1a6;
+    --accent:#2997ff; --accent2:#2997ff; --accent3:#2997ff;
+    --good:#4fd07a; --warn:#ffb020; --bad:#ff5c5c; --link:#2997ff;
+    --grad-accent:#2997ff;
+    --shadow-md:0 8px 24px -8px rgba(0,0,0,.5);
+    --shadow-lg:0 20px 60px -20px rgba(0,0,0,.6);
+    --ring:0 0 0 4px rgba(41,151,255,.28);
+  }
+
+  /* -------- Base type + body -------- */
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+                "Helvetica Neue", "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
+    font-size:17px; line-height:1.47059;
+    letter-spacing:-.022em; font-weight:400;
+    /* Kill decorative background gradients */
+    background-image:none;
+  }
+  ::selection{ background:var(--accent); color:#fff; }
+  .wrap{ max-width:980px; padding:20px 22px 60px; }
+
+  /* -------- Sticky frosted top nav (wraps existing header + tabs) -------- */
+  .apple-nav{
+    position:sticky; top:0; z-index:80;
+    background:rgba(255,255,255,.80);
+    backdrop-filter:saturate(180%) blur(20px);
+    -webkit-backdrop-filter:saturate(180%) blur(20px);
+    border-bottom:1px solid rgba(0,0,0,.06);
+    margin:-20px -22px 32px;
+    padding:14px 22px 0;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]) .apple-nav{
+      background:rgba(0,0,0,.72); border-bottom-color:rgba(255,255,255,.08);
+    }
+  }
+  :root[data-theme="dark"] .apple-nav{
+    background:rgba(0,0,0,.72); border-bottom-color:rgba(255,255,255,.08);
+  }
+
+  /* -------- Header (slimmer, no gradient text or icon block) -------- */
+  header{ margin-bottom:0; }
+  .h1-row{ align-items:center; gap:10px; }
+  .h1-icon{
+    width:28px; height:28px; border-radius:7px; font-size:0.8rem;
+    background:var(--text); color:var(--bg);
+    box-shadow:none;
+  }
+  @media (max-width:640px){
+    .h1-icon{ width:26px; height:26px; font-size:0.75rem; border-radius:6px; }
+  }
+  h1{
+    font-size:clamp(20px, 3vw, 26px);
+    font-weight:600; letter-spacing:-.015em; line-height:1.15; margin:0;
+    background:none; -webkit-background-clip:initial; background-clip:initial;
+    color:var(--text); -webkit-text-fill-color:initial; width:auto;
+  }
+  .sub{
+    color:var(--muted); font-size:14px; margin:2px 0 0;
+    line-height:1.4; max-width:60ch;
+  }
+  .header-top{ padding-bottom:10px; }
+  .auth-area .auth-name{ font-size:13px; font-weight:500; }
+  .auth-area .auth-sync{ font-size:11px; }
+
+  /* -------- Tabs: Apple thin nav bar under the header -------- */
+  .tabs{
+    display:flex; gap:0; margin:0 -22px; padding:0 22px;
+    border-bottom:1px solid var(--border); overflow-x:auto;
+    scrollbar-width:none; -ms-overflow-style:none;
+  }
+  .tabs::-webkit-scrollbar{ display:none; }
+  @media (max-width:860px){ .tabs{ flex-wrap:nowrap; padding-bottom:0; } .tabs .tab-btn{ flex:none; } }
+  .tab-btn{
+    background:transparent; color:var(--muted);
+    border:none; border-radius:0; border-bottom:2px solid transparent;
+    padding:14px 14px 12px; font-size:13px; font-weight:500;
+    letter-spacing:-.01em; box-shadow:none;
+    transition:color .15s ease, border-bottom-color .15s ease;
+    position:relative; top:1px; white-space:nowrap;
+  }
+  .tab-btn:hover:not(.active){
+    color:var(--text); border-bottom-color:transparent;
+    transform:none; box-shadow:none; background:transparent;
+  }
+  .tab-btn.active{
+    background:transparent; color:var(--text);
+    border-bottom-color:var(--text); box-shadow:none;
+  }
+  .tab-count{ font-size:11px; opacity:.7; font-weight:400; }
+
+  /* -------- Buttons: Apple pill -------- */
+  button{
+    background:var(--accent); color:#fff;
+    border:none; border-radius:980px;
+    padding:8px 20px; font-size:14px; font-weight:400;
+    letter-spacing:-.01em;
+    box-shadow:none;
+    transition:background .12s ease, opacity .12s ease;
+  }
+  button:hover:not(:disabled){
+    background:color-mix(in srgb, var(--accent) 88%, black);
+    transform:none; filter:none; box-shadow:none;
+  }
+  button:active:not(:disabled){ transform:none; opacity:.85; }
+  button:focus-visible{
+    outline:none; box-shadow:0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+  button.secondary{
+    background:var(--panel2); color:var(--text);
+    border:1px solid var(--border); box-shadow:none;
+  }
+  button.secondary:hover:not(:disabled){
+    background:color-mix(in srgb, var(--panel2) 80%, var(--muted));
+    filter:none; box-shadow:none;
+  }
+  .actions{ gap:8px; margin-top:20px; }
+
+  /* -------- Cards: clean, no gradient strip -------- */
+  .card{
+    background:var(--panel); background-image:none;
+    border:1px solid var(--border); border-radius:16px;
+    box-shadow:none; padding:24px; margin-bottom:16px;
+  }
+  #results.show{ columns:1 !important; column-gap:0; }
+  #results.show .card{ margin-bottom:16px; }
+  /* Kill decorative gradient strip from top of cards */
+  .card::before{ display:none; }
+
+  /* -------- Form controls -------- */
+  label{
+    font-size:13px; font-weight:500; color:var(--text);
+    text-transform:none; letter-spacing:normal; margin-bottom:6px;
+  }
+  input[type=text], input[type=number], input[type=email], input[type=url],
+  select, textarea{
+    background:var(--panel); color:var(--text);
+    border:1px solid var(--border); border-radius:10px;
+    padding:10px 14px; font-size:15px; letter-spacing:-.005em;
+    box-shadow:none;
+    transition:border-color .12s ease, box-shadow .12s ease;
+  }
+  input[type=text]:hover, input[type=number]:hover, select:hover, textarea:hover{
+    border-color:color-mix(in srgb, var(--border) 60%, var(--accent));
+  }
+  input[type=text]:focus, input[type=number]:focus, select:focus, textarea:focus{
+    outline:none; border-color:var(--accent);
+    box-shadow:0 0 0 4px color-mix(in srgb, var(--accent) 15%, transparent);
+  }
+
+  /* -------- Stat tiles: cleaner, no gradient -------- */
+  .stat{
+    background:var(--panel2); background-image:none;
+    border:1px solid var(--border); border-radius:12px;
+    box-shadow:none; padding:16px 18px;
+  }
+  .stat .n{ font-weight:600; letter-spacing:-.02em; font-size:1.7rem; }
+  .stat .l{
+    text-transform:none; letter-spacing:normal; font-weight:500;
+    font-size:13px; color:var(--muted);
+  }
+  .stat.good, .stat.warn, .stat.bad{ background-image:none; }
+  .summary-grid{ gap:8px; }
+
+  /* -------- Grade badge: cleaner chip -------- */
+  .grade-badge{
+    border-radius:980px; padding:5px 12px; box-shadow:none;
+    font-weight:500; font-size:13px; letter-spacing:-.005em;
+  }
+  .grade-badge .letter{ font-size:14px; font-weight:600; }
+
+  /* -------- Top-links row (report actions) -------- */
+  .top-links{ gap:8px; }
+  .top-links a{
+    background:var(--panel2); border:1px solid var(--border);
+    color:var(--text); border-radius:980px; padding:5px 12px;
+    font-size:12px; font-weight:500; text-decoration:none;
+  }
+  .top-links a:hover{ background:var(--panel-hi); text-decoration:none; }
+  .top-links .badge{
+    background:transparent; border:none; color:var(--muted);
+    padding:5px 0; font-size:13px; font-weight:500;
+  }
+
+  /* -------- Links -------- */
+  a{
+    color:var(--link); text-decoration:none; letter-spacing:-.005em;
+  }
+  a:hover{ text-decoration:underline; text-underline-offset:2px; }
+
+  /* -------- Hint text -------- */
+  .hint{ color:var(--muted); font-size:13px; line-height:1.5; }
+
+  /* =====================================================================
+     REPORT VIEW: SCROLL STORY LAYOUT
+     Applied only to elements inside #results.
+     ===================================================================== */
+  .report-hero{
+    padding:56px 0 40px; text-align:center; margin-bottom:24px;
+    break-inside:avoid;
+  }
+  .report-hero .eyebrow{
+    font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 12px;
+  }
+  .report-hero .hero-title{
+    font-size:clamp(36px, 5.5vw, 64px);
+    font-weight:600; letter-spacing:-.03em; line-height:1.05;
+    margin:0 0 14px; color:var(--text); text-wrap:balance;
+  }
+  .report-hero .hero-sub{
+    font-size:clamp(17px, 1.8vw, 21px);
+    color:var(--muted); margin:0 auto 22px; max-width:640px;
+    line-height:1.4; font-weight:400; letter-spacing:-.01em;
+  }
+  .report-hero .rating-line{
+    display:inline-flex; align-items:center; gap:12px; flex-wrap:wrap;
+    justify-content:center; font-size:14px; color:var(--muted); margin-bottom:26px;
+  }
+  .report-hero .rating-line .dot{ width:4px; height:4px; border-radius:50%; background:var(--border); }
+  .report-hero .rating-line b{ font-weight:600; }
+  .report-hero .rating-line b.grade-A, .report-hero .rating-line b.grade-B{ color:var(--good); }
+  .report-hero .rating-line b.grade-C{ color:var(--warn); }
+  .report-hero .rating-line b.grade-D, .report-hero .rating-line b.grade-F{ color:var(--bad); }
+  .report-hero .hero-ctas{
+    display:flex; gap:18px; justify-content:center; align-items:center;
+    margin-bottom:8px; flex-wrap:wrap;
+  }
+  .report-hero .hero-ctas .cta-text{
+    color:var(--accent); text-decoration:none; font-size:15px;
+    background:none; border:none; cursor:pointer; padding:8px 4px;
+    display:inline-flex; align-items:center; gap:3px;
+    font-family:inherit; font-weight:400; letter-spacing:-.01em;
+  }
+  .report-hero .hero-ctas .cta-text:hover{ text-decoration:underline; text-underline-offset:2px; }
+  .report-hero .hero-ctas .cta-text .chev{ transition:transform .15s ease; }
+  .report-hero .hero-ctas .cta-text:hover .chev{ transform:translateX(2px); }
+  .report-hero .hero-ctas button{
+    background:var(--accent); color:#fff; border-radius:980px;
+    padding:11px 22px; font-size:16px; font-weight:400;
+  }
+
+  /* Giant grade letter — one canvas unto itself */
+  .grade-canvas{
+    padding:56px 0 40px; text-align:center; break-inside:avoid;
+  }
+  .grade-canvas .eyebrow{
+    font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 24px;
+  }
+  .grade-canvas .letter-huge{
+    font-size:clamp(140px, 22vw, 260px);
+    font-weight:200; line-height:.9; letter-spacing:-.05em;
+    margin:0 0 10px; color:var(--good);
+    display:block;
+  }
+  .grade-canvas .letter-huge.grade-A, .grade-canvas .letter-huge.grade-B{ color:var(--good); }
+  .grade-canvas .letter-huge.grade-C{ color:var(--warn); }
+  .grade-canvas .letter-huge.grade-D, .grade-canvas .letter-huge.grade-F{ color:var(--bad); }
+  .grade-canvas .score-line{
+    font-size:clamp(22px, 2.8vw, 28px); font-weight:600; color:var(--text);
+    letter-spacing:-.02em;
+  }
+  .grade-canvas .score-line small{ color:var(--muted); font-weight:400; font-size:.65em; margin-left:2px; }
+  .grade-canvas .score-blurb{
+    font-size:16px; color:var(--muted); margin:14px auto 0;
+    max-width:520px; line-height:1.5;
+  }
+
+  /* Reveal-on-scroll */
+  .reveal{
+    opacity:0; transform:translateY(20px);
+    transition:opacity .8s cubic-bezier(.4,0,.2,1), transform .8s cubic-bezier(.4,0,.2,1);
+  }
+  .reveal.in{ opacity:1; transform:translateY(0); }
+  @media (prefers-reduced-motion:reduce){
+    .reveal{ opacity:1 !important; transform:none !important; }
+  }
+
+  /* -------- Kill decorative confetti / gradient headline background on hero -------- */
+  h1[style*="gradient"]{ background:none !important; -webkit-text-fill-color:initial !important; color:var(--text) !important; }
+
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <div class="header-top">
-      <div class="h1-row">
-        <span class="h1-icon">🏢</span>
-        <div>
-          <h1>NYC Apartment Search</h1>
-          <p class="sub">Check a specific address, discover well-maintained buildings in a neighborhood, or track candidates as you shop — all built on public NYC Open Data, not scraped listings.</p>
+  <!-- Frosted-glass sticky top: header + tabs live together so the whole nav
+       behaves like apple.com's product nav (thin, blurred backdrop, one
+       cohesive strip that stays pinned as the report scrolls under it). -->
+  <div class="apple-nav">
+    <header>
+      <div class="header-top">
+        <div class="h1-row">
+          <span class="h1-icon">🏢</span>
+          <div>
+            <h1>NYC Apartment Search</h1>
+            <p class="sub">Check a specific address, discover well-maintained buildings in a neighborhood, or track candidates as you shop — all built on public NYC Open Data, not scraped listings.</p>
+          </div>
+        </div>
+        <div class="auth-area" id="authArea">
+          <button type="button" class="secondary" id="signInBtn">Sign in with Google</button>
+          <span class="auth-sync">Saved on this device only</span>
         </div>
       </div>
-      <div class="auth-area" id="authArea">
-        <button type="button" class="secondary" id="signInBtn">Sign in with Google</button>
-        <span class="auth-sync">Saved on this device only</span>
-      </div>
-    </div>
-  </header>
+    </header>
 
-  <div class="tabs" role="tablist">
-    <button class="tab-btn active" data-tab="check" role="tab" aria-selected="true">🔎 Check an Address</button>
-    <button class="tab-btn" data-tab="listings" role="tab" aria-selected="false">🏙️ Find Listings <span id="savedListingsCount" class="tab-count"></span></button>
-    <button class="tab-btn" data-tab="nearby" role="tab" aria-selected="false">🗺️ What's Nearby</button>
-    <button class="tab-btn" data-tab="affordable" role="tab" aria-selected="false">🏠 Affordable Housing</button>
-    <button class="tab-btn" data-tab="explore" role="tab" aria-selected="false">🗺️ Explore a Neighborhood</button>
-    <button class="tab-btn" data-tab="watchlist" role="tab" aria-selected="false">⭐ My Watchlist <span id="watchlistCount" class="tab-count"></span></button>
-    <button class="tab-btn" data-tab="tools" role="tab" aria-selected="false">🧰 Renter Tools</button>
+    <div class="tabs" role="tablist">
+      <button class="tab-btn active" data-tab="check" role="tab" aria-selected="true">Check an Address</button>
+      <button class="tab-btn" data-tab="listings" role="tab" aria-selected="false">Find Listings <span id="savedListingsCount" class="tab-count"></span></button>
+      <button class="tab-btn" data-tab="nearby" role="tab" aria-selected="false">What's Nearby</button>
+      <button class="tab-btn" data-tab="affordable" role="tab" aria-selected="false">Affordable Housing</button>
+      <button class="tab-btn" data-tab="explore" role="tab" aria-selected="false">Explore a Neighborhood</button>
+      <button class="tab-btn" data-tab="watchlist" role="tab" aria-selected="false">Watchlist <span id="watchlistCount" class="tab-count"></span></button>
+      <button class="tab-btn" data-tab="tools" role="tab" aria-selected="false">Renter Tools</button>
+    </div>
   </div>
 
   <div id="tab-check" class="tab-panel active">
@@ -2936,6 +3262,36 @@
     startFunFactTicker();
     resultsEl.classList.add('show');
     resultsEl.innerHTML = `
+      <!-- Apple-style hero: address, subhead, rating line, primary CTA + text link. Grade
+           details populate later once fetchDataset resolves — grade badge lives in the
+           top-links row below to keep the existing DOM contract that renderGradeBadge
+           depends on, but a hero-scale slot up here mirrors it visually. -->
+      <div class="report-hero">
+        <p class="eyebrow">Building report</p>
+        <h1 class="hero-title">${esc(houseNumber)} ${esc(streetRaw)}.</h1>
+        <p class="hero-sub">Everything the public record says about this building, in one place.</p>
+        <div class="rating-line">
+          <span>${esc(BORO_NAMES[borough]||borough)}</span>
+          <span class="dot"></span>
+          <span id="heroGradeLine">Rating loading…</span>
+          <span class="dot"></span>
+          <span>Compiled ${new Date().toLocaleDateString('en-US',{year:'numeric', month:'short', day:'numeric'})}</span>
+        </div>
+        <div class="hero-ctas">
+          <button id="heroSaveBtn" type="button">Save to Watchlist</button>
+          <button id="heroShareBtn" class="cta-text" type="button">Share this report <span class="chev">›</span></button>
+          <button id="heroScrollBtn" class="cta-text" type="button">Read the full report <span class="chev">›</span></button>
+        </div>
+      </div>
+
+      <!-- Giant-grade canvas — one big idea per screen height, populated when grade resolves -->
+      <div class="grade-canvas reveal" id="gradeCanvas" style="display:none;">
+        <p class="eyebrow">Rating</p>
+        <div class="letter-huge" id="gradeCanvasLetter">?</div>
+        <div class="score-line"><span id="gradeCanvasScore">–</span><small>/100</small></div>
+        <p class="score-blurb" id="gradeCanvasBlurb">Compiling the record from HPD, DOB, DOI, and NYC 311.</p>
+      </div>
+
       <div class="card full">
         <div class="top-links">
           <span class="badge">${esc(houseNumber)} ${esc(streetRaw)}, ${esc(BORO_NAMES[borough]||borough)}</span>
@@ -3086,6 +3442,52 @@
     const gradeBadgeSlot = document.getElementById('gradeBadgeSlot');
     gradeBadgeSlot.innerHTML = renderGradeBadge(gradeInfo);
     if(gradeInfo.grade === 'A') fireConfetti(gradeBadgeSlot.querySelector('.grade-badge'));
+
+    // Apple-style hero + giant-grade canvas: populate now that gradeInfo exists.
+    // Both live above the .card full block from the initial template; they don't
+    // exist on Watchlist/Explore views, so the guards below let this code stay
+    // no-op in those contexts.
+    const heroGradeLine = document.getElementById('heroGradeLine');
+    if(heroGradeLine){
+      heroGradeLine.innerHTML = `Rating <b class="grade-${gradeInfo.grade}">${esc(gradeInfo.grade)}</b> · ${gradeInfo.score}/100`;
+    }
+    const gradeCanvas = document.getElementById('gradeCanvas');
+    if(gradeCanvas){
+      const letter = document.getElementById('gradeCanvasLetter');
+      const score = document.getElementById('gradeCanvasScore');
+      const blurb = document.getElementById('gradeCanvasBlurb');
+      letter.textContent = gradeInfo.grade;
+      letter.className = 'letter-huge grade-' + gradeInfo.grade;
+      score.textContent = gradeInfo.score;
+      // Plain-English one-liner per grade band, mirrors renderGradeBadge tone
+      const blurbs = {
+        A: 'No open violations, no evictions on file, no bedbug history.',
+        B: 'Mostly clean, but a couple signals worth reading below.',
+        C: 'Some issues on record — worth reviewing the sections below before signing.',
+        D: 'Multiple risk signals — read the full report carefully.',
+        F: 'Serious signals on record. Reconsider or verify very carefully.'
+      };
+      blurb.textContent = blurbs[gradeInfo.grade] || blurb.textContent;
+      gradeCanvas.style.display = '';
+      // trigger the fade-up reveal immediately since it's above-the-fold
+      requestAnimationFrame(() => gradeCanvas.classList.add('in'));
+    }
+    // Wire hero CTAs to the existing button behavior — clicking the hero pill or
+    // "Share" text link is identical to clicking the same button in .top-links.
+    const heroSaveBtn = document.getElementById('heroSaveBtn');
+    if(heroSaveBtn){
+      heroSaveBtn.addEventListener('click', () => document.getElementById('saveWatchlistBtn')?.click(), {once:false});
+    }
+    const heroShareBtn = document.getElementById('heroShareBtn');
+    if(heroShareBtn){
+      heroShareBtn.addEventListener('click', () => document.getElementById('shareReportBtn')?.click(), {once:false});
+    }
+    const heroScrollBtn = document.getElementById('heroScrollBtn');
+    if(heroScrollBtn){
+      heroScrollBtn.addEventListener('click', () => {
+        document.getElementById('sec-redflags')?.scrollIntoView({behavior:'smooth', block:'start'});
+      }, {once:false});
+    }
     currentSearch = {houseNumber, street: streetRaw, borough, gradeInfo, resultsByKey};
 
     // Transit & Safety and the exemptions lookup both run off coordinates/BBL rather
@@ -5433,6 +5835,39 @@
         console.warn('Service worker registration failed:', err);
       });
     });
+  }
+
+  // Scroll-reveal for the Apple-style report layout. Uses IntersectionObserver
+  // so it's cheap and stops observing an element once it's revealed. A single
+  // observer instance watches for `.reveal` elements added anywhere in the DOM
+  // — new ones (from runSearch's report template, for example) get picked up
+  // by a MutationObserver on the results container.
+  if('IntersectionObserver' in window){
+    const revealObserver = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if(e.isIntersecting){
+          e.target.classList.add('in');
+          revealObserver.unobserve(e.target);
+        }
+      });
+    }, {threshold: 0.12, rootMargin: '0px 0px -40px 0px'});
+    function armReveal(root){
+      root.querySelectorAll('.reveal:not(.in)').forEach(el => revealObserver.observe(el));
+    }
+    // Initial pass
+    armReveal(document);
+    // Every time #results gets new content (from runSearch, watchlist recheck,
+    // etc.), pick up any new .reveal elements. Debounced trivially via requestAnimationFrame.
+    const resultsRoot = document.getElementById('results');
+    if(resultsRoot){
+      const mo = new MutationObserver(() => {
+        requestAnimationFrame(() => armReveal(resultsRoot));
+      });
+      mo.observe(resultsRoot, {childList:true, subtree:true});
+    }
+  } else {
+    // Fallback: no IO, just show everything
+    document.querySelectorAll('.reveal').forEach(el => el.classList.add('in'));
   }
 })();
 </script>
