@@ -1079,6 +1079,280 @@
   /* -------- Kill decorative confetti / gradient headline background on hero -------- */
   h1[style*="gradient"]{ background:none !important; -webkit-text-fill-color:initial !important; color:var(--text) !important; }
 
+  /* =====================================================================
+     3D DEPTH LAYER
+     ---------------------------------------------------------------------
+     Adds real dimensionality on top of the flat Apple base: multi-layer
+     shadows (Vision Pro card treatment), mousemove-driven perspective
+     tilt, gradient buttons with inset highlights, gradient-shaded grade
+     letter, and a 3D-styled grade disk in the report hero. Everything
+     opt-out via prefers-reduced-motion where it involves animation.
+     ===================================================================== */
+
+  /* Multi-layer shadow tokens — softer, stacked shadows read as "elevated" more
+     convincingly than a single big blur. Same recipe Apple uses on their product
+     cards (Vision Pro / iPhone landing pages). */
+  :root, :root[data-theme="light"]{
+    --shadow-elev-1:
+      0 1px 2px rgba(0,0,0,.04),
+      0 2px 6px rgba(0,0,0,.05),
+      0 6px 16px rgba(0,0,0,.04);
+    --shadow-elev-2:
+      0 1px 3px rgba(0,0,0,.05),
+      0 6px 14px rgba(0,0,0,.07),
+      0 16px 40px rgba(0,0,0,.08);
+    --shadow-elev-hover:
+      0 2px 6px rgba(0,0,0,.08),
+      0 16px 36px rgba(0,0,0,.12),
+      0 32px 80px rgba(0,0,0,.14);
+    --shadow-btn-primary:
+      0 1px 0 rgba(255,255,255,.35) inset,
+      0 -1px 0 rgba(0,0,0,.08) inset,
+      0 1px 2px rgba(0,113,227,.24),
+      0 6px 16px rgba(0,113,227,.22);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --shadow-elev-1:
+        0 1px 2px rgba(0,0,0,.5),
+        0 4px 10px rgba(0,0,0,.35),
+        0 12px 28px rgba(0,0,0,.32);
+      --shadow-elev-2:
+        0 2px 4px rgba(0,0,0,.55),
+        0 10px 24px rgba(0,0,0,.45),
+        0 24px 60px rgba(0,0,0,.40);
+      --shadow-elev-hover:
+        0 4px 8px rgba(0,0,0,.6),
+        0 20px 48px rgba(0,0,0,.55),
+        0 40px 100px rgba(0,0,0,.5);
+      --shadow-btn-primary:
+        0 1px 0 rgba(255,255,255,.15) inset,
+        0 -1px 0 rgba(0,0,0,.2) inset,
+        0 1px 2px rgba(41,151,255,.35),
+        0 6px 20px rgba(41,151,255,.30);
+    }
+  }
+  :root[data-theme="dark"]{
+    --shadow-elev-1:
+      0 1px 2px rgba(0,0,0,.5),
+      0 4px 10px rgba(0,0,0,.35),
+      0 12px 28px rgba(0,0,0,.32);
+    --shadow-elev-2:
+      0 2px 4px rgba(0,0,0,.55),
+      0 10px 24px rgba(0,0,0,.45),
+      0 24px 60px rgba(0,0,0,.40);
+    --shadow-elev-hover:
+      0 4px 8px rgba(0,0,0,.6),
+      0 20px 48px rgba(0,0,0,.55),
+      0 40px 100px rgba(0,0,0,.5);
+    --shadow-btn-primary:
+      0 1px 0 rgba(255,255,255,.15) inset,
+      0 -1px 0 rgba(0,0,0,.2) inset,
+      0 1px 2px rgba(41,151,255,.35),
+      0 6px 20px rgba(41,151,255,.30);
+  }
+
+  /* Cards — real elevation + hover lift + subtle mousemove perspective tilt
+     (the tilt is driven from JS, this rule handles the transition). */
+  .card{
+    box-shadow:var(--shadow-elev-2);
+    transform:translateZ(0);
+    transform-style:preserve-3d;
+    transition:transform .35s cubic-bezier(.2,.7,.2,1), box-shadow .35s cubic-bezier(.2,.7,.2,1);
+    will-change:transform;
+  }
+  .card:hover{ box-shadow:var(--shadow-elev-hover); }
+  /* The mousemove handler sets custom properties --tilt-x/--tilt-y/--lift so
+     the whole tilt+lift+perspective composition lives in CSS. Base state is
+     identity — no transform is applied until JS sets the properties. */
+  .card[data-tilt-active]{
+    transform:
+      perspective(1200px)
+      rotateX(var(--tilt-x, 0deg))
+      rotateY(var(--tilt-y, 0deg))
+      translateY(var(--lift, 0px));
+  }
+  @media (prefers-reduced-motion: reduce){
+    .card, .card[data-tilt-active]{ transform:none !important; transition:box-shadow .2s ease; }
+  }
+  /* Cards with a scoped darker/glass surface get a hairline top highlight so
+     the "raised material" reads. */
+  .card::after{
+    content:""; position:absolute; inset:0 0 auto 0; height:1px; pointer-events:none;
+    background:linear-gradient(90deg, transparent, rgba(255,255,255,.06) 20%, rgba(255,255,255,.06) 80%, transparent);
+    border-radius:16px 16px 0 0;
+  }
+  :root[data-theme="light"] .card::after,
+  :root:not([data-theme="dark"]) .card::after{
+    background:linear-gradient(90deg, transparent, rgba(255,255,255,.9) 20%, rgba(255,255,255,.9) 80%, transparent);
+    opacity:.5;
+  }
+  .card{ position:relative; overflow:hidden; }
+
+  /* Buttons — gradient fill + inset highlight + drop-shadow "floating" effect.
+     The primary button gets a signature blue depth; secondary buttons stay
+     flatter (they're supporting actions, not focal). */
+  button{
+    background:linear-gradient(180deg,
+      color-mix(in srgb, var(--accent) 92%, white) 0%,
+      var(--accent) 55%,
+      color-mix(in srgb, var(--accent) 92%, black) 100%);
+    box-shadow:var(--shadow-btn-primary);
+    transform:translateZ(0);
+    transition:transform .15s cubic-bezier(.2,.7,.2,1), box-shadow .15s cubic-bezier(.2,.7,.2,1), filter .15s ease;
+  }
+  button:hover:not(:disabled){
+    background:linear-gradient(180deg,
+      color-mix(in srgb, var(--accent) 96%, white) 0%,
+      color-mix(in srgb, var(--accent) 90%, white) 55%,
+      var(--accent) 100%);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.4) inset,
+      0 -1px 0 rgba(0,0,0,.1) inset,
+      0 2px 4px rgba(0,113,227,.28),
+      0 10px 24px rgba(0,113,227,.28);
+    transform:translateY(-1px);
+    filter:none;
+  }
+  button:active:not(:disabled){
+    transform:translateY(0);
+    box-shadow:
+      0 1px 2px rgba(0,0,0,.15) inset,
+      0 1px 2px rgba(0,113,227,.15);
+  }
+  button.secondary{
+    background:linear-gradient(180deg, var(--panel) 0%, var(--panel2) 100%);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.06) inset,
+      var(--shadow-elev-1);
+  }
+  :root[data-theme="light"] button.secondary,
+  :root:not([data-theme="dark"]) button.secondary{
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.9) inset,
+      var(--shadow-elev-1);
+  }
+  button.secondary:hover:not(:disabled){
+    background:linear-gradient(180deg, var(--panel) 0%, var(--panel-hi) 100%);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.1) inset,
+      var(--shadow-elev-2);
+    transform:translateY(-1px);
+  }
+  /* Tab buttons opt out — they're a nav strip, not a raised control */
+  .tab-btn, .tab-btn:hover, .tab-btn:active, .tab-btn.active{
+    background:transparent !important;
+    box-shadow:none !important; transform:none !important; filter:none !important;
+  }
+
+  /* Giant grade letter — gradient fill + drop shadow makes it read as a
+     dimensional object floating above the page instead of a flat glyph. */
+  .grade-canvas .letter-huge{
+    background:linear-gradient(180deg,
+      color-mix(in srgb, currentColor 40%, white) 0%,
+      currentColor 45%,
+      color-mix(in srgb, currentColor 70%, black) 100%);
+    -webkit-background-clip:text; background-clip:text;
+    color:transparent; -webkit-text-fill-color:transparent;
+    filter:
+      drop-shadow(0 8px 18px rgba(0,0,0,.10))
+      drop-shadow(0 28px 40px color-mix(in srgb, var(--good) 40%, transparent));
+    transition:filter .35s ease;
+  }
+  .grade-canvas .letter-huge.grade-A,
+  .grade-canvas .letter-huge.grade-B{
+    filter:
+      drop-shadow(0 8px 18px rgba(0,0,0,.12))
+      drop-shadow(0 28px 40px color-mix(in srgb, var(--good) 45%, transparent));
+  }
+  .grade-canvas .letter-huge.grade-C{
+    filter:
+      drop-shadow(0 8px 18px rgba(0,0,0,.12))
+      drop-shadow(0 28px 40px color-mix(in srgb, var(--warn) 45%, transparent));
+  }
+  .grade-canvas .letter-huge.grade-D,
+  .grade-canvas .letter-huge.grade-F{
+    filter:
+      drop-shadow(0 8px 18px rgba(0,0,0,.15))
+      drop-shadow(0 28px 40px color-mix(in srgb, var(--bad) 45%, transparent));
+  }
+  :root[data-theme="dark"] .grade-canvas .letter-huge,
+  :root:not([data-theme="light"]) .grade-canvas .letter-huge{
+    filter:
+      drop-shadow(0 8px 18px rgba(0,0,0,.35))
+      drop-shadow(0 28px 60px color-mix(in srgb, var(--good) 55%, transparent));
+  }
+
+  /* Grade "disk" — a raised, dimensional badge accompanying the giant letter.
+     Radial gradient for shading + drop shadow. Sized modestly so it doesn't
+     upstage the letter; sits beneath it as a secondary marker. */
+  .grade-disk{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:72px; height:72px; border-radius:50%;
+    background:radial-gradient(circle at 30% 25%,
+      color-mix(in srgb, var(--good) 55%, white) 0%,
+      var(--good) 45%,
+      color-mix(in srgb, var(--good) 75%, black) 100%);
+    color:#fff; font-size:1.4rem; font-weight:700; letter-spacing:-.02em;
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.4) inset,
+      0 -2px 6px rgba(0,0,0,.15) inset,
+      0 4px 10px rgba(0,0,0,.15),
+      0 16px 32px color-mix(in srgb, var(--good) 45%, transparent);
+    margin:14px auto 0;
+    text-shadow:0 1px 1px rgba(0,0,0,.15);
+    transform:translateZ(0);
+  }
+  .grade-disk.grade-C{
+    background:radial-gradient(circle at 30% 25%,
+      color-mix(in srgb, var(--warn) 55%, white) 0%,
+      var(--warn) 45%,
+      color-mix(in srgb, var(--warn) 75%, black) 100%);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.4) inset,
+      0 -2px 6px rgba(0,0,0,.15) inset,
+      0 4px 10px rgba(0,0,0,.15),
+      0 16px 32px color-mix(in srgb, var(--warn) 45%, transparent);
+  }
+  .grade-disk.grade-D, .grade-disk.grade-F{
+    background:radial-gradient(circle at 30% 25%,
+      color-mix(in srgb, var(--bad) 55%, white) 0%,
+      var(--bad) 45%,
+      color-mix(in srgb, var(--bad) 75%, black) 100%);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.4) inset,
+      0 -2px 6px rgba(0,0,0,.15) inset,
+      0 4px 10px rgba(0,0,0,.15),
+      0 16px 32px color-mix(in srgb, var(--bad) 45%, transparent);
+  }
+
+  /* Signal chips inside a card get subtle gradient depth */
+  .stat{
+    background:linear-gradient(180deg,
+      color-mix(in srgb, var(--panel2) 92%, white) 0%,
+      var(--panel2) 100%);
+    box-shadow:var(--shadow-elev-1);
+  }
+  :root[data-theme="dark"] .stat,
+  :root:not([data-theme="light"]) .stat{
+    background:linear-gradient(180deg,
+      color-mix(in srgb, var(--panel2) 90%, white) 0%,
+      var(--panel2) 100%);
+  }
+  .grade-badge{
+    box-shadow:var(--shadow-elev-1);
+  }
+
+  /* Scroll parallax on hero title + letter (JS toggles this via .parallax-active on <body>) */
+  body.parallax-active .report-hero .hero-title{
+    transform:translate3d(0, var(--parallax-hero, 0px), 0);
+    transition:none;
+  }
+  body.parallax-active .grade-canvas .letter-huge{
+    transform:translate3d(0, var(--parallax-letter, 0px), 0);
+    transition:none;
+  }
+
 </style>
 </head>
 <body>
@@ -3468,6 +3742,16 @@
         F: 'Serious signals on record. Reconsider or verify very carefully.'
       };
       blurb.textContent = blurbs[gradeInfo.grade] || blurb.textContent;
+      // Inject the small 3D "grade disk" (radial-gradient shaded, drop-shadowed)
+      // beneath the giant letter. Removed and re-created on every populate so
+      // re-runs update the color/letter cleanly.
+      const existingDisk = gradeCanvas.querySelector('.grade-disk');
+      if(existingDisk) existingDisk.remove();
+      const disk = document.createElement('div');
+      disk.className = 'grade-disk grade-' + gradeInfo.grade;
+      disk.textContent = gradeInfo.grade;
+      disk.title = `${gradeInfo.grade} · ${gradeInfo.score}/100`;
+      blurb.insertAdjacentElement('afterend', disk);
       gradeCanvas.style.display = '';
       // trigger the fade-up reveal immediately since it's above-the-fold
       requestAnimationFrame(() => gradeCanvas.classList.add('in'));
@@ -5868,6 +6152,84 @@
   } else {
     // Fallback: no IO, just show everything
     document.querySelectorAll('.reveal').forEach(el => el.classList.add('in'));
+  }
+
+  // ---------- 3D depth: mousemove tilt on cards + scroll parallax on hero ----------
+  // Skipped entirely on reduced-motion or on coarse pointers (touch devices,
+  // where the tilt has no natural trigger and the perspective feels wrong).
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const finePointer  = window.matchMedia && window.matchMedia('(pointer: fine)').matches;
+
+  if(!reduceMotion && finePointer){
+    // Card tilt on mousemove. Delegates from #results (and any other container
+    // holding cards) so cards rendered later by runSearch pick up the behavior
+    // for free — no need to re-wire per render.
+    const MAX_TILT = 2.2; // degrees; subtle enough to feel Apple, not toy
+    const LIFT = 4; // px
+    function handleMove(e){
+      const card = e.target.closest('.card');
+      if(!card) return;
+      // Skip if hover is on an interactive descendant that already has its
+      // own transform (buttons, inputs). Avoids compounding transforms.
+      if(e.target.closest('button, input, select, textarea, a')) return;
+      const rect = card.getBoundingClientRect();
+      // Ignore very small cards — the tilt reads jittery on narrow surfaces
+      if(rect.width < 260 || rect.height < 120) return;
+      const px = (e.clientX - rect.left) / rect.width  - 0.5; // -0.5..+0.5
+      const py = (e.clientY - rect.top)  / rect.height - 0.5;
+      card.style.setProperty('--tilt-y', (px *  MAX_TILT).toFixed(2) + 'deg');
+      card.style.setProperty('--tilt-x', (py * -MAX_TILT).toFixed(2) + 'deg');
+      card.style.setProperty('--lift', -LIFT + 'px');
+      if(!card.dataset.tiltActive) card.dataset.tiltActive = '1';
+    }
+    function handleLeave(e){
+      const card = e.target.closest('.card');
+      if(!card || !card.dataset.tiltActive) return;
+      // Smoothly reset by removing the data attribute (which the CSS gates on)
+      // and clearing the tilt props on the next frame so the transition runs
+      // from the current tilted value back to identity.
+      card.style.setProperty('--tilt-x', '0deg');
+      card.style.setProperty('--tilt-y', '0deg');
+      card.style.setProperty('--lift', '0px');
+      setTimeout(() => { delete card.dataset.tiltActive; }, 380);
+    }
+    // Use passive listeners since we never call preventDefault
+    document.addEventListener('mousemove', handleMove, {passive: true});
+    document.addEventListener('mouseleave', handleLeave, true);
+    document.addEventListener('mouseout', e => {
+      const card = e.target.closest && e.target.closest('.card');
+      if(card && !card.contains(e.relatedTarget)) handleLeave({target: card});
+    }, {passive: true});
+  }
+
+  if(!reduceMotion){
+    // Scroll parallax for the hero + giant grade letter. rAF-throttled and
+    // gated on presence of the hero (skipped on watchlist/tools tabs where
+    // there's no .report-hero to parallax).
+    let ticking = false;
+    function updateParallax(){
+      const y = window.scrollY;
+      // Different rates — the title moves faster than the letter beneath it,
+      // creating a subtle stacked-depth feel (Apple product-page rhythm).
+      document.body.style.setProperty('--parallax-hero',   Math.round(y * -0.18) + 'px');
+      document.body.style.setProperty('--parallax-letter', Math.round(y * -0.08) + 'px');
+      ticking = false;
+    }
+    function onScroll(){
+      if(!ticking){ requestAnimationFrame(updateParallax); ticking = true; }
+    }
+    // Enable parallax only when a hero is actually on the page
+    function armIfHero(){
+      const has = !!document.querySelector('.report-hero') || !!document.querySelector('.grade-canvas');
+      document.body.classList.toggle('parallax-active', has);
+    }
+    armIfHero();
+    window.addEventListener('scroll', onScroll, {passive: true});
+    // Re-arm whenever a search finishes (report added/removed from DOM)
+    const resultsRootParallax = document.getElementById('results');
+    if(resultsRootParallax){
+      new MutationObserver(armIfHero).observe(resultsRootParallax, {childList: true, subtree: true});
+    }
   }
 })();
 </script>
