@@ -2460,6 +2460,19 @@
   }
 
   // ---------- StreetEasy URL / free-text address parsing (best effort) ----------
+  // Strips apartment/unit/suite designators ("Apt 4B", "#4B", "Unit 12",
+  // "Suite 200") from an address string before it goes to a geocoder that
+  // only knows street-level addresses. Handles the designator appearing
+  // either mid-string (before a trailing ", New York, NY") or at the very end.
+  function stripUnitSuffix(address){
+    return address
+      .replace(/,?\s*\b(apt|apartment|unit|ste|suite)\.?\s*#?\s*[\w-]+/gi, '')
+      .replace(/,?\s*#\s*[\w-]+/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/\s+,/g, ',')
+      .trim();
+  }
+
   function parseInput(raw){
     raw = raw.trim();
     const guess = {houseNumber:'', street:'', borough:''};
@@ -5647,6 +5660,14 @@
         // treat as a raw address string, but append NYC if the user forgot
         addressForGeocoder = /new york|nyc|manhattan|brooklyn|queens|bronx|staten/i.test(raw) ? raw : `${raw}, New York, NY`;
       }
+      // Nominatim geocodes buildings/streets, not individual units — it doesn't
+      // ignore a unit suffix and geocode the building anyway, it just returns
+      // zero results outright (verified live: "123 West 45th Street" finds a
+      // match, "123 West 45th Street Apt 4B" finds nothing). Since typing an
+      // apartment number is completely natural — it's the address on the lease
+      // — strip it before geocoding rather than let the whole search fail on
+      // exactly the input someone touring a specific unit is most likely to type.
+      addressForGeocoder = stripUnitSuffix(addressForGeocoder);
 
       const [_, hit] = await Promise.all([loadLeaflet(), geocodeAddress(addressForGeocoder)]);
       nearbyCurrentCoords = {lat: hit.lat, lon: hit.lon};

@@ -151,6 +151,52 @@ async function testNearbyOverpassRetrySucceeds(){
   check('search still succeeds after the retry', statusText.includes('Centered on') && !statusText.includes('err'));
 }
 
+async function testNearbyStripsUnitSuffixBeforeGeocoding(){
+  console.log('\nWhat\'s Nearby: an apartment/unit number in the address no longer breaks geocoding');
+  // Verified live against Nominatim: "123 West 45th Street" finds a match,
+  // "123 West 45th Street Apt 4B" finds ZERO results — Nominatim doesn't
+  // gracefully ignore a unit suffix, the whole query just fails. Since typing
+  // an apartment number is the single most natural thing to do when checking
+  // the address on your own lease, this silently broke a very common case.
+  let geocodedQuery = null;
+  const window = newApp(() => async (url) => {
+    const u = String(url);
+    if(u.includes('nominatim')){
+      geocodedQuery = new URL(u).searchParams.get('q');
+      return { ok:true, status:200, json: async () => ([{lat:'40.7484', lon:'-73.9857', display_name:'123 West 45th Street, Manhattan, NY'}]) };
+    }
+    if(u.includes('overpass')) return { ok:true, status:200, json: async () => ({elements: []}) };
+    return { ok:true, status:200, json: async () => [] };
+  });
+  window.L = {
+    map(){ return { setView(){return this;}, invalidateSize(){}, removeLayer(){} }; },
+    tileLayer(){ return { addTo(){} }; },
+    marker(){ return { bindPopup(){return this;}, addTo(){return this;} }; },
+    divIcon(){ return {}; },
+    layerGroup(){ return { addTo(){return this;} }; }
+  };
+  await wait(200);
+  const doc = window.document;
+  doc.querySelector('[data-tab="nearby"]').click();
+  doc.getElementById('nearbyInput').value = '123 West 45th Street Apt 4B, New York, NY';
+  doc.getElementById('nearbyGoBtn').click();
+  await wait(300);
+  // parseInput recognizes "New York" as a borough token here, so the query this
+  // builds is "123 West 45th Street, Manhattan, NY" — the point of this check
+  // is just that "Apt 4B" is gone, not the exact borough phrasing around it.
+  check('the unit suffix ("Apt 4B") was stripped before hitting the geocoder',
+    geocodedQuery && geocodedQuery.includes('123 West 45th Street') && !geocodedQuery.toLowerCase().includes('apt'));
+  check('the search still succeeded end to end', doc.getElementById('nearbyStatus').innerHTML.includes('Centered on'));
+
+  // A hyphenated Queens-style house number must survive untouched — it looks
+  // superficially similar to a stripped unit-suffix pattern but isn't one.
+  geocodedQuery = null;
+  doc.getElementById('nearbyInput').value = '35-30 Vernon Blvd, Astoria, NY';
+  doc.getElementById('nearbyGoBtn').click();
+  await wait(300);
+  check('a hyphenated house number (Queens-style) is left alone', geocodedQuery && geocodedQuery.startsWith('35-30 Vernon Blvd'));
+}
+
 async function testWatchlistListingScraper(){
   console.log('\nWatchlist: listing-link scraper add/success/remove flow');
   const window = newApp(() => async (url) => {
@@ -336,6 +382,7 @@ async function testRetryButton(){
   await testWatchlistListingScraper();
   await testNearbyFetchesOnlySelectedCategories();
   await testNearbyOverpassRetrySucceeds();
+  await testNearbyStripsUnitSuffixBeforeGeocoding();
   await testNearbyAbortMessage(); // slowest (~41s) — runs last
 
   console.log(`\n${pass} passed, ${fail} failed`);
