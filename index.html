@@ -2606,8 +2606,8 @@
   }
   function sourceLinks(landing, queryUrl){
     return `<div class="src-links">
-      <a href="${landing}" target="_blank" rel="noopener">📄 Open dataset on NYC Open Data ↗</a>
-      <a href="${queryUrl}" target="_blank" rel="noopener">🔗 View raw query results (JSON) ↗</a>
+      <a href="${landing}" target="_blank" rel="noopener">Open dataset on NYC Open Data ↗</a>
+      <a href="${queryUrl}" target="_blank" rel="noopener">View raw query results (JSON) ↗</a>
     </div>`;
   }
   function loadingBlock(label){
@@ -2968,7 +2968,7 @@
       <div style="margin-top:4px;"><strong>Inspected</strong> ${fmtDate(r.inspection_date)} &nbsp; <strong>Disposition</strong> ${disposition}</div>
       <div class="src-links">
         <a href="${rawQueryUrl}" target="_blank" rel="noopener">🔗 View this complaint's raw record (JSON) ↗</a>
-        <a href="https://www.nyc.gov/assets/buildings/pdf/complaint_category.pdf" target="_blank" rel="noopener">📄 Full category code legend (PDF) ↗</a>
+        <a href="https://www.nyc.gov/assets/buildings/pdf/complaint_category.pdf" target="_blank" rel="noopener">Full category code legend (PDF) ↗</a>
       </div>
     </div></td></tr>`;
   }
@@ -3198,7 +3198,7 @@
     const parts = [];
 
     if(subwayResult.status === 'fulfilled' && subwayResult.value.length){
-      parts.push(`<h3 style="margin:0 0 8px; font-size:1rem;">🚇 Nearest subway stations</h3>`);
+      parts.push(`<h3 style="margin:0 0 8px; font-size:1rem;">Nearest subway stations</h3>`);
       parts.push(subwayResult.value.map(s => `
         <div class="building-row" style="cursor:default;">
           <div>
@@ -3207,7 +3207,7 @@
           </div>
           <span class="meta">${s.miles.toFixed(2)} mi</span>
         </div>`).join(''));
-      parts.push(`<div class="src-links"><a href="https://data.ny.gov/Transportation/MTA-Subway-Stations/39hk-dx4f" target="_blank" rel="noopener">📄 MTA Subway Stations dataset ↗</a></div>`);
+      parts.push(`<div class="src-links"><a href="https://data.ny.gov/Transportation/MTA-Subway-Stations/39hk-dx4f" target="_blank" rel="noopener">MTA Subway Stations dataset ↗</a></div>`);
     } else if(subwayResult.status === 'rejected'){
       parts.push(errBlock(subwayResult.reason && subwayResult.reason.message || 'subway lookup failed'));
     } else {
@@ -3219,7 +3219,7 @@
     if(crimeResult.status === 'fulfilled'){
       const {counts, url, radiusMiles, sinceStr} = crimeResult.value;
       const total = counts.FELONY + counts.MISDEMEANOR + counts.VIOLATION;
-      parts.push(`<h3 style="margin:0 0 8px; font-size:1rem;">🚨 NYPD complaints within ~${radiusMiles} mi (since ${fmtDate(sinceStr)})</h3>`);
+      parts.push(`<h3 style="margin:0 0 8px; font-size:1rem;">NYPD complaints within ~${radiusMiles} mi (since ${fmtDate(sinceStr)})</h3>`);
       parts.push(`<div class="summary-grid">
         ${statCard(total, 'Total complaints')}
         ${statCard(counts.FELONY, 'Felony', counts.FELONY>0?'bad':'good')}
@@ -3228,8 +3228,8 @@
       </div>`);
       parts.push(`<p class="hint">Area-level context, not specific to this building — NYPD complaints logged within roughly ${radiusMiles} miles, straight-line. A dense commercial strip nearby will show more activity than a quiet residential block even if both are equally safe.</p>`);
       parts.push(`<div class="src-links">
-        <a href="https://data.cityofnewyork.us/Public-Safety/NYPD-Complaint-Data-Current-Year-To-Date-/5uac-w243" target="_blank" rel="noopener">📄 NYPD Complaint Data dataset ↗</a>
-        <a href="${url}" target="_blank" rel="noopener">🔗 View raw query results (JSON) ↗</a>
+        <a href="https://data.cityofnewyork.us/Public-Safety/NYPD-Complaint-Data-Current-Year-To-Date-/5uac-w243" target="_blank" rel="noopener">NYPD Complaint Data dataset ↗</a>
+        <a href="${url}" target="_blank" rel="noopener">View raw query results (JSON) ↗</a>
       </div>`);
     } else {
       parts.push(errBlock(crimeResult.reason && crimeResult.reason.message || 'crime lookup failed'));
@@ -3239,15 +3239,15 @@
 
     if(crashResult.status === 'fulfilled'){
       const {crashes, injured, killed, radiusMiles, sinceStr, url} = crashResult.value;
-      parts.push(`<h3 style="margin:0 0 8px; font-size:1rem;">🚗 Traffic crashes within ~${radiusMiles} mi (since ${fmtDate(sinceStr)})</h3>`);
+      parts.push(`<h3 style="margin:0 0 8px; font-size:1rem;">Traffic crashes within ~${radiusMiles} mi (since ${fmtDate(sinceStr)})</h3>`);
       parts.push(`<div class="summary-grid">
         ${statCard(crashes, 'Crashes', crashes>0?'warn':'good')}
         ${statCard(injured, 'People injured', injured>0?'bad':'good')}
         ${statCard(killed, 'People killed', killed>0?'bad':'good')}
       </div>`);
       parts.push(`<div class="src-links">
-        <a href="https://data.cityofnewyork.us/Public-Safety/Motor-Vehicle-Collisions-Crashes/h9gi-nx95" target="_blank" rel="noopener">📄 Motor Vehicle Collisions dataset ↗</a>
-        <a href="${url}" target="_blank" rel="noopener">🔗 View raw query results (JSON) ↗</a>
+        <a href="https://data.cityofnewyork.us/Public-Safety/Motor-Vehicle-Collisions-Crashes/h9gi-nx95" target="_blank" rel="noopener">Motor Vehicle Collisions dataset ↗</a>
+        <a href="${url}" target="_blank" rel="noopener">View raw query results (JSON) ↗</a>
       </div>`);
     } else {
       parts.push(errBlock(crashResult.reason && crashResult.reason.message || 'crash lookup failed'));
@@ -3305,7 +3305,7 @@
       return errBlock(result.reason && result.reason.message || 'exemption lookup failed');
     }
     const {decoded, url} = result.value;
-    const dofLink = `<div class="src-links"><a href="https://data.cityofnewyork.us/City-Government/Property-Exemption-Detail/muvi-b6kx" target="_blank" rel="noopener">📄 Property Exemption Detail dataset ↗</a> <a href="${url}" target="_blank" rel="noopener">🔗 View raw query results (JSON) ↗</a></div>`;
+    const dofLink = `<div class="src-links"><a href="https://data.cityofnewyork.us/City-Government/Property-Exemption-Detail/muvi-b6kx" target="_blank" rel="noopener">Property Exemption Detail dataset ↗</a> <a href="${url}" target="_blank" rel="noopener">View raw query results (JSON) ↗</a></div>`;
     const condoCaveat = `<p class="hint">Condos and co-ops assign a separate BBL to each individual unit — this only looked up the one BBL that happened to surface in this building's other public records, so it may reflect a different unit than yours in a condo/co-op building. Rental buildings generally have one BBL for the whole building, so this is more reliable there.</p>`;
     if(!decoded.length){
       return `<p class="empty">No active property tax exemptions found for this BBL — no 421-a/J-51 signal either way.</p>${condoCaveat}${dofLink}`;
@@ -3406,7 +3406,7 @@
       return '<p class="empty">No coordinates came back from any dataset for this address, so flood zone couldn\'t be looked up.</p>';
     }
     const mscUrl = `https://msc.fema.gov/portal/search?AddressQuery=${encodeURIComponent(`${coords.lat},${coords.lon}`)}`;
-    const mscLink = `<div class="src-links"><a href="${mscUrl}" target="_blank" rel="noopener">🗺️ View the official FEMA flood map for this location ↗</a></div>`;
+    const mscLink = `<div class="src-links"><a href="${mscUrl}" target="_blank" rel="noopener">View the official FEMA flood map for this location ↗</a></div>`;
     if(!result || result.status !== 'fulfilled'){
       return errBlock((result && result.reason && result.reason.message) || 'flood zone lookup failed') + mscLink;
     }
@@ -3425,7 +3425,7 @@
       <p class="hint" style="margin-top:10px;"><strong>${esc(label)}</strong></p>
       <p class="hint">${insuranceNote}</p>
       ${mscLink}
-      <div class="src-links"><a href="${url}" target="_blank" rel="noopener">🔗 View raw query results (JSON) ↗</a></div>
+      <div class="src-links"><a href="${url}" target="_blank" rel="noopener">View raw query results (JSON) ↗</a></div>
     `;
   }
 
@@ -3794,7 +3794,7 @@
         const truncated = rows.length === ds.limit ? truncationWarning(ds) : '';
         body.innerHTML = ds.render(rows) + truncated + sourceLinks(ds.landing, url);
       }catch(e){
-        body.innerHTML = errBlock(e.message, ds.key) + `<div class="src-links"><a href="${ds.landing}" target="_blank" rel="noopener">📄 Open dataset on NYC Open Data ↗</a></div>`;
+        body.innerHTML = errBlock(e.message, ds.key) + `<div class="src-links"><a href="${ds.landing}" target="_blank" rel="noopener">Open dataset on NYC Open Data ↗</a></div>`;
       }
     }
     await Promise.all(DATASETS.map(loadDatasetSection));
@@ -3978,7 +3978,7 @@
           }
         }
       }catch(e){
-        contactsBody.innerHTML = errBlock(e.message) + `<div class="src-links"><a href="${CONTACTS.landing}" target="_blank" rel="noopener">📄 Open dataset on NYC Open Data ↗</a></div>`;
+        contactsBody.innerHTML = errBlock(e.message) + `<div class="src-links"><a href="${CONTACTS.landing}" target="_blank" rel="noopener">Open dataset on NYC Open Data ↗</a></div>`;
       }
     }
 
@@ -6030,7 +6030,7 @@
 
       if(!list.length){
         exploreResultsEl.innerHTML = `<div class="card"><p class="empty">${esc(matches.join(', '))} has no HPD violations on record — nothing to rank yet.</p>
-          <div class="src-links"><a href="${url}" target="_blank" rel="noopener">🔗 View raw query results (JSON) ↗</a></div></div>`;
+          <div class="src-links"><a href="${url}" target="_blank" rel="noopener">View raw query results (JSON) ↗</a></div></div>`;
         return;
       }
 
@@ -6051,7 +6051,7 @@
               ${worst.length ? worst.map(b => buildingRowHtml(b,'bad')).join('') : '<p class="empty">No open Class C violations found among matched buildings.</p>'}
             </div>
           </div>
-          <div class="src-links"><a href="${url}" target="_blank" rel="noopener">🔗 View raw query results (JSON) ↗</a></div>
+          <div class="src-links"><a href="${url}" target="_blank" rel="noopener">View raw query results (JSON) ↗</a></div>
         </div>`;
     }catch(e){
       exploreResultsEl.innerHTML = `<div class="card">${errBlock(e.message)}</div>`;
