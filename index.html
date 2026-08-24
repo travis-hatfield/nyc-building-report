@@ -759,6 +759,20 @@
     #results.show{columns:1;}
   }
 
+  /* Renter Tools was 5 full-width cards stacked top to bottom regardless of
+     how short each one actually is (Commute Anchor and Rights are both
+     compact) — same masonry-columns treatment as the address report above,
+     so short cards sit side by side instead of forcing one long scroll. */
+  #tab-tools.active{
+    display:block; columns:2; column-gap:18px;
+  }
+  #tab-tools.active > .card{
+    break-inside:avoid; -webkit-column-break-inside:avoid; margin-bottom:18px;
+  }
+  @media (max-width:860px){
+    #tab-tools.active{columns:1;}
+  }
+
   /* =====================================================================
      APPLE DESIGN SYSTEM (2026 rewrite)
      ---------------------------------------------------------------------
