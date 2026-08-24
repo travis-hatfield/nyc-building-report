@@ -1353,6 +1353,117 @@
     transition:none;
   }
 
+  /* =====================================================================
+     QA/QC PASS: eyebrow labels, slim top-links, external-sources drawer,
+     redesigned section-title, mobile-responsive nav.
+     ===================================================================== */
+
+  /* Eyebrow label above section h2 — small caps, muted, matches the Apple
+     product-page pattern (e.g. "iPhone 15" eyebrow above headline). Replaces
+     the old inline agency chip badge that sat next to the h2. */
+  .eyebrow-label{
+    display:block;
+    font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--muted); margin-bottom:6px; line-height:1.2;
+  }
+
+  /* Restructure .section-title so anything containing an .eyebrow-label stacks
+     vertically (eyebrow on top, h2 below). Left-aligned. */
+  .section-title{
+    display:flex; flex-direction:column; align-items:flex-start;
+    margin-bottom:14px; gap:0;
+  }
+  /* Legacy .section-title layout still uses .badge on the right for some sections;
+     preserve that layout when there's no .eyebrow-label. */
+  .section-title:not(:has(.eyebrow-label)){
+    flex-direction:row; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  }
+  .section-title h2{
+    font-size:22px; font-weight:600; letter-spacing:-.015em; line-height:1.15;
+    margin:0; color:var(--text);
+  }
+
+  /* Slim actions row (Print, commute chip, parks link only) — no wrap, smaller
+     gap since it holds far fewer items now. */
+  .top-links-slim{ gap:8px; align-items:center; flex-wrap:wrap; }
+  .top-links-slim [hidden]{ display:none !important; }
+
+  /* External sources drawer — collapsed by default so 6 secondary links don't
+     compete with the hero. Styled like an Apple disclosure list. */
+  .external-sources{ padding:0 !important; overflow:visible; }
+  .external-sources details{ margin:0; }
+  .external-sources summary{
+    list-style:none; cursor:pointer;
+    padding:18px 24px; font-size:14px; font-weight:500; color:var(--text);
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    border-radius:16px;
+    transition:background .12s ease;
+  }
+  .external-sources summary::-webkit-details-marker{ display:none; }
+  .external-sources summary:hover{ background:var(--panel2); }
+  .external-sources summary .ext-caret{
+    color:var(--muted); font-size:18px; font-weight:400;
+    transition:transform .2s cubic-bezier(.2,.7,.2,1);
+  }
+  .external-sources details[open] summary .ext-caret{ transform:rotate(90deg); }
+  .external-sources details[open] summary{
+    border-bottom:1px solid var(--border); border-radius:16px 16px 0 0;
+  }
+  .external-sources .ext-links{
+    padding:16px 24px 6px;
+    display:flex; flex-wrap:wrap; gap:8px;
+  }
+  .external-sources .ext-links a{
+    background:var(--panel2); border:1px solid var(--border);
+    padding:6px 14px; border-radius:980px;
+    font-size:13px; font-weight:500; color:var(--text); text-decoration:none;
+    letter-spacing:-.005em; transition:background .12s ease;
+  }
+  .external-sources .ext-links a:hover{ background:var(--panel-hi); text-decoration:none; }
+  .external-sources > details > .hint{ padding:0 24px 18px; margin:0; }
+
+  /* Global year filter row inside the slim card — tighten to match */
+  .global-year-row{
+    display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+    padding:14px 0 4px; margin-top:14px; border-top:1px solid var(--border);
+  }
+  .global-year-row label{
+    margin-bottom:0; font-size:13px; font-weight:500; color:var(--text);
+  }
+  .global-year-row select{ padding:6px 12px; font-size:14px; width:auto; }
+  .global-year-row .hint{ margin:0; flex:1; min-width:200px; }
+
+  /* Mobile responsive: the sticky top nav (header + tabs) gets tall on narrow
+     screens because of the long sub paragraph — hide it on mobile and tighten
+     the h1 so more of the report is visible above the fold. */
+  @media (max-width: 640px){
+    .apple-nav{ padding:10px 16px 0; margin:-20px -16px 22px; }
+    .wrap{ padding:20px 16px 60px; }
+    header .sub{ display:none; }
+    header h1{ font-size:16px; }
+    .h1-icon{ width:22px; height:22px; font-size:0.65rem; border-radius:5px; }
+    .header-top{ padding-bottom:8px; align-items:center; }
+    .auth-area{ padding-top:0; }
+    .auth-area .auth-name{ display:none; }
+    .auth-area .auth-sync{ display:none; }
+    .auth-area button{ padding:6px 12px; font-size:12px; }
+    .tabs{ margin:0 -16px; padding:0 16px; }
+    .tab-btn{ padding:12px 10px 10px; font-size:12px; }
+    .report-hero{ padding:32px 0 24px; }
+    .grade-canvas{ padding:32px 0 24px; }
+    .grade-canvas .letter-huge{ font-size:clamp(120px, 42vw, 200px); }
+    .card{ padding:20px 18px; }
+    .external-sources summary{ padding:14px 18px; font-size:13px; }
+    .external-sources .ext-links{ padding:12px 18px 4px; }
+    .external-sources > details > .hint{ padding:0 18px 14px; }
+  }
+
+  /* Print: hide the external-sources drawer + slim actions row (nothing
+     interactive should print). */
+  @media print{
+    .external-sources, .top-links-slim{ display:none !important; }
+  }
+
 </style>
 </head>
 <body>
@@ -1430,7 +1541,7 @@
       <p class="hint">StreetEasy shows this on the listing page. A long time on market doesn't always mean something's wrong, but paired with real violations or complaints below, it's worth a second look.</p>
 
       <div class="actions">
-        <button id="searchBtn">🔎 Search public records</button>
+        <button id="searchBtn">Search public records</button>
         <button class="secondary" id="clearBtn" type="button">Clear</button>
       </div>
       <p id="searchFunFact" class="fun-fact" hidden></p>
@@ -1441,7 +1552,7 @@
 
   <div id="tab-nearby" class="tab-panel">
     <div class="card">
-      <div class="section-title"><h2>🗺️ What's Nearby</h2></div>
+      <div class="section-title"><h2>What's Nearby</h2></div>
       <p class="hint">Paste a StreetEasy/OpenIgloo URL or type an address to see the neighborhood on a map with transit, coffee, groceries, and attractions within walking distance. All map data comes from OpenStreetMap — no listings sites involved.</p>
       <div class="row" style="margin-top:14px;">
         <div class="field">
@@ -1462,18 +1573,18 @@
         <div class="field" style="grid-column:span 2;">
           <label>Show on map</label>
           <div class="nearby-toggles">
-            <label class="nearby-toggle"><input type="checkbox" data-cat="transit" checked> 🚇 Transit</label>
-            <label class="nearby-toggle"><input type="checkbox" data-cat="coffee" checked> ☕ Coffee</label>
-            <label class="nearby-toggle"><input type="checkbox" data-cat="grocery" checked> 🛒 Groceries</label>
-            <label class="nearby-toggle"><input type="checkbox" data-cat="attractions" checked> 🎭 Attractions</label>
-            <label class="nearby-toggle"><input type="checkbox" data-cat="parks"> 🌳 Parks</label>
-            <label class="nearby-toggle"><input type="checkbox" data-cat="laundry"> 🧺 Laundry</label>
-            <label class="nearby-toggle"><input type="checkbox" data-cat="nightlife"> 🍸 Nightlife</label>
+            <label class="nearby-toggle"><input type="checkbox" data-cat="transit" checked> Transit</label>
+            <label class="nearby-toggle"><input type="checkbox" data-cat="coffee" checked> Coffee</label>
+            <label class="nearby-toggle"><input type="checkbox" data-cat="grocery" checked> Groceries</label>
+            <label class="nearby-toggle"><input type="checkbox" data-cat="attractions" checked> Attractions</label>
+            <label class="nearby-toggle"><input type="checkbox" data-cat="parks"> Parks</label>
+            <label class="nearby-toggle"><input type="checkbox" data-cat="laundry"> Laundry</label>
+            <label class="nearby-toggle"><input type="checkbox" data-cat="nightlife"> Nightlife</label>
           </div>
         </div>
       </div>
       <div class="actions">
-        <button id="nearbyGoBtn">🗺️ Show map</button>
+        <button id="nearbyGoBtn">Show map</button>
         <button class="secondary" id="nearbyClearBtn" type="button">Clear</button>
       </div>
       <div id="nearbyStatus" class="nearby-status"></div>
@@ -1484,7 +1595,7 @@
 
   <div id="tab-affordable" class="tab-panel">
     <div class="card">
-      <div class="section-title"><h2>🏠 Affordable Housing Projects</h2></div>
+      <div class="section-title"><h2>Affordable Housing Projects</h2></div>
       <p class="hint">Browse affordable housing projects built or preserved by HPD across NYC — filter by borough, unit size, and income tier. <strong>This shows the affordable housing supply, not current lottery listings.</strong> To apply to a specific lottery, use <a href="https://housingconnect.nyc.gov/PublicWeb/" target="_blank" rel="noopener">NYC Housing Connect ↗</a> — that's where open lotteries and their application deadlines live.</p>
       <div class="row3" style="margin-top:14px;">
         <div class="field">
@@ -1534,7 +1645,7 @@
       </div>
       <p class="hint" style="margin-top:8px;">Area Median Income (AMI) tiers set eligibility — a household of 4 at 80% AMI in NYC is roughly $130K/year; 30% AMI is roughly $49K. Each project reports how many units it dedicates to each tier — a project with 100 "extremely low" units means it must rent 100 apartments only to eligible low-income households.</p>
       <div class="actions">
-        <button id="affSearchBtn">🏠 Search projects</button>
+        <button id="affSearchBtn">Search projects</button>
       </div>
       <div id="affStatus" class="nearby-status"></div>
       <div id="affResults"></div>
@@ -1562,7 +1673,7 @@
       </div>
       <p class="hint">Matched against NYC Planning's neighborhood names (Neighborhood Tabulation Areas) in HPD's violation data — try the name as it'd appear on a city map. <strong>Important limitation:</strong> this can only rank buildings that already have at least one violation on record in HPD's data — there's no reliable public dataset of "every residential building in this neighborhood" to cross-reference against, so a building with a genuinely spotless record never appears here at all, even in "Fewest open violations." If a specific candidate matters to you, always run it through <a href="#" data-tab-link="check">🔎 Check an Address</a> directly — that's the only way to see a true zero-violation result.</p>
       <div class="actions">
-        <button id="exploreBtn">🗺️ Search neighborhood</button>
+        <button id="exploreBtn">Search neighborhood</button>
       </div>
     </div>
     <div id="exploreResults"></div>
@@ -1574,7 +1685,7 @@
 
   <div id="tab-listings" class="tab-panel">
     <div class="card">
-      <div class="section-title"><h2>🏙️ Search NYC Listings</h2></div>
+      <div class="section-title"><h2>Search NYC Listings</h2></div>
       <p class="hint">This form fills in your criteria across several listing sites and opens each in a new tab — we can't pull listings inline (those sites block automated access), but StreetEasy in particular lets us sort by "newest listed" via URL, so the most recently posted matches come first. Filter support varies by site; if a page looks unfiltered, adjust it there.</p>
 
       <div class="row3" style="margin-top:14px;">
@@ -1663,7 +1774,7 @@
       </div>
 
       <div class="actions">
-        <button id="lsSearchBtn">🏙️ Show filtered searches</button>
+        <button id="lsSearchBtn">Show filtered searches</button>
         <button class="secondary" id="lsClearBtn" type="button">Clear</button>
       </div>
 
@@ -1671,7 +1782,7 @@
     </div>
 
     <div class="card">
-      <div class="section-title"><h2>💾 Saved Listings</h2></div>
+      <div class="section-title"><h2>Saved Listings</h2></div>
       <p class="hint">Different from Watchlist — Watchlist tracks <em>buildings</em> you've researched. Save Listings tracks specific <em>listings</em> (an individual apartment posting) so you can jump back to it later. Syncs to your account when signed in.</p>
       <div class="row" style="margin-top:14px;">
         <div class="field">
@@ -1686,7 +1797,7 @@
         </div>
       </div>
       <div class="actions">
-        <button id="savedListingSaveBtn">💾 Save listing</button>
+        <button id="savedListingSaveBtn">Save listing</button>
       </div>
       <div id="savedListingsContainer" style="margin-top:16px;"></div>
     </div>
@@ -1694,7 +1805,7 @@
 
   <div id="tab-tools" class="tab-panel">
     <div class="card">
-      <div class="section-title"><h2>🚌 My Commute Anchor</h2></div>
+      <div class="section-title"><h2>My Commute Anchor</h2></div>
       <p class="hint">Save one work/school address here. Every building report will show how far it is and offer one-click Google Maps transit directions from that building to here. Synced to your account when signed in.</p>
       <div id="commuteCurrent" class="commute-current"></div>
       <div class="row" style="margin-top:12px;">
@@ -1704,14 +1815,14 @@
         </div>
       </div>
       <div class="actions">
-        <button id="commuteSaveBtn">🚌 Save commute anchor</button>
+        <button id="commuteSaveBtn">Save commute anchor</button>
         <button class="secondary" id="commuteClearBtn" type="button">Clear</button>
       </div>
       <div id="commuteStatus" class="hint" style="margin-top:8px;"></div>
     </div>
 
     <div class="card">
-      <div class="section-title"><h2>💰 Upfront-Cost &amp; Affordability Calculator</h2></div>
+      <div class="section-title"><h2>Upfront-Cost &amp; Affordability Calculator</h2></div>
       <p class="hint">Estimates what you'd actually need on hand to move in, and whether the rent fits your budget. Nothing here is sent anywhere — it's calculated in your browser.</p>
       <div class="row3" style="margin-top:14px;">
         <div class="field">
@@ -1746,13 +1857,13 @@
         </div>
       </div>
       <div class="actions">
-        <button id="calcRunBtn">💰 Calculate</button>
+        <button id="calcRunBtn">Calculate</button>
       </div>
       <div id="calcResult"></div>
     </div>
 
     <div class="card">
-      <div class="section-title"><h2>📄 Lease Red-Flag Scanner</h2></div>
+      <div class="section-title"><h2>Lease Red-Flag Scanner</h2></div>
       <p class="hint">Paste lease text below to scan for clauses worth double-checking. This is a keyword scanner, not a lawyer — it can miss things and can false-positive on boilerplate. Nothing you paste leaves your browser. For anything flagged, NYC has free tenant legal help (see Know Your Rights below).</p>
       <div class="row" style="margin-top:10px;">
         <div class="field">
@@ -1761,20 +1872,20 @@
         </div>
       </div>
       <div class="actions">
-        <button id="leaseScanBtn">📄 Scan lease</button>
+        <button id="leaseScanBtn">Scan lease</button>
         <button class="secondary" id="leaseClearBtn" type="button">Clear</button>
       </div>
       <div id="leaseResult"></div>
     </div>
 
     <div class="card">
-      <div class="section-title"><h2>✅ Application Document Checklist</h2></div>
+      <div class="section-title"><h2>Application Document Checklist</h2></div>
       <p class="hint">What NYC landlords typically ask for. Requirements vary by building — always confirm with the listing agent before your viewing.</p>
       <ul id="docChecklist" class="checklist"></ul>
     </div>
 
     <div class="card">
-      <div class="section-title"><h2>⚖️ Know Your Rights (NYC renters)</h2></div>
+      <div class="section-title"><h2>Know Your Rights (NYC renters)</h2></div>
       <p class="hint">General education, not legal advice — laws change and every situation differs. For anything specific to your lease, use the free resources linked at the bottom.</p>
       <div id="rightsAccordion"></div>
     </div>
@@ -3532,7 +3643,7 @@
     };
 
     searchBtn.disabled = true;
-    searchBtn.textContent = '🔎 Searching…';
+    searchBtn.textContent = 'Searching…';
     startFunFactTicker();
     resultsEl.classList.add('show');
     resultsEl.innerHTML = `
@@ -3567,55 +3678,54 @@
       </div>
 
       <div class="card full">
-        <div class="top-links">
-          <span class="badge">${esc(houseNumber)} ${esc(streetRaw)}, ${esc(BORO_NAMES[borough]||borough)}</span>
-          <span id="gradeBadgeSlot"></span>
-          <button id="saveWatchlistBtn" class="secondary" type="button">⭐ Save to Watchlist</button>
-          <button id="shareReportBtn" class="secondary" type="button" title="Copy a shareable URL to the clipboard">🔗 Share</button>
-          <button id="printReportBtn" class="secondary" type="button" title="Open browser Print dialog (use 'Save as PDF' for a clean PDF)">🖨️ Print / PDF</button>
-          <a href="${wowUrl}" target="_blank" rel="noopener">🏘️ Who Owns What (portfolio, rent-stab &amp; sale history) ↗</a>
-          <a href="https://hpdonline.nyc.gov/hpdonline/" target="_blank" rel="noopener">🏠 Search on HPD Online ↗</a>
-          <a href="https://a810-bisweb.nyc.gov/bisweb/bispi00.jsp" target="_blank" rel="noopener">🏗️ Search on DOB NOW / BIS ↗</a>
-          <a href="https://www.landlordwatchlist.com/everylandlord" target="_blank" rel="noopener">📋 NYC Public Advocate Worst Landlord Watchlist ↗</a>
-          <a href="https://www.localize.city/" target="_blank" rel="noopener">🔍 Localize.city (permits &amp; construction) ↗</a>
-          <a href="https://www.floodhelpny.org/" target="_blank" rel="noopener">🌊 Check flood risk (FloodHelpNY) ↗</a>
+        <!-- Slim actions row — Print is unique (not in the hero), commute/parks chips
+             carry live data. The hero above already covers Save + Share, and the
+             giant grade canvas / hero rating line covers grade — so those old chips
+             (gradeBadgeSlot, saveWatchlistBtn, shareReportBtn) are kept hidden here
+             via CSS so the JS that populates them stays intact, but no visual
+             duplication for the reader. -->
+        <div class="top-links top-links-slim">
+          <span id="gradeBadgeSlot" hidden></span>
+          <button id="saveWatchlistBtn" class="secondary" type="button" hidden>Save to Watchlist</button>
+          <button id="shareReportBtn" class="secondary" type="button" hidden>Share</button>
+          <button id="printReportBtn" class="secondary" type="button" title="Open browser Print dialog (use 'Save as PDF' for a clean PDF)">Print / PDF</button>
           <span id="parksLinkSlot"></span>
           <span id="commuteChipSlot"></span>
         </div>
         <div class="global-year-row">
-          <label for="globalYearFilter">📅 Show records from</label>
+          <label for="globalYearFilter">Show records from</label>
           <select id="globalYearFilter">${buildGlobalYearOptionsHtml()}</select>
           <span class="hint" style="margin:0;">— applies the same cutoff to every section below at once (Violations, Complaints, 311, Permits, etc.), instead of setting each one individually.</span>
         </div>
-        <p class="hint" style="margin-top:10px;">Tip: once you know the owner's name below (see "Registered Owner / Managing Agent"), Ctrl+F for it on the Watchlist page, or search it directly on <a href="https://whoownswhat.justfix.org/en/" target="_blank" rel="noopener">Who Owns What</a> to see every building tied to them.</p>
+      </div>
+      <!-- External sources block — 6 links to other city + civic-tech tools that
+           complement the report. Collapsed by default so they don't compete with
+           the hero for attention; expanded when the user actually wants them. -->
+      <div class="card full external-sources">
+        <details>
+          <summary>Search this address on other sites <span class="ext-caret" aria-hidden="true">›</span></summary>
+          <div class="ext-links">
+            <a href="${wowUrl}" target="_blank" rel="noopener">Who Owns What — portfolio, rent-stab &amp; sale history ↗</a>
+            <a href="https://hpdonline.nyc.gov/hpdonline/" target="_blank" rel="noopener">HPD Online ↗</a>
+            <a href="https://a810-bisweb.nyc.gov/bisweb/bispi00.jsp" target="_blank" rel="noopener">DOB NOW / BIS ↗</a>
+            <a href="https://www.landlordwatchlist.com/everylandlord" target="_blank" rel="noopener">Public Advocate's Worst Landlord Watchlist ↗</a>
+            <a href="https://www.localize.city/" target="_blank" rel="noopener">Localize.city — permits &amp; construction ↗</a>
+            <a href="https://www.floodhelpny.org/" target="_blank" rel="noopener">FloodHelpNY — flood risk ↗</a>
+          </div>
+          <p class="hint" style="margin-top:10px;">Tip: once you know the owner's name below (see "Registered Owner / Managing Agent"), Ctrl+F for it on the Watchlist page, or search it directly on <a href="https://whoownswhat.justfix.org/en/" target="_blank" rel="noopener">Who Owns What</a> to see every building tied to them.</p>
+        </details>
       </div>
       <div id="worstLandlordSlot"></div>
       <div id="rentStabSlot"></div>
-      <div class="card full" id="sec-listings">
-        <div class="section-title"><h2>🔑 Current Listings for This Building</h2></div>
-        <div class="top-links" style="margin-top:0;">
-          <a href="${listingLinks.streeteasy}" target="_blank" rel="noopener">🏙️ StreetEasy — this building ↗</a>
-          <a href="${listingLinks.zillow}" target="_blank" rel="noopener">🔑 Zillow — rentals here ↗</a>
-          <a href="${listingLinks.openigloo}" target="_blank" rel="noopener">🧊 OpenIgloo — browse listings ↗</a>
-          <a href="${listingLinks.google}" target="_blank" rel="noopener">🔎 All sites (Google) ↗</a>
-        </div>
-        <p class="hint" style="margin-top:10px;">These open the live listing pages for <strong>${esc(houseNumber)} ${esc(streetRaw)}</strong> in a new tab — actual availability lives on those sites (no public API exists to show it here). If StreetEasy's building link 404s, the "All sites" search will still surface every current listing.</p>
-      </div>
+
+      <!-- New section order surfaces value-first: Red Flags summary → the full
+           records (violations, DOB complaints, other datasets) → ownership → then
+           utility/context (listing sites, transit, tax records, flood zone). Old
+           order had Current Listings above Red Flags which pushed the most
+           important information five cards down. -->
       <div class="card full" id="sec-redflags">
-        <div class="section-title"><h2>🚦 Possible Red Flags</h2></div>
+        <div class="section-title"><h2>Possible Red Flags</h2></div>
         <div class="body">${loadingBlock('for red flags')}</div>
-      </div>
-      <div class="card" id="sec-transit">
-        <div class="section-title"><h2>🚇 Transit &amp; Safety</h2><span class="badge">MTA / NYPD</span></div>
-        <div class="body">${loadingBlock('transit and safety data')}</div>
-      </div>
-      <div class="card" id="sec-exemptions">
-        <div class="section-title"><h2>🏷️ Tax Exemptions &amp; Rent Stabilization</h2><span class="badge">DOF</span></div>
-        <div class="body">${loadingBlock('tax exemption records')}</div>
-      </div>
-      <div class="card" id="sec-floodzone">
-        <div class="section-title"><h2>🌊 Flood Zone</h2><span class="badge">FEMA</span></div>
-        <div class="body">${loadingBlock('FEMA flood zone data')}</div>
       </div>
       ${DATASETS.map(ds => {
         // Violations + DOB Complaints get the "Case File" treatment: a doc-style
@@ -3624,13 +3734,35 @@
         const isCaseFile = ds.key === 'violations' || ds.key === 'dobComplaints';
         const cardClass = isCaseFile ? 'card case-file-card' : 'card';
         const head = isCaseFile
-          ? `<div class="section-title cf-head"><h2>${esc(ds.label)}</h2><span class="badge">${esc(ds.agency)} source</span></div>`
-          : `<div class="section-title"><h2>${ds.icon} ${esc(ds.label)}</h2><span class="badge">${esc(ds.agency)}</span></div>`;
+          ? `<div class="section-title cf-head"><span class="eyebrow-label">${esc(ds.agency)} source</span><h2>${esc(ds.label)}</h2></div>`
+          : `<div class="section-title"><span class="eyebrow-label">${esc(ds.agency)}</span><h2>${esc(ds.label)}</h2></div>`;
         return `<div class="${cardClass}" id="sec-${ds.key}">${head}<div class="body">${loadingBlock(ds.label)}</div></div>`;
       }).join('')}
       <div class="card" id="sec-contacts">
-        <div class="section-title"><h2>🧾 Registered Owner / Managing Agent</h2><span class="badge">HPD</span></div>
+        <div class="section-title"><span class="eyebrow-label">HPD</span><h2>Registered Owner / Managing Agent</h2></div>
         <div class="body"><p class="empty">Waiting for registration lookup…</p></div>
+      </div>
+      <div class="card full" id="sec-listings">
+        <div class="section-title"><h2>Current Listings for This Building</h2></div>
+        <div class="top-links" style="margin-top:0;">
+          <a href="${listingLinks.streeteasy}" target="_blank" rel="noopener">StreetEasy — this building ↗</a>
+          <a href="${listingLinks.zillow}" target="_blank" rel="noopener">Zillow — rentals here ↗</a>
+          <a href="${listingLinks.openigloo}" target="_blank" rel="noopener">OpenIgloo — browse listings ↗</a>
+          <a href="${listingLinks.google}" target="_blank" rel="noopener">All sites (Google) ↗</a>
+        </div>
+        <p class="hint" style="margin-top:10px;">These open the live listing pages for <strong>${esc(houseNumber)} ${esc(streetRaw)}</strong> in a new tab — actual availability lives on those sites (no public API exists to show it here). If StreetEasy's building link 404s, the "All sites" search will still surface every current listing.</p>
+      </div>
+      <div class="card" id="sec-transit">
+        <div class="section-title"><span class="eyebrow-label">MTA / NYPD</span><h2>Transit &amp; Safety</h2></div>
+        <div class="body">${loadingBlock('transit and safety data')}</div>
+      </div>
+      <div class="card" id="sec-exemptions">
+        <div class="section-title"><span class="eyebrow-label">DOF</span><h2>Tax Exemptions &amp; Rent Stabilization</h2></div>
+        <div class="body">${loadingBlock('tax exemption records')}</div>
+      </div>
+      <div class="card" id="sec-floodzone">
+        <div class="section-title"><span class="eyebrow-label">FEMA</span><h2>Flood Zone</h2></div>
+        <div class="body">${loadingBlock('FEMA flood zone data')}</div>
       </div>
       <div class="disclaimer">
         Address matching against city datasets is approximate (abbreviations, hyphenated numbers, and duplicate street names can cause mismatches). Always confirm findings using the source links before relying on them.
@@ -3783,7 +3915,7 @@
       transitBody.innerHTML = renderTransitSafety(null);
     } else {
       document.getElementById('parksLinkSlot').innerHTML =
-        `<a href="https://www.google.com/maps/search/parks/@${coords.lat},${coords.lon},15z" target="_blank" rel="noopener">🌳 Find nearby parks ↗</a>`;
+        `<a href="https://www.google.com/maps/search/parks/@${coords.lat},${coords.lon},15z" target="_blank" rel="noopener">Find nearby parks ↗</a>`;
       renderCommuteChip(coords); // shows distance-to-work chip if user has a commute anchor saved
       Promise.allSettled([fetchNearestSubwayStations(coords), fetchCrimeSnapshot(coords), fetchCrashSnapshot(coords)])
         .then(([subwayResult, crimeResult, crashResult]) => {
@@ -3852,7 +3984,7 @@
 
     stopFunFactTicker();
     searchBtn.disabled = false;
-    searchBtn.textContent = '🔎 Search public records';
+    searchBtn.textContent = 'Search public records';
   }
 
   // ---------- Input wiring ----------
@@ -4369,7 +4501,7 @@
       `&destination=${anchor.lat},${anchor.lon}` +
       `&travelmode=transit`;
     const label = anchor.displayName ? anchor.displayName.split(',')[0] : anchor.address;
-    slot.innerHTML = `<a class="commute-chip" href="${esc(dirUrl)}" target="_blank" rel="noopener" title="Google Maps transit directions to ${esc(label)}">🚌 <span class="cc-miles">${miles.toFixed(1)} mi</span> to ${esc(label)} ↗</a>`;
+    slot.innerHTML = `<a class="commute-chip" href="${esc(dirUrl)}" target="_blank" rel="noopener" title="Google Maps transit directions to ${esc(label)}"><span class="cc-miles">${miles.toFixed(1)} mi</span> to ${esc(label)} ↗</a>`;
   }
   document.getElementById('commuteSaveBtn').addEventListener('click', saveCommuteAnchor);
   document.getElementById('commuteInput').addEventListener('keydown', e => { if(e.key==='Enter') saveCommuteAnchor(); });
@@ -4878,13 +5010,13 @@
 
   function buildListingSearchLinks(f){
     return [
-      {site:'StreetEasy', icon:'🏙️', caption:'Best NYC filter support · newest-first sort works via URL', ...buildStreetEasyUrl(f)},
-      {site:'OpenIgloo', icon:'🧊', caption:'Includes tenant reviews · minimal URL filter support', ...buildOpenIglooUrl(f)},
-      {site:'Zillow', icon:'🔑', caption:'Big inventory · filter on-site (their URL scheme blocks external filters)', ...buildZillowUrl(f)},
-      {site:'Apartments.com', icon:'🏘️', caption:'National platform, strong NYC coverage', ...buildApartmentsComUrl(f)},
-      {site:'PadMapper', icon:'🗺️', caption:'Map-first · aggregates from several sources', ...buildPadMapperUrl(f)},
-      {site:'RentHop', icon:'🐇', caption:'Ranks by data quality · newest-sort in URL', ...buildRentHopUrl(f)},
-      {site:'Google', icon:'🔎', caption:'Catch-all — surfaces smaller brokerage sites too', ...buildGoogleListingSearchUrl(f)}
+      {site:'StreetEasy', icon:'', caption:'Best NYC filter support · newest-first sort works via URL', ...buildStreetEasyUrl(f)},
+      {site:'OpenIgloo', icon:'', caption:'Includes tenant reviews · minimal URL filter support', ...buildOpenIglooUrl(f)},
+      {site:'Zillow', icon:'', caption:'Big inventory · filter on-site (their URL scheme blocks external filters)', ...buildZillowUrl(f)},
+      {site:'Apartments.com', icon:'', caption:'National platform, strong NYC coverage', ...buildApartmentsComUrl(f)},
+      {site:'PadMapper', icon:'', caption:'Map-first · aggregates from several sources', ...buildPadMapperUrl(f)},
+      {site:'RentHop', icon:'', caption:'Ranks by data quality · newest-sort in URL', ...buildRentHopUrl(f)},
+      {site:'Google', icon:'', caption:'Catch-all — surfaces smaller brokerage sites too', ...buildGoogleListingSearchUrl(f)}
     ];
   }
 
@@ -5746,7 +5878,7 @@
           ${tierParts.length ? `<div class="ap-tiers">Income tiers: ${tierParts.join('')}</div>` : ''}
           <div class="ap-actions">
             <a href="${esc(gmapsUrl)}" target="_blank" rel="noopener">📍 Map</a>
-            <a href="${esc(hcSearchUrl)}" target="_blank" rel="noopener">🏠 Search Housing Connect ↗</a>
+            <a href="${esc(hcSearchUrl)}" target="_blank" rel="noopener">Search Housing Connect ↗</a>
           </div>
         </div>`;
       }).join('')}</div>
@@ -5841,7 +5973,7 @@
     if(!boro){ alert('Please select a borough.'); return; }
 
     exploreBtn.disabled = true;
-    exploreBtn.textContent = '🗺️ Searching…';
+    exploreBtn.textContent = 'Searching…';
     exploreResultsEl.innerHTML = `<div class="card">${loadingBlock('neighborhood names')}</div>`;
 
     try{
