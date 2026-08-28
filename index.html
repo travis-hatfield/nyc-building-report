@@ -1478,6 +1478,150 @@
     .external-sources, .top-links-slim{ display:none !important; }
   }
 
+  /* =====================================================================
+     P3 POLISH PASS
+     ---------------------------------------------------------------------
+     Tab line-icons, scroll-story treatment for regular report sections,
+     Apple-restrained banner styling (worst-landlord, rent-stab), and
+     centered chapter-opener alignment inside #results.
+     ===================================================================== */
+
+  /* Tab buttons — inline line-SVG icons before each label */
+  .tab-btn{
+    display:inline-flex; align-items:center; gap:8px;
+  }
+  .tab-icon{
+    width:15px; height:15px; flex:none;
+    opacity:.7; transition:opacity .12s ease;
+  }
+  .tab-btn:hover .tab-icon,
+  .tab-btn.active .tab-icon{ opacity:1; }
+
+  /* Scroll-story treatment for regular report sections. Excluded: case-file cards
+     (violations/DOB — they keep their committed paper aesthetic), the two banners
+     (their own committed styling), and the external-sources drawer. Each remaining
+     section becomes a "chapter" — no border/bg, generous vertical rhythm, hairline
+     top separator, centered chapter opener (eyebrow + h2). Body content
+     max-width'd so long lines don't stretch across a wide viewport. */
+  #results .card:not(.case-file-card):not(.worst-landlord-banner):not(.rent-stab-banner):not(.external-sources){
+    background:transparent !important;
+    background-image:none !important;
+    border:none !important;
+    border-top:1px solid var(--border) !important;
+    border-radius:0 !important;
+    box-shadow:none !important;
+    padding:72px 24px !important;
+    margin:0 !important;
+    overflow:visible !important;
+    position:relative;
+  }
+  /* Remove the raised-material hairline highlight ::after — reads as a card
+     surface, which we're moving away from for chapters. */
+  #results .card:not(.case-file-card):not(.worst-landlord-banner):not(.rent-stab-banner):not(.external-sources)::after{
+    display:none !important;
+  }
+  /* Kill mousemove tilt for scroll-story sections — chapters aren't discrete
+     objects; the tilt read strange on wide, tall sections. */
+  #results .card:not(.case-file-card):not(.worst-landlord-banner):not(.rent-stab-banner):not(.external-sources):hover{
+    transform:none !important;
+  }
+  /* First scroll-story card right after the grade canvas gets no top border. */
+  #results .grade-canvas + .card,
+  #results #worstLandlordSlot:empty + #rentStabSlot:empty + .card,
+  #results #worstLandlordSlot:empty + .card,
+  #results #rentStabSlot:empty + .card{
+    border-top:none !important;
+  }
+
+  /* Section-title becomes a centered chapter opener for non-casefile cards */
+  #results .card:not(.case-file-card):not(.external-sources) .section-title{
+    align-items:center;
+    text-align:center;
+    margin-bottom:32px;
+  }
+  #results .card:not(.case-file-card):not(.external-sources) .section-title h2{
+    font-size:clamp(28px, 4vw, 44px);
+    letter-spacing:-.02em;
+    line-height:1.1;
+    max-width:22ch;
+    text-wrap:balance;
+    font-weight:600;
+  }
+  #results .card:not(.case-file-card):not(.external-sources) .section-title .eyebrow-label{
+    margin-bottom:10px;
+  }
+
+  /* Body content in scroll-story sections — max-width'd, centered container so
+     lines don't stretch across a 980px viewport. Left-aligned inside for
+     data-density sections (tables, lists). */
+  #results .card:not(.case-file-card):not(.external-sources):not(#sec-listings) > .body{
+    max-width:820px; margin:0 auto;
+  }
+  /* Listings section: 4 horizontal chip links look best full-width */
+  #results #sec-listings .top-links{ justify-content:center; }
+  #results #sec-listings > .hint{ text-align:center; max-width:640px; margin:14px auto 0; }
+
+  /* Red Flags list is often short — center it visually */
+  #results #sec-redflags .body > ul{
+    display:inline-block; text-align:left; padding-left:22px;
+  }
+  #results #sec-redflags .body > p{ text-align:center; }
+
+  /* Apple-restraint restyle for Worst Landlord + Rent Stab banners.
+     Old style used a heavy 2px colored border + strong colored bg. New style
+     uses a hairline-thin colored left rail + subtle panel background + a small
+     colored dot before the title. Same semantic signal, less visual noise. */
+  .worst-landlord-banner,
+  .rent-stab-banner{
+    background:var(--panel) !important;
+    border:1px solid var(--border) !important;
+    border-left:3px solid var(--bad) !important;
+    border-radius:12px !important;
+    padding:20px 24px !important;
+    box-shadow:var(--shadow-elev-1) !important;
+    margin:0 auto 20px !important;
+    max-width:820px;
+  }
+  .rent-stab-banner{ border-left-color:var(--good) !important; }
+  .worst-landlord-banner .wl-title,
+  .rent-stab-banner .rs-title{
+    color:var(--text);
+    font-size:15px; font-weight:600;
+    display:flex; align-items:center; gap:10px;
+    margin-bottom:8px;
+  }
+  .worst-landlord-banner .wl-title::before{
+    content:''; display:inline-block; flex:none;
+    width:8px; height:8px; border-radius:50%; background:var(--bad);
+  }
+  .rent-stab-banner .rs-title::before{
+    content:''; display:inline-block; flex:none;
+    width:8px; height:8px; border-radius:50%; background:var(--good);
+  }
+  /* Kill any leading emoji visually if the JS still generates one */
+  .worst-landlord-banner .wl-title,
+  .rent-stab-banner .rs-title{ position:relative; }
+  .worst-landlord-banner .wl-body,
+  .rent-stab-banner .rs-body{
+    color:var(--text); font-size:14px; line-height:1.55; margin-bottom:6px;
+  }
+  .worst-landlord-banner .wl-caveat,
+  .rent-stab-banner .rs-caveat{
+    color:var(--muted); font-size:12px;
+  }
+
+  /* Mobile: scroll-story padding needs to shrink so a section isn't three
+     screens tall on a phone */
+  @media (max-width: 640px){
+    #results .card:not(.case-file-card):not(.worst-landlord-banner):not(.rent-stab-banner):not(.external-sources){
+      padding:44px 16px !important;
+    }
+    #results .card:not(.case-file-card):not(.external-sources) .section-title{
+      margin-bottom:24px;
+    }
+    .worst-landlord-banner, .rent-stab-banner{ padding:16px 18px !important; }
+  }
+
 </style>
 </head>
 <body>
@@ -1503,13 +1647,34 @@
     </header>
 
     <div class="tabs" role="tablist">
-      <button class="tab-btn active" data-tab="check" role="tab" aria-selected="true">Check an Address</button>
-      <button class="tab-btn" data-tab="listings" role="tab" aria-selected="false">Find Listings <span id="savedListingsCount" class="tab-count"></span></button>
-      <button class="tab-btn" data-tab="nearby" role="tab" aria-selected="false">What's Nearby</button>
-      <button class="tab-btn" data-tab="affordable" role="tab" aria-selected="false">Affordable Housing</button>
-      <button class="tab-btn" data-tab="explore" role="tab" aria-selected="false">Explore a Neighborhood</button>
-      <button class="tab-btn" data-tab="watchlist" role="tab" aria-selected="false">Watchlist <span id="watchlistCount" class="tab-count"></span></button>
-      <button class="tab-btn" data-tab="tools" role="tab" aria-selected="false">Renter Tools</button>
+      <button class="tab-btn active" data-tab="check" role="tab" aria-selected="true">
+        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 7 L8 2.5 L14 7 L14 13 L2 13 Z"/><path d="M6 13 L6 9 L10 9 L10 13"/></svg>
+        Check an Address
+      </button>
+      <button class="tab-btn" data-tab="listings" role="tab" aria-selected="false">
+        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 L14 14"/></svg>
+        Find Listings <span id="savedListingsCount" class="tab-count"></span>
+      </button>
+      <button class="tab-btn" data-tab="nearby" role="tab" aria-selected="false">
+        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 C 5.2 2 3 4 3 6.8 C 3 10.5 8 14 8 14 C 8 14 13 10.5 13 6.8 C 13 4 10.8 2 8 2 Z"/><circle cx="8" cy="6.8" r="1.8"/></svg>
+        What's Nearby
+      </button>
+      <button class="tab-btn" data-tab="affordable" role="tab" aria-selected="false">
+        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 7 L8 2.5 L14 7 L14 13 L2 13 Z"/><path d="M8 6.5 L8 11 M6.5 8 L9.5 8 M6.5 10 L9.5 10"/></svg>
+        Affordable Housing
+      </button>
+      <button class="tab-btn" data-tab="explore" role="tab" aria-selected="false">
+        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4 L6 8 L8 12 L10 8 Z"/></svg>
+        Explore a Neighborhood
+      </button>
+      <button class="tab-btn" data-tab="watchlist" role="tab" aria-selected="false">
+        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 L10 6 L14 6.5 L11 9.5 L12 14 L8 12 L4 14 L5 9.5 L2 6.5 L6 6 Z"/></svg>
+        Watchlist <span id="watchlistCount" class="tab-count"></span>
+      </button>
+      <button class="tab-btn" data-tab="tools" role="tab" aria-selected="false">
+        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2 4 L6 4 M10 4 L14 4"/><circle cx="8" cy="4" r="1.6"/><path d="M2 8 L11 8"/><circle cx="12.5" cy="8" r="1.6"/><path d="M2 12 L4 12 M8 12 L14 12"/><circle cx="6" cy="12" r="1.6"/></svg>
+        Renter Tools
+      </button>
     </div>
   </div>
 
