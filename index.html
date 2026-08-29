@@ -5585,65 +5585,98 @@
   }
 
   // Public Overpass mirrors are individually flaky in a way that's transient, not
-  // permanent — verified directly (curl, same 4 endpoints, ~5 minutes apart):
-  // different mirrors succeeded and failed each run, including one that fully
-  // hung on one pass and returned in under a second on the next. So a mirror
-  // that's down right now is not necessarily down a few seconds from now — it's
-  // worth one full retry of the race before treating it as a real failure.
-  // overpass.osm.ch added as a 5th mirror after benchmarking it fast and
-  // CORS-enabled (Access-Control-Allow-Origin: *) alongside the existing four.
+  // permanent — verified directly (curl, same endpoints, minutes apart): different
+  // mirrors succeeded and failed each run, including one that fully hung on one
+  // pass and returned in under a second on the next. So a mirror that's down
+  // right now is not necessarily down a few seconds from now — it's worth one
+  // full retry of the race before treating it as a real failure.
+  //
+  // overpass.osm.ch was tried as a 5th mirror (fast, CORS-enabled) but removed
+  // after catching it live returning HTTP 200 with an EMPTY result set for a
+  // query that genuinely had 164 matches (confirmed against overpass-api.de
+  // directly for the same bbox) — a real Midtown Manhattan location silently
+  // showing "nothing found nearby". A mirror that's fast but wrong is worse
+  // than one that's merely slow, so it's out. The race logic below also now
+  // defends against ANY mirror doing this (a fast empty response no longer
+  // wins outright — see raceOverpassMirrorsOnce).
   const OVERPASS_ENDPOINTS = [
-    'https://overpass.osm.ch/api/interpreter',
     'https://overpass-api.de/api/interpreter',
     'https://overpass.kumi.systems/api/interpreter',
     'https://overpass.private.coffee/api/interpreter',
     'https://lz4.overpass-api.de/api/interpreter'
   ];
 
-  // Races every mirror at once (first to answer wins) instead of trying them
-  // one-at-a-time — a single slow or hung mirror used to stall the whole search
-  // for its full timeout before the next one was even attempted.
-  async function raceOverpassMirrorsOnce(query){
-    const attempts = OVERPASS_ENDPOINTS.map(url => {
-      const host = url.match(/\/\/([^/]+)/)[1];
-      const controller = new AbortController();
-      // Don't rely on AbortController.abort(reason) actually reaching the
-      // caught error with a usable message — that's inconsistent enough across
-      // browsers that it was still showing the generic "signal is aborted
-      // without reason" text in production. A plain local flag, checked in the
-      // .catch, works everywhere regardless of how the browser surfaces the abort.
-      let timedOut = false;
-      // 20s, not 12s — Overpass's own query timeout (below) is 25s, so a 12s
-      // client abort was cutting off mirrors that were genuinely still working,
-      // not actually hung. Now that a normal search only asks for the checked
-      // categories (not all 7), most requests should resolve in a couple of
-      // seconds anyway — 20s is headroom for a slow mirror, not the expected case.
-      const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 20000);
-      return fetch(url, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: 'data=' + encodeURIComponent(query),
-        signal: controller.signal
-      }).then(res => {
-        clearTimeout(timer);
-        if(!res.ok) throw new Error(`Overpass mirror at ${host} returned ${res.status}`);
-        return res;
-      }).catch(e => {
-        clearTimeout(timer);
-        if(timedOut) throw new Error(`Overpass mirror at ${host} timed out`);
-        throw e;
+  // Races every mirror at once (first *usable* answer wins) instead of trying
+  // them one-at-a-time — a single slow or hung mirror used to stall the whole
+  // search for its full timeout before the next one was even attempted.
+  //
+  // "First usable" is deliberately not just "first to resolve": a mirror can
+  // return HTTP 200 with zero elements for a query that genuinely has matches
+  // (replication lag, a smaller regional extract, whatever) — indistinguishable
+  // from a real empty area by status code alone. So the first non-empty result
+  // wins immediately (the fast path stays fast for the common case — NYC rarely
+  // has zero of everything nearby), but an empty result only wins once every
+  // other mirror has also finished (succeeded empty, or failed) — it becomes
+  // the fallback answer, not an instant winner.
+  function raceOverpassMirrorsOnce(query){
+    return new Promise((resolve, reject) => {
+      let pending = OVERPASS_ENDPOINTS.length;
+      let fallbackElements = null; // an empty-but-valid result, held in reserve
+      let lastError = null;
+      let settled = false;
+      const controllers = [];
+      const finishIfDone = () => {
+        if(pending > 0 || settled) return;
+        settled = true;
+        if(fallbackElements) resolve(fallbackElements);
+        else reject(lastError || new Error('All Overpass mirrors failed.'));
+      };
+      OVERPASS_ENDPOINTS.forEach(url => {
+        const host = url.match(/\/\/([^/]+)/)[1];
+        const controller = new AbortController();
+        controllers.push(controller);
+        // Don't rely on AbortController.abort(reason) actually reaching the
+        // caught error with a usable message — that's inconsistent enough
+        // across browsers that it was still showing the generic "signal is
+        // aborted without reason" text in production. A plain local flag,
+        // checked in the .catch, works everywhere regardless of how the
+        // browser surfaces the abort.
+        let timedOut = false;
+        // 20s, not 12s — Overpass's own query timeout (below) is 25s, so a 12s
+        // client abort was cutting off mirrors that were genuinely still
+        // working, not actually hung. Most requests resolve in a couple of
+        // seconds anyway — 20s is headroom for a slow mirror, not the norm.
+        const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 20000);
+        fetch(url, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: 'data=' + encodeURIComponent(query),
+          signal: controller.signal
+        }).then(res => {
+          clearTimeout(timer);
+          if(!res.ok) throw new Error(`Overpass mirror at ${host} returned ${res.status}`);
+          return res.json();
+        }).then(data => {
+          if(settled) return;
+          const elements = data.elements || [];
+          pending--;
+          if(elements.length > 0){
+            settled = true;
+            controllers.forEach(c => c.abort()); // stop the other mirrors — we don't need them anymore
+            resolve(elements); // real data — take it immediately, don't wait on slower mirrors
+          } else {
+            if(!fallbackElements) fallbackElements = elements; // remember it, but don't trust it yet
+            finishIfDone();
+          }
+        }).catch(e => {
+          clearTimeout(timer);
+          if(settled) return;
+          pending--;
+          lastError = timedOut ? new Error(`Overpass mirror at ${host} timed out`) : e;
+          finishIfDone();
+        });
       });
     });
-    try{
-      return await Promise.any(attempts);
-    }catch(aggErr){
-      // Every mirror failed on this pass — surface the most useful of the bunch
-      // rather than just "the first one" (an early network error can be less
-      // informative than a later timeout, or vice versa; picking any real Error
-      // over a generic one gives the caller something actionable either way).
-      const errs = (aggErr.errors || []).filter(Boolean);
-      throw errs.find(e => e instanceof Error && e.message) || new Error('All Overpass mirrors failed.');
-    }
   }
 
   async function raceOverpassMirrorsWithRetry(query){
@@ -5675,8 +5708,7 @@
       });
     });
     const query = `[out:json][timeout:25];(${parts.join('')});out center;`;
-    const res = await raceOverpassMirrorsWithRetry(query);
-    const data = await res.json();
+    const elements = await raceOverpassMirrorsWithRetry(query);
     // Tag each element with its category based on which OSM tag it matched, so
     // the renderer can color-code without re-running the tag logic.
     const categorize = el => {
@@ -5693,7 +5725,7 @@
       if(t.amenity && /^(bar|pub|nightclub)$/.test(t.amenity)) return 'nightlife';
       return null;
     };
-    return (data.elements || []).map(el => {
+    return elements.map(el => {
       const c = categorize(el);
       const point = el.type === 'node' ? {lat: el.lat, lon: el.lon}
                   : (el.center ? {lat: el.center.lat, lon: el.center.lon} : null);

@@ -120,7 +120,7 @@ async function testNearbyOverpassRetrySucceeds(){
   console.log('\nWhat\'s Nearby: a fully-failed first round of mirrors gets retried once before erroring');
   // Real public Overpass mirrors were observed to be transiently flaky (verified
   // live via curl — different mirrors failed vs. succeeded on runs seconds
-  // apart), so a genuine "all 5 mirrors failed" moment doesn't necessarily mean
+  // apart), so a genuine "all 4 mirrors failed" moment doesn't necessarily mean
   // the data is unreachable — it's worth one full retry before giving up.
   let overpassCalls = 0;
   const window = newApp(() => async (url) => {
@@ -128,7 +128,7 @@ async function testNearbyOverpassRetrySucceeds(){
     if(u.includes('nominatim')) return { ok:true, status:200, json: async () => ([{lat:'40.7484', lon:'-73.9857', display_name:'Test Address, Manhattan, NY'}]) };
     if(u.includes('overpass')){
       overpassCalls++;
-      if(overpassCalls <= 5) return Promise.reject(new TypeError('Failed to fetch')); // whole first round fails
+      if(overpassCalls <= 4) return Promise.reject(new TypeError('Failed to fetch')); // whole first round fails
       return { ok:true, status:200, json: async () => ({elements: []}) }; // second round succeeds
     }
     return { ok:true, status:200, json: async () => [] };
@@ -146,9 +146,52 @@ async function testNearbyOverpassRetrySucceeds(){
   doc.getElementById('nearbyInput').value = 'Test Address';
   doc.getElementById('nearbyGoBtn').click();
   await wait(500);
-  check('all 5 mirrors were hit twice (one retry round)', overpassCalls === 10);
+  check('all 4 mirrors were hit twice (one retry round)', overpassCalls === 8);
   const statusText = doc.getElementById('nearbyStatus').innerHTML;
   check('search still succeeds after the retry', statusText.includes('Centered on') && !statusText.includes('err'));
+}
+
+async function testNearbyIgnoresEmptyMirrorInFavorOfRealData(){
+  console.log('\nWhat\'s Nearby: a fast-but-empty mirror does not win over a slower mirror with real data');
+  // Real regression, caught live: overpass.osm.ch answered HTTP 200 with zero
+  // elements for a query that genuinely had 164 matches elsewhere in Manhattan
+  // (confirmed directly against overpass-api.de for the same bbox) — a real
+  // location silently showed "Nothing found within this radius". The fix:
+  // Promise.any's "first to resolve wins" is wrong when "resolve" can mean
+  // "answered fast but empty" — the race must prefer real data over a fast
+  // empty answer, only falling back to empty once nothing better arrives.
+  const window = newApp(() => async (url) => {
+    const u = String(url);
+    if(u.includes('nominatim')) return { ok:true, status:200, json: async () => ([{lat:'40.758', lon:'-73.997', display_name:'Near Lincoln Tunnel, Manhattan, NY'}]) };
+    if(u.includes('kumi')){
+      // Fast and wrong — resolves almost immediately with nothing.
+      return { ok:true, status:200, json: async () => ({elements: []}) };
+    }
+    if(u.includes('overpass-api.de') && !u.includes('lz4')){
+      // Slower, but has the real data.
+      await new Promise(r => setTimeout(r, 150));
+      return { ok:true, status:200, json: async () => ({elements: [
+        {type:'node', lat:40.759, lon:-73.996, tags:{amenity:'cafe', name:'Best Bagel & Coffee'}}
+      ]}) };
+    }
+    return new Promise(() => {}); // the other mirrors just hang for this test
+  });
+  window.L = {
+    map(){ return { setView(){return this;}, invalidateSize(){}, removeLayer(){} }; },
+    tileLayer(){ return { addTo(){} }; },
+    marker(){ return { bindPopup(){return this;}, addTo(){return this;} }; },
+    divIcon(){ return {}; },
+    layerGroup(){ return { addTo(){return this;} }; }
+  };
+  await wait(200);
+  const doc = window.document;
+  doc.querySelector('[data-tab="nearby"]').click();
+  doc.getElementById('nearbyInput').value = 'Near Lincoln Tunnel';
+  doc.getElementById('nearbyGoBtn').click();
+  await wait(1000);
+  const listHtml = doc.getElementById('nearbyList').innerHTML;
+  check('the real result from the slower mirror is shown, not "nothing found"', listHtml.includes('Best Bagel'));
+  check('does NOT show the false-negative empty state', !listHtml.includes('Nothing found'));
 }
 
 async function testNearbyStripsUnitSuffixBeforeGeocoding(){
@@ -305,7 +348,7 @@ async function testNearbyFetchesOnlySelectedCategories(){
   // parallel (first to answer wins) — so one fetch = 4 queries, all carrying
   // the same body. That's expected; what matters is the body content and how
   // many *distinct* fetch calls happened (queries.length / MIRROR_COUNT).
-  const MIRROR_COUNT = 5;
+  const MIRROR_COUNT = 4;
   check(`initial search fires exactly one round of mirror queries (${MIRROR_COUNT} requests)`, overpassQueries.length === MIRROR_COUNT);
   check('initial query excludes an unchecked category (parks)', !overpassQueries[0]?.includes('leisure'));
   check('initial query includes a checked category (cafe)', overpassQueries[0]?.includes('amenity') && overpassQueries[0]?.includes('cafe'));
@@ -382,6 +425,7 @@ async function testRetryButton(){
   await testWatchlistListingScraper();
   await testNearbyFetchesOnlySelectedCategories();
   await testNearbyOverpassRetrySucceeds();
+  await testNearbyIgnoresEmptyMirrorInFavorOfRealData();
   await testNearbyStripsUnitSuffixBeforeGeocoding();
   await testNearbyAbortMessage(); // slowest (~41s) — runs last
 
