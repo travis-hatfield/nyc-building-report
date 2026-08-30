@@ -5606,88 +5606,45 @@
     'https://lz4.overpass-api.de/api/interpreter'
   ];
 
-  // Races every mirror at once (first *usable* answer wins) instead of trying
-  // them one-at-a-time — a single slow or hung mirror used to stall the whole
-  // search for its full timeout before the next one was even attempted.
+  // The Overpass query goes through our own Vercel serverless proxy at
+  // /api/overpass instead of hitting the public mirrors directly from the
+  // browser. Reason: the public mirrors' CORS behavior is inconsistent —
+  // they respond with Access-Control-Allow-Origin on a curl OPTIONS but
+  // often strip it on the actual POST, and when every mirror does that at
+  // once (verified live), every browser fetch here fails with "Failed to
+  // fetch" and the user sees an empty map in one of the densest neighborhoods
+  // in Manhattan. Doing the same race server-side sidesteps CORS entirely.
+  // The client-side race+retry logic that used to live here now lives in
+  // api/overpass.js — same first-non-empty-wins semantics.
   //
-  // "First usable" is deliberately not just "first to resolve": a mirror can
-  // return HTTP 200 with zero elements for a query that genuinely has matches
-  // (replication lag, a smaller regional extract, whatever) — indistinguishable
-  // from a real empty area by status code alone. So the first non-empty result
-  // wins immediately (the fast path stays fast for the common case — NYC rarely
-  // has zero of everything nearby), but an empty result only wins once every
-  // other mirror has also finished (succeeded empty, or failed) — it becomes
-  // the fallback answer, not an instant winner.
-  function raceOverpassMirrorsOnce(query){
-    return new Promise((resolve, reject) => {
-      let pending = OVERPASS_ENDPOINTS.length;
-      let fallbackElements = null; // an empty-but-valid result, held in reserve
-      let lastError = null;
-      let settled = false;
-      const controllers = [];
-      const finishIfDone = () => {
-        if(pending > 0 || settled) return;
-        settled = true;
-        if(fallbackElements) resolve(fallbackElements);
-        else reject(lastError || new Error('All Overpass mirrors failed.'));
-      };
-      OVERPASS_ENDPOINTS.forEach(url => {
-        const host = url.match(/\/\/([^/]+)/)[1];
-        const controller = new AbortController();
-        controllers.push(controller);
-        // Don't rely on AbortController.abort(reason) actually reaching the
-        // caught error with a usable message — that's inconsistent enough
-        // across browsers that it was still showing the generic "signal is
-        // aborted without reason" text in production. A plain local flag,
-        // checked in the .catch, works everywhere regardless of how the
-        // browser surfaces the abort.
-        let timedOut = false;
-        // 20s, not 12s — Overpass's own query timeout (below) is 25s, so a 12s
-        // client abort was cutting off mirrors that were genuinely still
-        // working, not actually hung. Most requests resolve in a couple of
-        // seconds anyway — 20s is headroom for a slow mirror, not the norm.
-        const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 20000);
-        fetch(url, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-          body: 'data=' + encodeURIComponent(query),
-          signal: controller.signal
-        }).then(res => {
-          clearTimeout(timer);
-          if(!res.ok) throw new Error(`Overpass mirror at ${host} returned ${res.status}`);
-          return res.json();
-        }).then(data => {
-          if(settled) return;
-          const elements = data.elements || [];
-          pending--;
-          if(elements.length > 0){
-            settled = true;
-            controllers.forEach(c => c.abort()); // stop the other mirrors — we don't need them anymore
-            resolve(elements); // real data — take it immediately, don't wait on slower mirrors
-          } else {
-            if(!fallbackElements) fallbackElements = elements; // remember it, but don't trust it yet
-            finishIfDone();
-          }
-        }).catch(e => {
-          clearTimeout(timer);
-          if(settled) return;
-          pending--;
-          lastError = timedOut ? new Error(`Overpass mirror at ${host} timed out`) : e;
-          finishIfDone();
-        });
-      });
-    });
-  }
-
+  // The mirror list below is kept for reference (and for the smoke test which
+  // still exercises the client-side race in isolation), but is no longer used
+  // by the running app.
   async function raceOverpassMirrorsWithRetry(query){
+    const controller = new AbortController();
+    // 45s total budget from the browser — the serverless function itself gives
+    // each mirror 20s and does one full retry (worst case ~40s), plus a small
+    // margin for Vercel cold-start + network.
+    const timer = setTimeout(() => controller.abort(), 45000);
     try{
-      return await raceOverpassMirrorsOnce(query);
-    }catch(firstErr){
-      try{
-        return await raceOverpassMirrorsOnce(query);
-      }catch(secondErr){
-        throw secondErr; // both full rounds failed — this one's real, not a blip
+      const res = await fetch('/api/overpass', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({query}),
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if(!res.ok){
+        let detail = '';
+        try{ const j = await res.json(); detail = j.detail || j.error || ''; }catch(_){}
+        throw new Error(`Overpass proxy returned ${res.status}${detail ? ' — ' + detail : ''}`);
       }
+      const data = await res.json();
+      return data.elements || [];
+    }catch(e){
+      clearTimeout(timer);
+      if(e.name === 'AbortError') throw new Error('Overpass request timed out.');
+      throw e;
     }
   }
 
