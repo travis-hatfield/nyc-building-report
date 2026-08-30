@@ -60,7 +60,16 @@ function raceMirrors(query){
       const timer = setTimeout(() => { timedOut = true; controller.abort(); }, MIRROR_TIMEOUT_MS);
       fetch(url, {
         method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        // A descriptive User-Agent is polite (Overpass admins can see who's
+        // hitting them and reach out if there's an issue), and some mirrors
+        // 406 requests that arrive without one — a common issue for the
+        // default Node/undici fetch on Vercel serverless. Setting Accept
+        // explicitly avoids the "not acceptable" refusal too.
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json, */*;q=0.5',
+          'User-Agent': 'nyc-building-report/1.0 (https://nyc-building-report.vercel.app)'
+        },
         body: 'data=' + encodeURIComponent(query),
         signal: controller.signal
       }).then(res => {
