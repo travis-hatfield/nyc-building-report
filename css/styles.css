@@ -264,6 +264,34 @@
     .spinner{animation:none;}
   }
 
+  /* Watchlist delta badge — appears when a silent recheck detected a change
+     since the last time the user looked. Bad (violations/evictions grew or
+     bedbugs newly filed) reads red; good (numbers dropped) reads green.
+     Click to dismiss. Small enough to sit inline with the numeric value. */
+  .cmp-delta {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    margin-left: 6px;
+    border-radius: 999px;
+    letter-spacing: 0.3px;
+    vertical-align: middle;
+    cursor: pointer;
+    user-select: none;
+  }
+  .cmp-delta.bad {
+    background: rgba(211, 47, 47, 0.15);
+    color: var(--bad, #d32f2f);
+    border: 1px solid rgba(211, 47, 47, 0.35);
+  }
+  .cmp-delta.good {
+    background: rgba(76, 175, 125, 0.15);
+    color: var(--good, #4caf7d);
+    border: 1px solid rgba(76, 175, 125, 0.35);
+  }
+  .cmp-delta:hover { opacity: 0.75; }
+
   /* "★ best" chip that appears next to the winning value in each Watchlist
      column when 2+ buildings are saved. Deliberately small and subdued —
      the reader should still read every row, not just the winners. */

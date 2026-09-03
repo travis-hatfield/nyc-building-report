@@ -2345,6 +2345,20 @@
   // malformed link falls back to a normal empty landing page.
   (function autoRunFromUrl(){
     const p = new URLSearchParams(location.search);
+    // ?tab=nearby|listings|affordable|explore|watchlist|tools switches to
+    // that tab on load — extends the existing shareable-report deep link
+    // so a URL can land you on any part of the app, not just the Check flow.
+    const tab = p.get('tab');
+    const validTabs = ['check','listings','nearby','affordable','explore','watchlist','tools'];
+    if(tab && validTabs.includes(tab)) switchTab(tab);
+    // ?nearby=<address> — populates and runs What's Nearby search on load.
+    const nearby = p.get('nearby');
+    if(nearby){
+      switchTab('nearby');
+      const inp = document.getElementById('nearbyInput');
+      if(inp){ inp.value = nearby; setTimeout(() => document.getElementById('nearbyGoBtn')?.click(), 50); }
+    }
+    // ?a=&s=&b= — the existing shareable building-report deep link.
     const a = p.get('a'), s = p.get('s'), b = p.get('b');
     if(!a || !s || !b) return;
     const boroSelect = document.getElementById('borough');
@@ -2533,7 +2547,13 @@
       b.classList.toggle('active', active);
       b.setAttribute('aria-selected', active ? 'true' : 'false');
     });
-    if(tab === 'watchlist') renderWatchlistPanel();
+    if(tab === 'watchlist'){
+      renderWatchlistPanel();
+      // Fire-and-forget: silently re-fetch any building whose saved values
+      // are more than 6h old, so the reader sees fresh numbers instead of
+      // whatever was true weeks ago when they saved it.
+      autoRecheckWatchlist();
+    }
     if(tab === 'listings') renderSavedListings(); // reflect any cloud updates arrived since last time
     if(tab === 'nearby'){
       // If the user just ran a Check search and hopped over here, prefill the
@@ -2598,6 +2618,94 @@
   }
   function removeFromWatchlist(id){
     persistWatchlist(loadWatchlist().filter(x => x.id !== id));
+    renderWatchlistPanel();
+  }
+
+  // ---------- Silent recheck for saved Watchlist entries ----------
+  // When the user opens the Watchlist tab, quietly re-fetch the three core
+  // datasets (violations, evictions, bedbugs) for any building that hasn't
+  // been checked in 6 hours. If the fresh numbers differ from what was
+  // saved, stash the prior snapshot alongside so the row can show a delta
+  // badge ("+2 new violations", "grade dropped from B to C"). This is the
+  // real answer to "did anything change on the buildings I care about" —
+  // no server push needed, just re-run the query the next time they look.
+  //
+  // Fully silent: failures don't block or notify, and there's no spinner
+  // per row (the row still shows its last-known value while the recheck
+  // runs in the background).
+  const WATCHLIST_RECHECK_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+  let _recheckInFlight = false;
+  async function silentRecheckOne(item){
+    const ctx = {houseNumber: item.houseNumber, streetTokens: streetTokens(item.street), borough: item.borough};
+    const dsFor = k => DATASETS.find(d => d.key === k);
+    const safe = (k) => fetchDataset(dsFor(k), ctx).then(r => r.rows).catch(() => null);
+    const [vRows, eRows, bRows] = await Promise.all([safe('violations'), safe('evictions'), safe('bedbugs')]);
+    // If any of the three failed, don't stomp the saved snapshot with a
+    // half-computed one — treat the whole recheck as a no-op.
+    if(vRows === null || eRows === null || bRows === null) return null;
+    const openViolations = vRows.filter(r => r.violationstatus === 'Open').length;
+    const evictions = eRows.length;
+    const latestBedbug = bRows[0];
+    const bedbugs = !!(latestBedbug && Number(latestBedbug.infested_dwelling_unit_count) > 0);
+    return {openViolations, evictions, bedbugs};
+  }
+  async function autoRecheckWatchlist(){
+    if(_recheckInFlight) return;
+    _recheckInFlight = true;
+    try{
+      const list = loadWatchlist();
+      const now = Date.now();
+      const stale = list.filter(item => {
+        const t = new Date(item.checkedAt || item.savedAt).getTime();
+        return isNaN(t) || (now - t) > WATCHLIST_RECHECK_TTL_MS;
+      });
+      if(!stale.length) return;
+      let anyChanged = false;
+      // Sequential (not Promise.all) so we don't hammer Socrata with 5+
+      // parallel queries per dataset if the user has many saved buildings.
+      for(const item of stale){
+        const snap = await silentRecheckOne(item);
+        if(!snap) continue;
+        const fresh = loadWatchlist(); // re-read, another tab may have written
+        const idx = fresh.findIndex(x => x.id === item.id);
+        if(idx === -1) continue;
+        const prev = fresh[idx];
+        const changed = snap.openViolations !== prev.openViolations
+                     || snap.evictions      !== prev.evictions
+                     || snap.bedbugs        !== prev.bedbugs;
+        fresh[idx] = {
+          ...prev,
+          openViolations: snap.openViolations,
+          evictions: snap.evictions,
+          bedbugs: snap.bedbugs,
+          // Snapshot BEFORE the change, so the row can render a delta badge.
+          // Once acknowledged (row clicked or removed), it's cleared.
+          prevSnapshot: changed ? {
+            openViolations: prev.openViolations,
+            evictions: prev.evictions,
+            bedbugs: prev.bedbugs,
+            asOf: prev.checkedAt || prev.savedAt
+          } : prev.prevSnapshot || null,
+          checkedAt: new Date().toISOString()
+        };
+        persistWatchlist(fresh);
+        if(changed) anyChanged = true;
+      }
+      // Re-render only if the user is still looking at the Watchlist. If they
+      // navigated away, the fresh values are stored and will show next time.
+      if(anyChanged && document.getElementById('tab-watchlist')?.classList.contains('active')){
+        renderWatchlistPanel();
+      }
+    } finally { _recheckInFlight = false; }
+  }
+  function clearWatchlistDelta(id){
+    // Called when the user clicks the delta badge — they've seen the change,
+    // stop showing it. The current values stay; only the "prev" snapshot goes.
+    const list = loadWatchlist();
+    const idx = list.findIndex(x => x.id === id);
+    if(idx === -1 || !list[idx].prevSnapshot) return;
+    list[idx] = {...list[idx], prevSnapshot: null};
+    persistWatchlist(list);
     renderWatchlistPanel();
   }
   function updateWatchlistRent(id, rentValue){
@@ -2685,13 +2793,31 @@
     const fewestEvict  = list.length > 1 ? Math.min(...list.map(i => i.evictions ?? Infinity)) : null;
     const winnerBadge  = ' <span class="cmp-best" title="Best in this column across your Watchlist">★ best</span>';
 
+    // Delta badge helper: renders "+N since [date]" next to a value that
+    // grew from a prior recheck snapshot. Clicking it dismisses the badge
+    // (via the delegated .cmp-delta click handler below).
+    const deltaBadge = (item, field, curr, wasHigher) => {
+      const prev = item.prevSnapshot && item.prevSnapshot[field];
+      if(prev == null) return '';
+      const asOf = item.prevSnapshot.asOf ? fmtDate(item.prevSnapshot.asOf) : '';
+      if(field === 'bedbugs'){
+        if(curr && !prev) return ` <span class="cmp-delta bad" data-id="${esc(item.id)}" title="New bedbug filing since ${esc(asOf)} — click to dismiss">🆕 new</span>`;
+        return '';
+      }
+      const diff = curr - prev;
+      if(diff === 0) return '';
+      const tone = wasHigher(diff) ? 'bad' : 'good';
+      const sign = diff > 0 ? '+' : '';
+      return ` <span class="cmp-delta ${tone}" data-id="${esc(item.id)}" title="Changed by ${sign}${diff} since ${esc(asOf)} — click to dismiss">${sign}${diff}</span>`;
+    };
+
     const rows = list.map(item => `
       <tr>
         <td class="cmp-addr">${esc(item.houseNumber)} ${esc(item.street)}, ${esc(BORO_NAMES[item.borough]||item.borough)}</td>
         <td><span class="grade-badge grade-${item.grade}"><span class="letter">${item.grade}</span></span> ${item.score}/100${bestScore != null && item.score === bestScore ? winnerBadge : ''}</td>
-        <td class="${item.openViolations>0?'status-open':'status-closed'}">${item.openViolations}${fewestViol != null && item.openViolations === fewestViol ? winnerBadge : ''}</td>
-        <td class="${item.evictions>0?'status-open':'status-closed'}">${item.evictions}${fewestEvict != null && item.evictions === fewestEvict ? winnerBadge : ''}</td>
-        <td>${item.bedbugs ? '🐛 Yes' : `✅ No${list.length > 1 ? winnerBadge : ''}`}</td>
+        <td class="${item.openViolations>0?'status-open':'status-closed'}">${item.openViolations}${deltaBadge(item, 'openViolations', item.openViolations, d => d>0)}${fewestViol != null && item.openViolations === fewestViol ? winnerBadge : ''}</td>
+        <td class="${item.evictions>0?'status-open':'status-closed'}">${item.evictions}${deltaBadge(item, 'evictions', item.evictions, d => d>0)}${fewestEvict != null && item.evictions === fewestEvict ? winnerBadge : ''}</td>
+        <td>${item.bedbugs ? '🐛 Yes' : `✅ No${list.length > 1 ? winnerBadge : ''}`}${deltaBadge(item, 'bedbugs', item.bedbugs, d => true)}</td>
         <td>
           <input type="number" class="cmp-rent" data-id="${esc(item.id)}" min="0" placeholder="$/mo" value="${item.rent != null ? item.rent : ''}">
           ${item.rent != null && item.rent === cheapestRent && rentValues.length > 1 ? winnerBadge : ''}
@@ -2745,6 +2871,8 @@
       ${removeBtn}`;
   }
   watchlistContainer.addEventListener('click', e => {
+    const delta = e.target.closest('.cmp-delta');
+    if(delta){ clearWatchlistDelta(delta.dataset.id); return; }
     const removeBtn = e.target.closest('.remove-btn');
     if(removeBtn){ removeFromWatchlist(removeBtn.dataset.id); return; }
     const recheckBtn = e.target.closest('.recheck-btn');
