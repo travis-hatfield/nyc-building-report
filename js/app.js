@@ -2350,13 +2350,19 @@
     // so a URL can land you on any part of the app, not just the Check flow.
     const tab = p.get('tab');
     const validTabs = ['check','listings','nearby','affordable','explore','watchlist','tools'];
-    if(tab && validTabs.includes(tab)) switchTab(tab);
+    // Deferred: switchTab triggers renderWatchlistPanel(), which references
+    // `watchlistContainer` — that `let` declaration comes further down in
+    // this IIFE, so calling switchTab synchronously here hits its TDZ.
+    // setTimeout(0) parks the call until after the IIFE finishes.
+    if(tab && validTabs.includes(tab)) setTimeout(() => switchTab(tab), 0);
     // ?nearby=<address> — populates and runs What's Nearby search on load.
     const nearby = p.get('nearby');
     if(nearby){
-      switchTab('nearby');
-      const inp = document.getElementById('nearbyInput');
-      if(inp){ inp.value = nearby; setTimeout(() => document.getElementById('nearbyGoBtn')?.click(), 50); }
+      setTimeout(() => {
+        switchTab('nearby');
+        const inp = document.getElementById('nearbyInput');
+        if(inp){ inp.value = nearby; setTimeout(() => document.getElementById('nearbyGoBtn')?.click(), 50); }
+      }, 0);
     }
     // ?a=&s=&b= — the existing shareable building-report deep link.
     const a = p.get('a'), s = p.get('s'), b = p.get('b');
