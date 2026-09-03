@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="NYC Bldg Report">
 <meta name="description" content="Research NYC apartments — HPD violations, complaints, evictions, landlord history, transit and safety — from public NYC Open Data.">
 
-<link rel="stylesheet" href="/css/styles.css?v=w1">
+<link rel="stylesheet" href="/css/styles.css?v=w3">
 </head>
 <body>
 <div class="wrap">
@@ -1194,7 +1194,18 @@
     </div>`;
   }
   function loadingBlock(label){
-    return `<div class="loading"><span class="spinner"></span> Searching ${esc(label)}…</div>`;
+    // Skeleton shimmer — closer to what modern apps do than a spinner + text.
+    // Reads as "the shape of what's coming" while the query runs, which is
+    // much less anxious than a spinner that gives no size hint. The label is
+    // kept in a small caption above the bones so power users can still tell
+    // which section is which while everything's loading.
+    return `<div class="skel-block" role="status" aria-label="Loading ${esc(label)}">
+      <div class="skel-caption"><span class="spinner"></span> Loading ${esc(label)}…</div>
+      <div class="skel-row skel-w-70"></div>
+      <div class="skel-row skel-w-95"></div>
+      <div class="skel-row skel-w-85"></div>
+      <div class="skel-row skel-w-60"></div>
+    </div>`;
   }
 
   // ---------- A little something to look at while ~9 API calls settle ----------
@@ -3147,19 +3158,28 @@
       watchlistContainer.innerHTML = `<div class="card"><p class="empty">No saved addresses yet. Search an address in "Check an Address" and click "⭐ Save to Watchlist" to start comparing candidates.</p></div>`;
       return;
     }
-    const rentValues = list.map(i => i.rent).filter(r => r != null && r > 0);
+    // Best-in-column detection — only meaningful with 2+ saved buildings.
+    // A "best" is the objectively better value on each dimension: highest
+    // score, fewest open violations, fewest evictions, no bedbugs, cheapest
+    // rent. Ties count (all tied entries win the badge), and we skip the
+    // badge entirely on 1-item lists (there's no comparison to make).
+    const rentValues  = list.map(i => i.rent).filter(r => r != null && r > 0);
     const cheapestRent = rentValues.length ? Math.min(...rentValues) : null;
+    const bestScore    = list.length > 1 ? Math.max(...list.map(i => i.score ?? -1)) : null;
+    const fewestViol   = list.length > 1 ? Math.min(...list.map(i => i.openViolations ?? Infinity)) : null;
+    const fewestEvict  = list.length > 1 ? Math.min(...list.map(i => i.evictions ?? Infinity)) : null;
+    const winnerBadge  = ' <span class="cmp-best" title="Best in this column across your Watchlist">★ best</span>';
 
     const rows = list.map(item => `
       <tr>
         <td class="cmp-addr">${esc(item.houseNumber)} ${esc(item.street)}, ${esc(BORO_NAMES[item.borough]||item.borough)}</td>
-        <td><span class="grade-badge grade-${item.grade}"><span class="letter">${item.grade}</span></span> ${item.score}/100</td>
-        <td class="${item.openViolations>0?'status-open':'status-closed'}">${item.openViolations}</td>
-        <td class="${item.evictions>0?'status-open':'status-closed'}">${item.evictions}</td>
-        <td>${item.bedbugs ? '🐛 Yes' : '✅ No'}</td>
+        <td><span class="grade-badge grade-${item.grade}"><span class="letter">${item.grade}</span></span> ${item.score}/100${bestScore != null && item.score === bestScore ? winnerBadge : ''}</td>
+        <td class="${item.openViolations>0?'status-open':'status-closed'}">${item.openViolations}${fewestViol != null && item.openViolations === fewestViol ? winnerBadge : ''}</td>
+        <td class="${item.evictions>0?'status-open':'status-closed'}">${item.evictions}${fewestEvict != null && item.evictions === fewestEvict ? winnerBadge : ''}</td>
+        <td>${item.bedbugs ? '🐛 Yes' : `✅ No${list.length > 1 ? winnerBadge : ''}`}</td>
         <td>
           <input type="number" class="cmp-rent" data-id="${esc(item.id)}" min="0" placeholder="$/mo" value="${item.rent != null ? item.rent : ''}">
-          ${item.rent != null && item.rent === cheapestRent && rentValues.length > 1 ? ' <span class="badge" style="color:var(--good); border-color:var(--good);">lowest</span>' : ''}
+          ${item.rent != null && item.rent === cheapestRent && rentValues.length > 1 ? winnerBadge : ''}
         </td>
         <td class="cmp-listing">${renderCmpListingCell(item)}</td>
         <td class="muted">${fmtDate(item.savedAt)}</td>
