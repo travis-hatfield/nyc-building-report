@@ -1622,6 +1622,88 @@
     .worst-landlord-banner, .rent-stab-banner{ padding:16px 18px !important; }
   }
 
+  /* NYC GeoSearch autocomplete popup — attached to any address input via
+     attachGeoSearchAutocomplete(). Positioned absolutely so it can escape any
+     card's overflow, and given a high z-index so it sits above the map/other
+     content. Styled to match the surrounding form (rounded, hairline border,
+     restrained hover) rather than a Google-Places-looking dropdown. */
+  .geo-autocomplete-menu {
+    position: absolute;
+    z-index: 9999;
+    background: #fff;
+    border: 1px solid #d2d2d7;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.04);
+    max-height: 280px;
+    overflow-y: auto;
+    font: 14px -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    color: #1d1d1f;
+  }
+  .geo-autocomplete-menu[hidden] { display: none; }
+  .geo-item {
+    padding: 10px 14px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f2;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .geo-item:last-child { border-bottom: none; }
+  .geo-item:hover, .geo-item.active { background: #f5f5f7; }
+  .geo-item .geo-pin { color: #86868b; font-size: 11px; flex-shrink: 0; }
+  .geo-item .geo-label { flex: 1; }
+  .geo-item .geo-hint { color: #86868b; font-size: 12px; }
+
+  /* JustFix Who Owns What portfolio card */
+  .wow-portfolio { padding: 6px 0; }
+  .wow-portfolio .wow-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .wow-portfolio .wow-stat {
+    background: #f5f5f7;
+    padding: 12px 14px;
+    border-radius: 10px;
+    text-align: center;
+  }
+  .wow-portfolio .wow-stat .num { font-size: 22px; font-weight: 600; color: #1d1d1f; }
+  .wow-portfolio .wow-stat .lbl { font-size: 11px; color: #6e6e73; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+  .wow-portfolio .wow-stat.warn .num { color: #c93500; }
+  .wow-owner-list { font-size: 13px; line-height: 1.6; }
+  .wow-owner-list .wow-owner { display: inline-block; margin-right: 12px; }
+  .wow-owner-list .wow-owner strong { color: #1d1d1f; }
+
+  /* Sun / daylight card */
+  .sun-card { padding: 6px 0; }
+  .sun-card .sun-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .sun-card .sun-tile {
+    background: linear-gradient(135deg, #fff8e6 0%, #fff 100%);
+    padding: 14px;
+    border-radius: 10px;
+    border: 1px solid #f5edd4;
+  }
+  .sun-card .sun-tile h4 {
+    font-size: 11px;
+    margin: 0 0 8px 0;
+    color: #86868b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+  .sun-card .sun-tile .sr, .sun-card .sun-tile .ss {
+    display: flex; justify-content: space-between; font-size: 13px; padding: 2px 0;
+  }
+  .sun-card .sun-tile .sr .lbl, .sun-card .sun-tile .ss .lbl { color: #6e6e73; }
+  .sun-card .sun-tile .sr .val, .sun-card .sun-tile .ss .val { color: #1d1d1f; font-variant-numeric: tabular-nums; }
+  .sun-card .sun-guidance { font-size: 13px; color: #424245; line-height: 1.5; }
+
 </style>
 </head>
 <body>
@@ -3621,6 +3703,146 @@
     `;
   }
 
+  // ---------- Who Owns What: JustFix portfolio lookup ----------
+  // JustFix's Who Owns What ties an address to every OTHER building the same
+  // ownership network is behind — so a "small landlord" with 40 buildings and
+  // 2,000 units gets caught for what they are. We already link to their site
+  // in the external-sources block; this pulls the summary INTO the report so
+  // it's part of what the reader sees at a glance instead of one click away.
+  //
+  // API is free, no key, CORS-open. Two endpoints used here:
+  //   /api/address           - looks up a single building's registration
+  //   /api/address/aggregate - returns portfolio-wide stats when given a bbl
+  const WOW_BASE = 'https://api.justfix.org/api';
+  async function fetchWowPortfolio(bbl){
+    if(!bbl) return null;
+    const url = `${WOW_BASE}/address/aggregate?bbl=${encodeURIComponent(bbl)}`;
+    const res = await fetch(url, {headers: {'Accept': 'application/json'}});
+    if(!res.ok) throw new Error(`Who Owns What ${res.status}`);
+    const data = await res.json();
+    const row = (data && data.result && data.result[0]) || null;
+    return {row, url};
+  }
+  function renderWowPortfolio(bbl, result, wowLink){
+    if(!bbl) return '';
+    if(!result || result.status !== 'fulfilled'){
+      return `<p class="empty">Couldn't reach Who Owns What. <a href="${wowLink}" target="_blank" rel="noopener">Open it directly ↗</a></p>`;
+    }
+    const {row, url} = result.value || {};
+    if(!row || !Number(row.bldgs)){
+      // "bldgs: 0" means JustFix knows about the address but has no linked
+      // portfolio for it (typical for a lot without an HPD registration, e.g.
+      // owner-occupied 1-3 family homes). Show the link out, not an error.
+      return `<p class="empty">No linked portfolio was found for this address on JustFix — usually means the building isn't in HPD's registration database (small owner-occupied buildings often aren't). <a href="${wowLink}" target="_blank" rel="noopener">Search JustFix directly ↗</a></p>`;
+    }
+
+    // JustFix aggregate schema (verified live 2026-09):
+    //   bldgs, units, age (years since built),
+    //   totalopenviolations, totalviolations, openviolationsperbldg, openviolationsperresunit,
+    //   totalevictions, avgevictions,
+    //   totalrsgain, totalrsloss, totalrsdiff, rsproportion,
+    //   topowners (array of {value, count} — recurring owner names),
+    //   topcorp, topbusinessaddr (single strings)
+    const bldgs     = Number(row.bldgs) || 0;
+    const units     = Number(row.units) || null;
+    const evictions = row.totalevictions != null ? Number(row.totalevictions) : null;
+    const openviol  = row.totalopenviolations != null ? Number(row.totalopenviolations) : null;
+    const perUnit   = row.openviolationsperresunit != null ? Number(row.openviolationsperresunit) : null;
+    const rsdiff    = row.totalrsdiff != null ? Number(row.totalrsdiff) : null;
+
+    const owners = Array.isArray(row.topowners) ? row.topowners.slice(0, 4) : [];
+
+    const tile = (num, lbl, tone) => num == null ? '' :
+      `<div class="wow-stat${tone?' '+tone:''}"><div class="num">${Number(num).toLocaleString()}</div><div class="lbl">${lbl}</div></div>`;
+
+    const portfolioIsLarge = bldgs >= 10;
+
+    return `
+      <div class="wow-portfolio">
+        <p class="hint" style="margin-top:0;">The ownership network behind this address controls <strong>${bldgs.toLocaleString()} building${bldgs===1?'':'s'}</strong>${units?` and about <strong>${units.toLocaleString()} residential units</strong>`:''} citywide. ${portfolioIsLarge ? 'A portfolio this size means what happens in <em>other</em> buildings on it is a meaningful signal about how this one is likely to be managed.' : ''}</p>
+        <div class="wow-summary">
+          ${tile(bldgs, 'Buildings')}
+          ${tile(units, 'Units')}
+          ${tile(openviol, 'Open violations', openviol && openviol > 50 ? 'warn' : '')}
+          ${perUnit != null ? `<div class="wow-stat${perUnit > 1 ? ' warn' : ''}"><div class="num">${perUnit.toFixed(2)}</div><div class="lbl">Open viol. / unit</div></div>` : ''}
+          ${tile(evictions, 'Evictions filed', evictions && evictions > 5 ? 'warn' : '')}
+        </div>
+        ${rsdiff != null && rsdiff < 0 ? `<p class="hint" style="color:#c93500;"><strong>Warning:</strong> This portfolio has <strong>${Math.abs(rsdiff).toLocaleString()} fewer rent-stabilized units</strong> than it did in 2007. Some conversion is legal, but a large drop is a common signal of aggressive deregulation practices.</p>` : ''}
+        ${owners.length ? `<div class="wow-owner-list"><strong>Owners on record:</strong> ${owners.map(o => `<span class="wow-owner">${esc(o.value || o)}${o.count ? ` <small>(${o.count})</small>` : ''}</span>`).join('')}</div>` : ''}
+        <div class="src-links" style="margin-top:12px;">
+          <a href="${wowLink}" target="_blank" rel="noopener">Full portfolio on Who Owns What ↗</a>
+          ${url ? `<a href="${url}" target="_blank" rel="noopener">Raw API response ↗</a>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  // ---------- Sun / Daylight profile for the building's coordinates ----------
+  // Uses SunCalc (loaded from cdnjs on demand) to compute sunrise/sunset for
+  // today and the two solstices. Renters ask "how much light does this get?"
+  // and the honest answer without knowing the specific unit's orientation is
+  // the daylight envelope for the LOCATION — plus a note on which direction
+  // gets which time of day so the reader can match it to a unit's windows.
+  let sunCalcLoadingPromise = null;
+  function loadSunCalc(){
+    if(window.SunCalc) return Promise.resolve(window.SunCalc);
+    if(sunCalcLoadingPromise) return sunCalcLoadingPromise;
+    sunCalcLoadingPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.9.0/suncalc.min.js';
+      s.onload = () => resolve(window.SunCalc);
+      s.onerror = () => reject(new Error('Failed to load SunCalc'));
+      document.head.appendChild(s);
+    });
+    return sunCalcLoadingPromise;
+  }
+  function fmtTime(d){
+    if(!d || isNaN(d.getTime())) return '—';
+    return d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+  }
+  function fmtHours(ms){
+    const h = ms / 3600000;
+    const hh = Math.floor(h), mm = Math.round((h - hh) * 60);
+    return `${hh}h ${mm.toString().padStart(2,'0')}m`;
+  }
+  async function fetchSunProfile(coords){
+    const SunCalc = await loadSunCalc();
+    const now = new Date();
+    const y = now.getFullYear();
+    // Solstices are always ~Dec 21 (winter) and ~Jun 21 (summer) — good enough
+    // for the "shortest day / longest day" bracketing without astronomical exactness.
+    const winter = new Date(y, 11, 21, 12);
+    const summer = new Date(y, 5, 21, 12);
+    return {
+      today:  SunCalc.getTimes(now,    coords.lat, coords.lon),
+      winter: SunCalc.getTimes(winter, coords.lat, coords.lon),
+      summer: SunCalc.getTimes(summer, coords.lat, coords.lon)
+    };
+  }
+  function renderSunProfile(coords, result){
+    if(!coords) return '<p class="empty">No coordinates for this building, so daylight couldn\'t be computed.</p>';
+    if(!result || result.status !== 'fulfilled') return errBlock((result && result.reason && result.reason.message) || 'Sun/daylight lookup failed');
+    const {today, winter, summer} = result.value;
+    const tile = (title, times) => `
+      <div class="sun-tile">
+        <h4>${esc(title)}</h4>
+        <div class="sr"><span class="lbl">🌅 Sunrise</span><span class="val">${fmtTime(times.sunrise)}</span></div>
+        <div class="ss"><span class="lbl">🌇 Sunset</span><span class="val">${fmtTime(times.sunset)}</span></div>
+        <div class="sr" style="margin-top:6px; padding-top:6px; border-top:1px solid #f0e6c9;"><span class="lbl">Daylight</span><span class="val">${fmtHours(times.sunset - times.sunrise)}</span></div>
+      </div>`;
+    return `
+      <div class="sun-card">
+        <div class="sun-summary">
+          ${tile('Today', today)}
+          ${tile('Winter solstice (shortest day)', winter)}
+          ${tile('Summer solstice (longest day)', summer)}
+        </div>
+        <p class="sun-guidance">
+          A window's exposure matters more than the building's location: <strong>South-facing</strong> windows get the most direct sun year-round; <strong>East</strong> catches morning light, <strong>West</strong> catches strong afternoon light (hot in summer), and <strong>North</strong> gets steady but indirect light. Ask the listing agent which way the specific unit faces — it changes the light hours by hours per day.
+        </p>
+      </div>`;
+  }
+
   // ---------- Building Grade: NYC-restaurant-style A–F letter grade from the same data ----------
   // Transparent, hand-weighted scoring (not a black box) — the point is a fast, familiar
   // gut-check, not a precise ranking. Every deduction is shown in the "why" breakdown.
@@ -3956,6 +4178,14 @@
         <div class="section-title"><span class="eyebrow-label">FEMA</span><h2>Flood Zone</h2></div>
         <div class="body">${loadingBlock('FEMA flood zone data')}</div>
       </div>
+      <div class="card" id="sec-wow">
+        <div class="section-title"><span class="eyebrow-label">JustFix</span><h2>Landlord Portfolio</h2></div>
+        <div class="body">${loadingBlock('landlord portfolio data')}</div>
+      </div>
+      <div class="card" id="sec-sun">
+        <div class="section-title"><span class="eyebrow-label">Astronomical</span><h2>Daylight &amp; Sun Exposure</h2></div>
+        <div class="body">${loadingBlock('daylight profile')}</div>
+      </div>
       <div class="disclaimer">
         Address matching against city datasets is approximate (abbreviations, hyphenated numbers, and duplicate street names can cause mismatches). Always confirm findings using the source links before relying on them.
       </div>
@@ -4136,6 +4366,27 @@
           document.getElementById('rentStabSlot').innerHTML = renderRentStabBanner(bbl, result);
         })
         .catch(reason => { exemptionsBody.innerHTML = renderTaxExemptions(bbl, {status:'rejected', reason}); });
+    }
+
+    // Who Owns What portfolio — needs the BBL, so it fires alongside exemptions.
+    // Reuses the same wowUrl we already computed for the external-sources link.
+    const wowBody = document.querySelector('#sec-wow .body');
+    if(!bbl){
+      wowBody.innerHTML = `<p class="empty">No BBL (borough-block-lot) was found for this address, so a portfolio lookup wasn't possible. <a href="${wowUrl}" target="_blank" rel="noopener">Search JustFix directly ↗</a></p>`;
+    } else {
+      fetchWowPortfolio(bbl)
+        .then(value => { wowBody.innerHTML = renderWowPortfolio(bbl, {status:'fulfilled', value}, wowUrl); })
+        .catch(reason => { wowBody.innerHTML = renderWowPortfolio(bbl, {status:'rejected', reason}, wowUrl); });
+    }
+
+    // Sun/daylight profile — needs only coordinates (already resolved above).
+    const sunBody = document.querySelector('#sec-sun .body');
+    if(!coords){
+      sunBody.innerHTML = renderSunProfile(null);
+    } else {
+      fetchSunProfile(coords)
+        .then(value => { sunBody.innerHTML = renderSunProfile(coords, {status:'fulfilled', value}); })
+        .catch(reason => { sunBody.innerHTML = renderSunProfile(coords, {status:'rejected', reason}); });
     }
 
     const contactsBody = document.querySelector('#sec-contacts .body');
@@ -5567,21 +5818,121 @@
     return leafletLoadingPromise;
   }
 
-  // Nominatim (OpenStreetMap geocoding). Free, no key. Returns the first match.
+  // Address → {lat, lon, displayName}. Tries NYC's own GeoSearch first (free,
+  // no key, NYC-tuned — understands "5 Ave" for "Fifth Avenue", forgiving of
+  // typos and abbreviations, and by definition can't return an out-of-NYC
+  // match by accident). Falls back to Nominatim if GeoSearch has nothing —
+  // covers the rare case of an address on the very edge of the mapped NYC
+  // planning-labs dataset, or a landmark name that GeoSearch doesn't index.
   async function geocodeAddress(address){
-    const url = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
+    try{
+      const url = `https://geosearch.planninglabs.nyc/v2/search?size=1&text=${encodeURIComponent(address)}`;
+      const res = await fetch(url, {headers: {'Accept': 'application/json'}});
+      if(res.ok){
+        const data = await res.json();
+        const f = (data.features || [])[0];
+        if(f && f.geometry && Array.isArray(f.geometry.coordinates)){
+          return {
+            lat: Number(f.geometry.coordinates[1]),
+            lon: Number(f.geometry.coordinates[0]),
+            displayName: f.properties && f.properties.label
+          };
+        }
+      }
+    }catch(_){ /* GeoSearch down or offline — fall through */ }
+    // Fallback: OSM Nominatim, bounded to the NYC viewbox so it doesn't return
+    // a same-named street from Newark or Yonkers.
+    const nurl = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
       q: address, format: 'json', limit: '1', countrycodes: 'us',
-      viewbox: '-74.26,40.92,-73.68,40.48', // NYC bounding box
+      viewbox: '-74.26,40.92,-73.68,40.48',
       bounded: '1'
     });
-    const res = await fetch(url, {headers: {'Accept': 'application/json'}});
-    if(!res.ok) throw new Error(`Nominatim ${res.status}`);
+    const res = await fetch(nurl, {headers: {'Accept': 'application/json'}});
+    if(!res.ok) throw new Error(`Geocoder ${res.status}`);
     const data = await res.json();
     if(!data.length) throw new Error('Address not found');
     return {
       lat: Number(data[0].lat), lon: Number(data[0].lon),
       displayName: data[0].display_name
     };
+  }
+
+  // Live NYC-specific autocomplete on any address input. Debounced (~180ms) so
+  // we don't hammer GeoSearch on every keystroke, aborts in-flight requests
+  // when the user keeps typing, and keyboard-navigable (↑/↓/Enter/Esc). No
+  // key, no auth — GeoSearch is NYC Planning Labs's public API. If it's ever
+  // unavailable this silently no-ops rather than blocking input.
+  const _geoAcMenus = new WeakSet();
+  function attachGeoSearchAutocomplete(input, opts){
+    if(!input || _geoAcMenus.has(input)) return;
+    _geoAcMenus.add(input);
+    opts = opts || {};
+    const menu = document.createElement('div');
+    menu.className = 'geo-autocomplete-menu';
+    menu.hidden = true;
+    document.body.appendChild(menu);
+    let feats = [];
+    let activeIdx = -1;
+    let debounceTimer = null;
+    let currentController = null;
+    const hide = () => { menu.hidden = true; activeIdx = -1; };
+    const position = () => {
+      const r = input.getBoundingClientRect();
+      menu.style.top = (r.bottom + window.scrollY + 4) + 'px';
+      menu.style.left = (r.left + window.scrollX) + 'px';
+      menu.style.width = Math.max(240, r.width) + 'px';
+    };
+    const render = () => {
+      menu.innerHTML = feats.map((f, i) => {
+        const label = (f.properties && f.properties.label) || '';
+        const layer = (f.properties && f.properties.layer) || '';
+        const hint = layer === 'venue' ? '📍' : layer === 'address' ? '🏠' : layer === 'street' ? '🛣️' : '📌';
+        return `<div class="geo-item${i===activeIdx?' active':''}" data-idx="${i}"><span class="geo-pin">${hint}</span><span class="geo-label">${esc(label)}</span></div>`;
+      }).join('');
+    };
+    const doSelect = (i) => {
+      const f = feats[i]; if(!f) return;
+      input.value = (f.properties && f.properties.label) || input.value;
+      hide();
+      input.dispatchEvent(new Event('change', {bubbles: true}));
+      if(opts.onSelect) opts.onSelect(f);
+    };
+    input.addEventListener('input', () => {
+      const q = input.value.trim();
+      clearTimeout(debounceTimer);
+      if(q.length < 3){ hide(); return; }
+      debounceTimer = setTimeout(async () => {
+        if(currentController) currentController.abort();
+        currentController = new AbortController();
+        try{
+          const res = await fetch(`https://geosearch.planninglabs.nyc/v2/autocomplete?size=6&text=${encodeURIComponent(q)}`, {signal: currentController.signal});
+          if(!res.ok){ hide(); return; }
+          const data = await res.json();
+          feats = (data.features || []).filter(f => f.properties && f.properties.label);
+          if(!feats.length){ hide(); return; }
+          activeIdx = -1;
+          render();
+          position();
+          menu.hidden = false;
+        }catch(e){ if(e.name !== 'AbortError'){ /* silent fail — autocomplete is progressive-enhancement */ } }
+      }, 180);
+    });
+    input.addEventListener('keydown', (e) => {
+      if(menu.hidden || !feats.length) return;
+      if(e.key === 'ArrowDown'){ e.preventDefault(); activeIdx = Math.min(activeIdx+1, feats.length-1); render(); }
+      else if(e.key === 'ArrowUp'){ e.preventDefault(); activeIdx = Math.max(activeIdx-1, 0); render(); }
+      else if(e.key === 'Enter' && activeIdx >= 0){ e.preventDefault(); doSelect(activeIdx); }
+      else if(e.key === 'Escape'){ hide(); }
+    });
+    input.addEventListener('blur', () => setTimeout(hide, 150));
+    window.addEventListener('resize', position);
+    window.addEventListener('scroll', () => { if(!menu.hidden) position(); }, {passive: true});
+    menu.addEventListener('mousedown', (e) => {
+      const item = e.target.closest('.geo-item');
+      if(!item) return;
+      e.preventDefault();
+      doSelect(Number(item.dataset.idx));
+    });
   }
 
   // Public Overpass mirrors are individually flaky in a way that's transient, not
@@ -6552,6 +6903,31 @@
       new MutationObserver(armIfHero).observe(resultsRootParallax, {childList: true, subtree: true});
     }
   }
+
+  // ---------- Wire NYC GeoSearch autocomplete to every address input ----------
+  // Attached progressively — if GeoSearch is down these inputs still work as
+  // plain text fields. The Check-an-Address form has three fields but is fed
+  // by a single autocomplete on the top "ueInput" (parseInput already splits
+  // a picked address into house/street/borough), so we don't attach to the
+  // three split fields — that would fight the parser.
+  const _addrInputs = [
+    ['ueInput', (f) => {
+      // When the user picks a suggestion, split it into the three form fields.
+      const props = f.properties || {};
+      const boroMap = {'Manhattan':'MANHATTAN', 'Brooklyn':'BROOKLYN', 'Queens':'QUEENS', 'Bronx':'BRONX', 'Staten Island':'STATEN ISLAND'};
+      const boro = boroMap[props.borough] || '';
+      if(props.housenumber) document.getElementById('houseNumber').value = props.housenumber;
+      if(props.street)      document.getElementById('streetName').value  = props.street;
+      if(boro)              document.getElementById('borough').value     = boro;
+    }],
+    ['nearbyInput', null],
+    ['commuteInput', null],
+    ['savedListingInput', null] // useful for the saved-listing note field too
+  ];
+  _addrInputs.forEach(([id, onSelect]) => {
+    const el = document.getElementById(id);
+    if(el) attachGeoSearchAutocomplete(el, {onSelect});
+  });
 })();
 </script>
 </body>
