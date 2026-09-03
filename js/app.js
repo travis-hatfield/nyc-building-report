@@ -1,0 +1,4826 @@
+(function(){
+  "use strict";
+
+  // Cache for storing dataset rows to avoid storing large JSON in HTML attributes
+  const datasetRowsCache = {};
+  // Set fresh on every runSearch() to that search's own loadDatasetSection closure
+  // (which captures that search's ctx/resultsByKey) — the single delegated retry
+  // click handler below always calls whichever one is current.
+  let currentLoadDatasetSection = null;
+
+  // Firebase auth/sync state — declared here (not down by initFirebase where it's
+  // populated) because persistWatchlist() references fbUser on every call, including
+  // one that fires during this script's very first top-to-bottom pass. A `let` declared
+  // later is in the temporal dead zone until its own line runs, so that early call would
+  // throw ReferenceError if this lived next to the rest of the Firebase code instead.
+  let fbAuth = null, fbDb = null, fbUser = null, fbDocRef = null, fbAuthMod = null, fbFsMod = null;
+
+  // ---------- Dataset configuration (NYC Open Data / Socrata) ----------
+  const DATASETS = [
+    {
+      key:'violations', label:'HPD Housing Code Violations', agency:'HPD', icon:'⚠️',
+      id:'wvxf-dwi5',
+      landing:'https://data.cityofnewyork.us/Housing-Development/Housing-Maintenance-Code-Violations/wvxf-dwi5',
+      houseField:'housenumber', streetField:'streetname', boroField:'boro',
+      order:'inspectiondate DESC', limit:2000,
+      registrationIdField:'registrationid', render: renderViolations
+    },
+    {
+      key:'hpdComplaints', label:'HPD Housing Complaints', agency:'HPD', icon:'🛠️',
+      id:'ygpa-z7cr',
+      landing:'https://data.cityofnewyork.us/Housing-Development/Housing-Maintenance-Code-Complaints-and-Problems/ygpa-z7cr',
+      houseField:'house_number', streetField:'street_name', boroField:'borough',
+      order:'received_date DESC', limit:300,
+      render: renderHpdComplaints
+    },
+    {
+      key:'bedbugs', label:'Bedbug Filings', agency:'HPD', icon:'🐛',
+      id:'wz6d-d3jb',
+      landing:'https://data.cityofnewyork.us/Housing-Development/Bedbug-Reporting/wz6d-d3jb',
+      houseField:'house_number', streetField:'street_name', boroField:'borough',
+      order:'filing_date DESC', limit:100,
+      registrationIdField:'registration_id', render: renderBedbugs
+    },
+    {
+      key:'dobComplaints', label:'DOB Building Complaints', agency:'DOB', icon:'🏗️',
+      id:'eabe-havv',
+      landing:'https://data.cityofnewyork.us/Housing-Development/DOB-Complaints-Received/eabe-havv',
+      houseField:'house_number', streetField:'house_street', boroField:null,
+      order:'date_entered DESC', limit:200,
+      render: renderDobComplaints
+    },
+    {
+      key:'threeOneOne', label:'311 Service Requests', agency:'311', icon:'📞',
+      id:'erm2-nwe9',
+      landing:'https://data.cityofnewyork.us/Social-Services/311-Service-Requests-from-2010-to-Present/erm2-nwe9',
+      houseField:null, streetField:'incident_address', boroField:'borough', addressIsFull:true,
+      order:'created_date DESC', limit:200,
+      render: renderThreeOneOne
+    },
+    {
+      key:'evictions', label:'Evictions (NYC Marshals)', agency:'DOI', icon:'📦',
+      id:'6z8x-wfk4',
+      landing:'https://data.cityofnewyork.us/City-Government/Evictions/6z8x-wfk4',
+      houseField:null, streetField:'eviction_address', boroField:'borough', addressIsFull:true,
+      order:'executed_date DESC', limit:100,
+      render: renderEvictions
+    },
+    {
+      key:'registrations', label:'HPD Property Registration', agency:'HPD', icon:'🗂️',
+      id:'tesw-yqqr',
+      landing:'https://data.cityofnewyork.us/Housing-Development/Multiple-Dwelling-Registrations/tesw-yqqr',
+      houseField:'housenumber', streetField:'streetname', boroField:'boro',
+      order:'lastregistrationdate DESC', limit:10,
+      registrationIdField:'registrationid', render: renderRegistrations
+    },
+    {
+      key:'rodents', label:'Rodent Inspection History', agency:'DOHMH', icon:'🐀',
+      id:'p937-wjvj',
+      landing:'https://data.cityofnewyork.us/Health/Rodent-Inspection/p937-wjvj',
+      houseField:'house_number', streetField:'street_name', boroField:'boro_code',
+      boroTransform: b => BORO_CODES[b],
+      order:'inspection_date DESC', limit:300,
+      render: renderRodents
+    },
+    {
+      key:'permits', label:'Nearby Construction Permits', agency:'DOB', icon:'🏗️',
+      id:'ic3t-wcy2',
+      landing:'https://data.cityofnewyork.us/Housing-Development/DOB-Job-Application-Filings/ic3t-wcy2',
+      houseField:'house__', streetField:'street_name', boroField:'borough',
+      order:'latest_action_date DESC', limit:200,
+      render: renderPermits
+    }
+  ];
+  const CONTACTS = {
+    id:'feu5-w2e2',
+    landing:'https://data.cityofnewyork.us/Housing-Development/Registration-Contacts/feu5-w2e2'
+  };
+
+  const BORO_NAMES = {MANHATTAN:'Manhattan', BROOKLYN:'Brooklyn', QUEENS:'Queens', BRONX:'Bronx', 'STATEN ISLAND':'Staten Island'};
+  // Standard NYC borough codes, used by datasets (like DOHMH rodent inspections) that key on the number instead of the name.
+  const BORO_CODES = {MANHATTAN:'1', BRONX:'2', BROOKLYN:'3', QUEENS:'4', 'STATEN ISLAND':'5'};
+
+  // Top of the NYC Public Advocate's Worst Landlord Watchlist for 2025
+  // (released Jan 2026, covering 2025 violation data). The Watchlist site
+  // (landlordwatchlist.com) is client-side rendered with no reliable JSON
+  // endpoint we can hit from a browser — the data below was pulled from
+  // multiple press sources reporting the top ranks. UPDATE ANNUALLY when the
+  // Public Advocate publishes the next list (typically January of the new
+  // year — search "NYC Public Advocate Worst Landlord Watchlist").
+  //
+  // We only carry the top 10 rather than all 100 because:
+  //  (a) getting the full 100 with structured rank data requires manually
+  //      parsing the watchlist site (JS-heavy, no export)
+  //  (b) the top 10 catches the worst offenders — the tail of a "worst 100"
+  //      list is by definition less severe
+  //  (c) an outdated match risks false-positives (someone with a common name
+  //      whose namesake is on last year's list but not this year's)
+  const WORST_LANDLORDS_YEAR = 2025;
+  const WORST_LANDLORDS_URL = 'https://www.landlordwatchlist.com/everylandlord';
+  const WORST_LANDLORDS = [
+    {rank:1,  name:'Margaret Brunn',   openViolations:4872, buildings:24, company:'A&E Real Estate Holdings'},
+    {rank:2,  name:'Donald Hastings',  openViolations:3889, buildings:36, company:'A&E Real Estate Holdings'},
+    {rank:3,  name:'Barry Singer',     openViolations:2885, buildings:15, company:null},
+    {rank:4,  name:'Joseph Cafiero',   openViolations:2871, buildings:19, company:null},
+    {rank:5,  name:'Peter Fine',       openViolations:2206, buildings:7,  company:null},
+    {rank:6,  name:'Robyn Lucas',      openViolations:2101, buildings:14, company:null},
+    {rank:7,  name:'Yonatan Bahumi',   openViolations:1801, buildings:34, company:null},
+    {rank:8,  name:'Claudette Henry',  openViolations:1738, buildings:25, company:null},
+    {rank:9,  name:'Joseph Pistilli',  openViolations:1656, buildings:8,  company:null},
+    {rank:10, name:'David Tennenbaum', openViolations:1549, buildings:14, company:null}
+  ];
+
+  // Normalize a name for matching: uppercase, letters and spaces only, collapse
+  // runs of whitespace. Turns "O'Connor, Jr." into "O CONNOR JR" so punctuation
+  // and case differences don't block a real match.
+  function normalizeName(s){
+    return String(s || '').toUpperCase().replace(/[^A-Z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  // Cross-reference HPD registration contacts against the Worst Landlord list.
+  // Requires every word of the watchlist name to appear as a whole word in the
+  // contact name — a bit conservative (won't match "Margaret A. Brunn" against
+  // a contact recorded as just "M. Brunn") but the alternative (partial-word
+  // match) false-matched too often on very common names in testing.
+  // Returns a de-duplicated array of {worstLandlord, matchedName} objects.
+  function checkWorstLandlordMatches(contactRows){
+    if(!Array.isArray(contactRows)) return [];
+    const matches = [];
+    const seen = new Set();
+    contactRows.forEach(r => {
+      const candidates = [
+        [r.firstname, r.middleinitial, r.lastname].filter(Boolean).join(' '),
+        r.corporationname
+      ].filter(Boolean).map(normalizeName);
+      WORST_LANDLORDS.forEach(bad => {
+        if(seen.has(bad.rank)) return;
+        const badWords = normalizeName(bad.name).split(' ').filter(w => w.length >= 2);
+        if(!badWords.length) return;
+        for(const cand of candidates){
+          const candWords = new Set(cand.split(' '));
+          if(badWords.every(w => candWords.has(w))){
+            matches.push({
+              worstLandlord: bad,
+              matchedName: [r.firstname, r.middleinitial, r.lastname].filter(Boolean).join(' ') || r.corporationname
+            });
+            seen.add(bad.rank);
+            break;
+          }
+        }
+      });
+    });
+    return matches;
+  }
+
+  function renderWorstLandlordBanner(matches){
+    if(!matches.length) return '';
+    // If multiple watchlist names matched (unusual but possible when a building's
+    // registered agents overlap with more than one #1-#10 spot), show the
+    // highest-ranked one at the top.
+    const primary = matches.slice().sort((a,b) => a.worstLandlord.rank - b.worstLandlord.rank)[0].worstLandlord;
+    const primaryName = matches.find(m => m.worstLandlord.rank === primary.rank).matchedName;
+    const others = matches.filter(m => m.worstLandlord.rank !== primary.rank);
+    return `<div class="card full worst-landlord-banner">
+      <div class="wl-title">🚨 On the ${WORST_LANDLORDS_YEAR} NYC Worst Landlord Watchlist</div>
+      <div class="wl-body">
+        A registered contact for this building, <strong>${esc(primaryName)}</strong>, matches
+        <strong>#${primary.rank}</strong> on the Public Advocate's ${WORST_LANDLORDS_YEAR} Worst Landlord Watchlist —
+        <strong>${primary.openViolations.toLocaleString()} open HPD violation${primary.openViolations===1?'':'s'}</strong>
+        across <strong>${primary.buildings} building${primary.buildings===1?'':'s'}</strong>${primary.company ? ` (${esc(primary.company)})` : ''}.
+        ${others.length ? `<br>Additional matches: ${others.map(m => `#${m.worstLandlord.rank} ${esc(m.worstLandlord.name)}`).join(', ')}.` : ''}
+      </div>
+      <div class="wl-caveat">
+        Common names can false-match — confirm on the
+        <a href="${WORST_LANDLORDS_URL}" target="_blank" rel="noopener">official Watchlist ↗</a>
+        before treating this as definitive.
+      </div>
+    </div>`;
+  }
+
+  // DOB's official complaint category codes, from nyc.gov/assets/buildings/pdf/complaint_category.pdf (Rev. 09/21).
+  // The API returns numeric codes zero-padded ("04", not "4"); lettered codes are used as printed.
+  const DOB_COMPLAINT_CATEGORIES = {
+    '01':'Accident – construction/plumbing', '02':'Accident – to public', '03':'Adjacent buildings not protected',
+    '04':'After-hours work – illegal', '05':'No permit (building/PA/demolition, etc.)',
+    '06':'Construction – change of grade/watercourse', '07':'Construction – change watercourse',
+    '08':"Contractor's sign missing", '09':'Debris – excessive', '10':'Debris/building falling or in danger of falling',
+    '11':'Demolition – no permit', '12':'Demolition – unsafe/illegal/mechanical', '13':'Elevator not ready for FDNY',
+    '14':'Excavation undermining adjacent building', '15':'Fence missing/inadequate/illegal',
+    '16':'Inadequate support/shoring', '17':'Material/personnel hoist – no permit', '18':'Unsafe material storage',
+    '19':'Illegal mechanical demolition',
+    '1A':'Illegal conversion of commercial space to dwelling units', '1B':'Illegal tree removal / topography change',
+    '1C':'Disaster damage assessment request', '1D':'Con Edison referral',
+    '1E':'Suspended (hanging) scaffold – no permit/dangerous', '1F':'Failed annual crane inspection',
+    '1G':'Stalled construction site', '1H':'Emergency asbestos response', '1J':'Gas piping removed without permit',
+    '1K':'Bowstring truss tracking complaint', '1L':'Gas utility referral', '1U':'Special operations inspection',
+    '1V':'Electrical enforcement work order', '1W':'Plumbing enforcement work order',
+    '1X':'Construction enforcement work order', '1Y':'Enforcement work order', '1Z':'Enforcement work order',
+    '20':'Illegal work on a landmark building', '21':'Safety net/guard rail damaged or missing (tall building)',
+    '22':'Safety netting missing', '23':'Sidewalk shed/scaffold inadequate, defective, or unpermitted',
+    '24':'Sidewalk shed missing', '25':'Warning signs/lights missing', '26':'Watchman missing',
+    '27':'Illegal auto repair', '28':'Building in danger of collapse', '29':'Building vacant, open, and unguarded',
+    '2A':'Posted notice/order removed or tampered with', '2B':'Failure to comply with vacate order',
+    '2C':'Smoking on construction site (banned)', '2D':'No-smoking signs missing on construction site',
+    '2E':'Full demolition tracking complaint', '2F':'Building under structural monitoring',
+    '2G':'Illegal advertising sign/billboard', '2H':'Second Avenue Subway construction',
+    '2J':'Building destroyed (Sandy)', '2K':'Structurally compromised building', '2L':'Unsafe façade notification',
+    '2M':'Monopole tracking complaint', '2N':'COVID-19 executive order', '2P':'Façade compliance inspection',
+    '30':'Building shaking/vibrating, structural stability affected',
+    '31':'No certificate of occupancy / contrary to C of O', '32':'Not complying with certificate of occupancy',
+    '33':'Illegal commercial use', '34':'Illegal compactor room/refuse chute', '35':'Illegal curb cut/driveway/carport',
+    '36':'Illegal driveway/carport', '37':'Exit blocked, locked, or improper (no secondary egress)',
+    '38':'Exit door not proper', '39':'No secondary means of egress',
+    '3A':'Unlicensed/illegal electrical work in progress', '3B':'Routine inspection', '3C':'Plan compliance inspection',
+    '3D':'Bicycle access waiver – elevator safety', '3E':'Bicycle access waiver – alternate parking',
+    '3G':'Restroom non-compliance', '3H':'DCP/BSA compliance inspection',
+    '40':'Part of building falling', '41':'Part of building in danger of falling', '42':'Illegal fence',
+    '43':'Structural stability affected', '44':'Illegal fireplace/wood stove', '45':'Illegal conversion',
+    '46':'No permit for public assembly space', '47':'Public assembly permit not being complied with',
+    '48':'Illegal residential use', '49':'Illegal storefront sign/awning/marquee',
+    '4A':'Illegal hotel rooms in a residential building', '4B':'Professional certification compliance audit',
+    '4E':'Stalled site tracking complaint', '4G':'Illegal conversion – no-access follow-up',
+    '4H':'V.E.S.T. program inspection (DOB & NYPD)', '4J':'M.A.R.C.H. program (multi-agency) inspection',
+    '4K':'Demolition tracking complaint', '4L':'High-rise construction safety tracking',
+    '4M':'Low-rise construction safety tracking', '4N':'Retaining wall tracking complaint',
+    '4P':'Legal/padlock tracking complaint', '4S':'Sustainability enforcement work order',
+    '4W':'Woodside settlement project', '4X':'After-hours work with a permit',
+    '50':'Illegal sign erection/display, danger of falling', '51':'Illegal social club',
+    '52':'Inadequate sprinkler system', '53':'Illegal/improper vent or exhaust',
+    '54':'Wall or retaining wall bulging/cracked', '55':'Zoning non-conforming use',
+    '56':'Boiler – fumes, smoke, or carbon monoxide', '57':'Illegal boiler', '58':'Boiler defective/no permit',
+    '59':'Defective/exposed electrical wiring, in progress',
+    '5A':'Requested joint FDNY/DOB inspection', '5B':'Non-compliance with lightweight materials rules',
+    '5C':'Structural stability impacted (new construction)', '5D':'Non-compliance – vertical enlargement rules',
+    '5E':'Amusement ride accident/incident', '5F':'Compliance inspection',
+    '5G':'Unlicensed/illegal work in progress', '5H':'Illegal activity', '5J':'Multi-agency joint inspection',
+    '60':'Improper electrical work', '61':'Unlicensed electrical work, in progress',
+    '62':'Elevator danger condition / shaft open', '63':'Elevator defective/inoperative',
+    '64':'Elevator shaft open and unguarded', '65':'Illegal or defective gas hookup/piping',
+    '66':'Illegal plumbing/sprinkler/standpipe work', '67':'Crane – no permit/license or unsafe',
+    '68':'Unsafe or illegal crane/scaffold operation',
+    '69':'Unsafe crane/scaffold installation or equipment', '6A':'Vesting inspection',
+    '6B':'Homeless shelter inspection – plumbing', '6C':'Homeless shelter inspection – construction',
+    '6D':'Homeless shelter inspection – electrical', '6M':'Elevator – multiple devices on property',
+    '6S':'Elevator – single device, no backup', '6V':'Tenant safety inspection',
+    '6W':'Tenant safety notice not posted/distributed', '6X':'Work-without-permits watch list compliance',
+    '6Y':'Local law audit', '6Z':'Training compliance',
+    '70':'Suspended scaffold hanging with no work in progress',
+    '71':'SRO illegal work / change of occupancy', '72':'SRO change in occupancy/use', '73':'Failure to maintain building',
+    '74':'Illegal commercial/manufacturing use in a residential zone', '75':'Adult establishment',
+    '76':'Unlicensed/illegal plumbing work in progress', '77':'Not accessible to people with disabilities (LL58/87)',
+    '78':'Privately-owned public space non-compliance', '79':'Parking-lot lights shining on building',
+    '7A':'Integrity complaint referral', '7B':'Illegal commercial/manufacturing use (C1/C2 zone)',
+    '7F':'Construction safety enforcement – tracking', '7G':'Construction safety enforcement – sweep',
+    '7J':'Work without a permit in an occupied building', '7K':'Local Law 188 compliance inspection',
+    '7L':'Tenant protection non-compliance (DOHMH referral)', '7N':'Public space compliance inspection',
+    '80':'Elevator not inspected / illegal / no permit', '81':'Elevator accident', '82':'Boiler accident/explosion',
+    '83':'Construction beyond or contrary to approved plans', '84':'Defective/cracking façade',
+    '85':'Improper drainage / failure to retain water', '86':'Work contrary to a stop-work order',
+    '87':'Requested deck safety inspection',
+    '88':'Safety net/guard rail damaged or missing (lower building)', '89':'Crane/derrick/suspension accident',
+    '8A':'Construction safety compliance action', '90':'Unlicensed/illegal activity',
+    '91':'Site conditions endangering workers', '92':'Illegal conversion of manufacturing/industrial space',
+    '93':'Requested retaining wall safety inspection', '94':'Defective/leaking plumbing, not maintained',
+    '95':'Bronx 2nd-offense pilot program', '96':'Unlicensed boiler/electrical/plumbing/sign work completed',
+    '97':'Referred to another agency', '98':'Referred for operations determination', '99':'Other'
+  };
+
+  // ---------- Helpers ----------
+  function soql(s){ return String(s).replace(/'/g, "''"); }
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function fmtDate(d){
+    if(!d) return '—';
+    const dt = new Date(d);
+    if(isNaN(dt)) return esc(d);
+    return dt.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'});
+  }
+  function isClosed(status){ return /clos/i.test(status || ''); }
+
+  // ========== Year filtering & grading helpers ==========
+  function getYear(dateString){
+    if(!dateString) return null;
+    const dt = new Date(dateString);
+    if(isNaN(dt)) return null;
+    return dt.getFullYear();
+  }
+
+  function getYearRange(rows){
+    const years = rows.map(r => getYear(r.novissueddate||r.inspectiondate)).filter(y => y);
+    if(!years.length) return {min: new Date().getFullYear(), max: new Date().getFullYear()};
+    return {min: Math.min(...years), max: Math.max(...years)};
+  }
+  // Same idea as getYearRange, but for sections keyed off a single arbitrary date field
+  // (e.g. DOB complaints' date_entered) instead of the violations-specific fields.
+  function getYearRange2(rows, dateField){
+    const years = rows.map(r => getYear(r[dateField])).filter(y => y);
+    if(!years.length) return {min: new Date().getFullYear(), max: new Date().getFullYear()};
+    return {min: Math.min(...years), max: Math.max(...years)};
+  }
+
+  // ---------- Global "apply this year cutoff to every section" control ----------
+  // A fixed, generous range rather than computed from every dataset's own min/max
+  // — those vary a lot (311 goes back to 2010, DOB permits/evictions barely go
+  // back past 2017) and trying to union them just to build one dropdown isn't
+  // worth the complexity. 2010 comfortably covers every dataset this app uses.
+  const GLOBAL_YEAR_FLOOR = 2010;
+  function buildGlobalYearOptionsHtml(){
+    const currentYear = new Date().getFullYear();
+    let html = '<option value="">Every section\'s full history</option>';
+    for(let y = currentYear; y >= GLOBAL_YEAR_FLOOR; y--){
+      html += `<option value="${y}">${y} onwards</option>`;
+    }
+    return html;
+  }
+
+  // Every per-section year <select> only offers the years that section's own
+  // data actually spans (e.g. a building with violations since 2016 has no
+  // "2012" option). Applying one global year to all of them means picking each
+  // select's closest sensible option rather than a value that may not exist:
+  // exact match if available, otherwise the nearest year at or before the
+  // target, otherwise (target is earlier than anything on file) that section's
+  // own earliest option — which already shows its complete history, the closest
+  // thing to "as early as possible" that section can offer.
+  function closestYearOption(select, targetYear){
+    const values = Array.from(select.options).map(o => parseInt(o.value)).filter(v => !isNaN(v));
+    if(!values.length) return null;
+    if(values.includes(targetYear)) return targetYear;
+    const atOrBefore = values.filter(v => v <= targetYear);
+    if(atOrBefore.length) return Math.max(...atOrBefore);
+    return Math.min(...values); // target is earlier than this section's data even starts
+  }
+
+  function applyGlobalYearFilter(targetYear){
+    const selects = document.querySelectorAll('#violationYearFilter, #dobYearFilter, select[data-year-scope]');
+    selects.forEach(sel => {
+      const nextValue = targetYear === null ? Math.min(...Array.from(sel.options).map(o => parseInt(o.value)).filter(v => !isNaN(v)))
+                                             : closestYearOption(sel, targetYear);
+      if(nextValue === null || isNaN(nextValue)) return;
+      if(parseInt(sel.value) === nextValue) return; // already there — skip the redundant re-render
+      sel.value = String(nextValue);
+      sel.dispatchEvent(new Event('change', {bubbles:true}));
+    });
+  }
+
+  function calculateGrade(violations){
+    // A-F grading based on total violations, open status, and severity
+    const total = violations.length;
+    const open = violations.filter(r=>r.violationstatus==='Open').length;
+    const classC = violations.filter(r=>r.class==='C').length;
+    const classB = violations.filter(r=>r.class==='B').length;
+
+    // Scoring: higher score = worse grade
+    let score = 0;
+    score += Math.min(total, 50) * 0.5; // 0-25 points for total violations (cap at 50)
+    score += open * 3; // 3 points per open violation
+    score += classC * 5; // 5 points per Class C (most serious)
+    score += classB * 2; // 2 points per Class B
+
+    // Convert score to letter grade
+    if(score === 0) return 'A';
+    if(score <= 5) return 'A';
+    if(score <= 12) return 'B';
+    if(score <= 25) return 'C';
+    if(score <= 40) return 'D';
+    return 'F';
+  }
+
+  // ========== "Plain English" hover explanations (Case File design) ==========
+  // These back the hover/focus tooltips on the Violations and DOB Complaints
+  // sections. Every function returns a string, never renders HTML directly —
+  // callers esc() the result same as any other user-facing text.
+
+  function explainViolationClass(cls){
+    switch(cls){
+      case 'A': return 'Class A — non-hazardous. Cosmetic or minor issues, like peeling paint on a non-lead surface or a loose tile. The owner has up to 90 days to fix it.';
+      case 'B': return 'Class B — hazardous. More serious than Class A: things like a missing smoke detector or inadequate lighting in a hallway. The owner has 30 days to fix it.';
+      case 'C': return 'Class C — immediately hazardous. The most serious tier: no heat or hot water, pests, lead paint, no gas. Depending on the issue, the owner must fix it within 24 hours to 21 days.';
+      default: return 'This violation doesn’t carry a hazard class — usually an administrative or paperwork issue (like a missing filing) rather than a physical condition in the building.';
+    }
+  }
+
+  function explainViolationStatus(status){
+    const s = (status || '').toLowerCase();
+    if(s.includes('open')) return 'Still open on HPD’s books — as far as the public record shows, this hasn’t been resolved yet.';
+    if(s.includes('dismiss')) return 'HPD closed this without penalty — usually because an inspector couldn’t confirm the issue, the owner successfully contested it, or it was issued in error.';
+    if(s.includes('certif')) return 'The owner filed paperwork certifying the problem was fixed. HPD doesn’t always re-inspect to confirm — it’s the owner’s word on file, not a guaranteed re-inspection.';
+    if(s.includes('clos') || s.includes('compl')) return 'Marked closed in HPD’s system. Exact reason varies by violation — see the raw record for full detail.';
+    return `HPD status on file: “${status || 'unknown'}.”`;
+  }
+
+  // Keyword-matched plain-English gloss for the free-text violation description
+  // (novdescription). HPD's own wording is technically English but written in dense
+  // statute-citation style. We only translate patterns we're confident about — the
+  // fallback is honest about not knowing rather than guessing at a specific cause.
+  const VIOLATION_DESC_PATTERNS = [
+    [[/LEAD/i, /PAINT/i], 'Lead paint hazard — a legally required protection, especially where young children live. Landlords of pre-1960 buildings must test and remediate peeling paint.'],
+    [[/SMOKE\s*DETECT/i], 'Missing or non-working smoke detector.'],
+    [[/CARBON MONOXIDE/i], 'Missing or non-working carbon monoxide detector.'],
+    [[/HOT WATER/i], 'No hot water — legally required to be at least 120°F, year-round.'],
+    [[/\bHEAT\b/i], 'No heat during the legally required heating season (Oct 1–May 31).'],
+    [[/MOLD/i], 'Mold reported — often tied to an unaddressed leak elsewhere in the building.'],
+    [[/ROACH|MICE|\bRAT|VERMIN|INFESTAT|PEST/i], 'Pest infestation (rodents or insects).'],
+    [[/BED\s*BUG/i], 'Bedbugs reported.'],
+    [[/WINDOW GUARD/i], 'Missing required window guards — a child-safety requirement in buildings where children 10 or younger live.'],
+    [[/REGISTRATION STATEMENT/i], 'Paperwork violation — the owner’s required annual filing naming who owns/manages the building was missing or expired. Not about physical conditions.'],
+    [[/ELEVATOR/i], 'Elevator condition or maintenance issue.'],
+    [[/\bGAS\b/i], 'Gas line or appliance issue — treated seriously given the safety risk.'],
+    [[/ELECTRIC/i], 'Electrical wiring or fixture issue.'],
+    [[/PLASTER|CEILING|WALL/i], 'Wall, ceiling, or plaster condition — cracking, peeling, or water damage.'],
+    [[/WATER DAMAGE|LEAK/i], 'Water leak or water damage reported.'],
+    [[/FLOOR/i], 'Flooring condition issue.'],
+    [[/DOOR|LOCK/i], 'Door or lock condition/security issue.']
+  ];
+  function explainViolationDescription(desc, cls){
+    const text = desc || '';
+    for(const [tests, explanation] of VIOLATION_DESC_PATTERNS){
+      if(tests.every(re => re.test(text))) return explanation;
+    }
+    // Honest fallback: don't guess at a cause we didn't pattern-match.
+    return `HPD’s exact wording is shown at left. ${explainViolationClass(cls)}`;
+  }
+
+  // Renter-oriented gloss for the most commonly seen DOB complaint codes — not
+  // exhaustive (DOB has ~150 codes). Falls back to the existing plain-language
+  // label from DOB_COMPLAINT_CATEGORIES plus a note on how DOB complaints work.
+  const DOB_COMPLAINT_EXPLANATIONS = {
+    '73':'A complaint that the building’s exterior, roof, or structure isn’t being kept up — think crumbling façade or deferred repairs, not conditions inside a unit.',
+    '28':'Someone reported a structural safety concern serious enough to flag possible collapse risk. DOB inspects and closes complaints that turn out unfounded, so “received” isn’t the same as “confirmed.”',
+    '05':'Construction, alteration, or demolition work was reported happening without the permit the city requires for that kind of work.',
+    '11':'Demolition work reported happening without a permit.',
+    '53':'A vent or exhaust system (kitchen, bathroom, boiler) was reported as installed incorrectly or without the required permit.',
+    '04':'Construction or repair work reported happening outside the hours the city allows without a special after-hours permit — usually a noise complaint, not a safety one.',
+    '31':'The space may be used in a way that doesn’t match what the building’s certificate of occupancy allows — e.g. commercial space used residentially, or more units than permitted.',
+    '32':'The building isn’t being used in the way its certificate of occupancy specifies.',
+    '48':'A unit or space is reportedly being used residentially without the required approval.',
+    '45':'A space was reportedly converted to a use (e.g. more units, a different occupancy type) without the required approval.',
+    '37':'An exit is reported blocked, locked, or otherwise not usable — a fire-safety concern.',
+    '39':'The building reportedly lacks a required second way out in case of fire.',
+    '52':'The building’s sprinkler system was reported as inadequate for its size or use.',
+    '62':'An elevator was reported in a dangerous condition or with an open shaft — treated as urgent.',
+    '63':'An elevator was reported broken or out of service.',
+    '65':'A gas line or hookup was reported illegal or defective — treated seriously given the safety risk.',
+    '56':'A boiler was reported producing fumes, smoke, or carbon monoxide — treated as urgent.',
+    '58':'A boiler was reported defective or operating without the required permit.',
+    '84':'The building’s façade was reported cracking or deteriorating.',
+    '94':'Plumbing was reported defective, leaking, or not maintained.',
+    '10':'Debris or part of the building was reported at risk of falling.',
+    '40':'Part of the building was reported actively falling.',
+    '41':'Part of the building was reported at risk of falling.',
+    '29':'The building was reported vacant and unsecured — open to trespass or hazard.',
+    '77':'The building was reported not accessible to people with disabilities, as required by law.',
+    '1A':'Commercial space was reportedly converted to residential units without the required approval.',
+    '4A':'The building was reported operating illegal hotel-style short-term rentals in a residential building.'
+  };
+  function explainDobComplaint(code, plainLabel){
+    const specific = DOB_COMPLAINT_EXPLANATIONS[code];
+    if(specific) return specific;
+    const label = plainLabel || 'this category';
+    return `Filed with DOB as “${label}.” DOB inspects and closes complaints that turn out unfounded, so a complaint on file isn’t proof of a real problem — check the status and inspection date.`;
+  }
+  function explainDobStatus(status){
+    return isClosed(status)
+      ? 'DOB marked this complaint closed. That can mean the issue was fixed, or that an inspector found nothing to act on — see the disposition in the row detail for which.'
+      : 'Still open on DOB’s books — as far as the public record shows, this hasn’t been inspected or resolved yet.';
+  }
+
+  // One tooltip element per case-file card, appended INSIDE .case-file-card so it
+  // inherits that card's --cf-* custom properties (they don't exist outside that
+  // subtree — appending elsewhere leaves the tooltip transparent/invisible, a bug
+  // this exact pattern hit once already). position:fixed still places it relative
+  // to the viewport regardless of DOM nesting, so this only affects which tokens
+  // it can see, not where it visually lands.
+  function mountCaseFileTooltips(cardEl){
+    if(!cardEl || cardEl.querySelector('.cf-tip')) return; // already mounted
+    const tip = document.createElement('div');
+    tip.className = 'cf-tip';
+    tip.setAttribute('role', 'tooltip');
+    cardEl.appendChild(tip);
+
+    function place(el){
+      const r = el.getBoundingClientRect();
+      tip.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 296)) + 'px';
+      tip.style.top = (r.top - 8) + 'px';
+      tip.style.transform = 'translateY(-100%)';
+    }
+    function show(el){
+      tip.textContent = el.dataset.explain || '';
+      place(el);
+      tip.classList.add('show');
+    }
+    function hide(){ tip.classList.remove('show'); }
+
+    // Delegate from the card root so terms added later (e.g. after a year-filter
+    // re-render) are picked up without re-binding listeners.
+    cardEl.addEventListener('mouseover', e => { const t = e.target.closest('.cf-term'); if(t) show(t); });
+    cardEl.addEventListener('mouseout', e => { const t = e.target.closest('.cf-term'); if(t) hide(); });
+    cardEl.addEventListener('focusin', e => { const t = e.target.closest('.cf-term'); if(t) show(t); });
+    cardEl.addEventListener('focusout', e => { const t = e.target.closest('.cf-term'); if(t) hide(); });
+  }
+
+  const STREET_TYPE_MAP = {
+    AVE:'AVENUE', BLVD:'BOULEVARD', RD:'ROAD', DR:'DRIVE', PL:'PLACE', LN:'LANE',
+    CT:'COURT', PKWY:'PARKWAY', SQ:'SQUARE', EXPY:'EXPRESSWAY', HWY:'HIGHWAY',
+    TER:'TERRACE', TPKE:'TURNPIKE', CIR:'CIRCLE', PLZ:'PLAZA', ST:'STREET'
+  };
+  const DIR_MAP = {N:'NORTH', S:'SOUTH', E:'EAST', W:'WEST'};
+
+  // Normalize a street name into search tokens matching NYC dataset conventions
+  // (e.g. "W 113th St" -> ["WEST","113","STREET"])
+  function streetTokens(input){
+    if(!input) return [];
+    let s = input.toUpperCase().trim().replace(/\./g,'');
+    let words = s.split(/\s+/).filter(Boolean);
+    words = words.map((w,i) => (i===0 && DIR_MAP[w]) ? DIR_MAP[w] : w);
+    words = words.map((w,i) => {
+      const m = w.match(/^(\d+)(ST|ND|RD|TH)$/);
+      return m ? m[1] : w;
+    });
+    if(words.length){
+      const last = words[words.length-1];
+      if(STREET_TYPE_MAP[last]) words[words.length-1] = STREET_TYPE_MAP[last];
+    }
+    return words.filter(Boolean);
+  }
+
+  // ---------- StreetEasy URL / free-text address parsing (best effort) ----------
+  // Strips apartment/unit/suite designators ("Apt 4B", "#4B", "Unit 12",
+  // "Suite 200") from an address string before it goes to a geocoder that
+  // only knows street-level addresses. Handles the designator appearing
+  // either mid-string (before a trailing ", New York, NY") or at the very end.
+  function stripUnitSuffix(address){
+    return address
+      .replace(/,?\s*\b(apt|apartment|unit|ste|suite)\.?\s*#?\s*[\w-]+/gi, '')
+      .replace(/,?\s*#\s*[\w-]+/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/\s+,/g, ',')
+      .trim();
+  }
+
+  function parseInput(raw){
+    raw = raw.trim();
+    const guess = {houseNumber:'', street:'', borough:''};
+    const hasProtocol = /^https?:\/\//i.test(raw);
+    const isUrl = hasProtocol || /streeteasy\.com|openigloo\.com/i.test(raw);
+
+    const boroFromToken = t => {
+      t = (t||'').toLowerCase();
+      if(t === 'new_york' || t === 'manhattan') return 'MANHATTAN';
+      if(t === 'brooklyn') return 'BROOKLYN';
+      if(t === 'bronx') return 'BRONX';
+      if(t === 'queens') return 'QUEENS';
+      if(t.startsWith('staten')) return 'STATEN ISLAND';
+      return '';
+    };
+    const titleCaseStreet = s => s.replace(/_/g,' ').split(' ').filter(Boolean)
+      .map(w => w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(' ');
+
+    if(isUrl){
+      let path = raw;
+      try{ path = new URL(hasProtocol ? raw : 'https://'+raw).pathname; }
+      catch(e){ /* fall back to raw string */ }
+      const segments = path.split('/').filter(Boolean);
+
+      // OpenIgloo address slug is ordered borough-neighborhood-housenumber-street-zip-unit,
+      // e.g. "manhattan-clinton-426-west-49-street-10019-2b" — different order from
+      // StreetEasy, so parse it off the zip/house-number anchors rather than assuming
+      // the house number comes first.
+      if(/openigloo\.com/i.test(raw)){
+        const slug = segments[segments.length-1] || '';
+        const p = slug.split('-').filter(Boolean);
+        guess.borough = boroFromToken(p[0]);
+        let zipIdx = -1;
+        for(let i=p.length-1; i>=1; i--){ if(/^\d{5}$/.test(p[i])){ zipIdx = i; break; } }
+        const streetEnd = zipIdx === -1 ? p.length : zipIdx;
+        let hnIdx = -1;
+        for(let i=1; i<streetEnd; i++){ if(/^\d+[a-z]?$/i.test(p[i])){ hnIdx = i; break; } }
+        if(hnIdx !== -1){
+          guess.houseNumber = p[hnIdx].toUpperCase();
+          guess.street = titleCaseStreet(p.slice(hnIdx+1, streetEnd).join(' '));
+        }
+        return guess;
+      }
+
+      // find a segment that looks like an address slug: starts with digits then a separator
+      let target = segments.find(seg => /^\d+[a-z]?-/i.test(seg));
+      if(!target) target = segments.reverse().find(seg => /^\d+[a-z]?[-_]/i.test(seg));
+      if(target){
+        const parts = target.split('-').filter(Boolean);
+        if(parts.length){
+          guess.houseNumber = parts[0].toUpperCase();
+          const boroTokenIdx = parts.findIndex(p => /^(new_york|brooklyn|bronx|queens|staten_island|statenisland)$/i.test(p));
+          let streetParts = parts.slice(1, boroTokenIdx === -1 ? undefined : boroTokenIdx);
+          if(boroTokenIdx !== -1){
+            const bt = parts[boroTokenIdx].toLowerCase();
+            if(bt === 'new_york') guess.borough = 'MANHATTAN';
+            else if(bt === 'brooklyn') guess.borough = 'BROOKLYN';
+            else if(bt === 'bronx') guess.borough = 'BRONX';
+            else if(bt === 'queens') guess.borough = 'QUEENS';
+            else guess.borough = 'STATEN ISLAND';
+          }
+          guess.street = streetParts.join(' ').replace(/_/g,' ')
+            .split(' ').filter(Boolean)
+            .map(w => w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(' ');
+        }
+      }
+      // borough hint from path even without address slug
+      if(!guess.borough){
+        const joined = path.toLowerCase();
+        if(joined.includes('brooklyn')) guess.borough = 'BROOKLYN';
+        else if(joined.includes('bronx')) guess.borough = 'BRONX';
+        else if(joined.includes('queens')) guess.borough = 'QUEENS';
+        else if(joined.includes('staten')) guess.borough = 'STATEN ISLAND';
+        else if(joined.includes('manhattan') || joined.includes('new_york') || joined.includes('/nyc/')) guess.borough = 'MANHATTAN';
+      }
+    } else {
+      // plain address text, e.g. "241 West 113th Street, Manhattan"
+      const m = raw.match(/^\s*(\d+[A-Za-z]?(?:-\d+)?)\s+(.+)$/);
+      if(m){
+        guess.houseNumber = m[1].toUpperCase();
+        let rest = m[2];
+        const boroMatch = rest.match(/,?\s*(manhattan|brooklyn|bronx|queens|staten island|new york,?\s*ny)\s*$/i);
+        if(boroMatch){
+          rest = rest.slice(0, boroMatch.index);
+          const bt = boroMatch[1].toLowerCase();
+          if(bt.startsWith('brooklyn')) guess.borough='BROOKLYN';
+          else if(bt.startsWith('bronx')) guess.borough='BRONX';
+          else if(bt.startsWith('queens')) guess.borough='QUEENS';
+          else if(bt.startsWith('staten')) guess.borough='STATEN ISLAND';
+          else guess.borough='MANHATTAN';
+        }
+        guess.street = rest.replace(/,\s*$/,'').trim();
+      }
+    }
+    return guess;
+  }
+
+  // ---------- Socrata fetch ----------
+  // Every dataset on data.cityofnewyork.us is queried the same way: build a $where/$limit/
+  // $order query string, GET the resource, and hand back both the rows and the exact URL
+  // used (so the UI can link straight to it for verification).
+  async function socrataGet(datasetId, params){
+    const url = `https://data.cityofnewyork.us/resource/${datasetId}.json?${params.toString()}`;
+    const res = await fetch(url, {headers:{'Accept':'application/json'}});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    return {rows: await res.json(), url};
+  }
+
+  async function fetchDataset(ds, ctx){
+    const clauses = [];
+    if(ds.addressIsFull){
+      [ctx.houseNumber, ...ctx.streetTokens].filter(Boolean)
+        .forEach(t => clauses.push(`upper(${ds.streetField}) like '%${soql(t)}%'`));
+    } else {
+      if(ds.houseField) clauses.push(`upper(${ds.houseField})='${soql(ctx.houseNumber.toUpperCase())}'`);
+      if(ds.streetField) ctx.streetTokens.forEach(t => clauses.push(`upper(${ds.streetField}) like '%${soql(t)}%'`));
+    }
+    if(ds.boroField && ctx.borough){
+      const boroVal = ds.boroTransform ? ds.boroTransform(ctx.borough) : ctx.borough;
+      if(boroVal) clauses.push(`${ds.boroField}='${soql(boroVal)}'`);
+    }
+
+    const params = new URLSearchParams({'$where': clauses.join(' AND '), '$limit': String(ds.limit)});
+    if(ds.order) params.set('$order', ds.order);
+    return socrataGet(ds.id, params);
+  }
+
+  function fetchContactsForRegistration(regId){
+    const params = new URLSearchParams({'$where': `registrationid='${soql(regId)}'`, '$limit': '50'});
+    return socrataGet(CONTACTS.id, params);
+  }
+
+  // ---------- Rendering ----------
+  // click = {scope, attr, value} — scope is the dataset key (matches #sec-{scope}),
+  // attr/value select which <tr data-{attr}="{value}"> rows stay visible.
+  // Omit attr/value (just {scope}) to make the card a "clear filter / show all" card.
+  function statCard(n, label, tone, click){
+    if(click){
+      const attrPart = click.attr ? ` data-attr="${esc(click.attr)}"` : '';
+      const valuePart = click.value !== undefined ? ` data-value="${esc(click.value)}"` : '';
+      return `<div class="stat ${tone||''} clickable" role="button" tabindex="0" data-scope="${esc(click.scope)}"${attrPart}${valuePart}><div class="n">${n}</div><div class="l">${esc(label)}</div></div>`;
+    }
+    return `<div class="stat ${tone||''}"><div class="n">${n}</div><div class="l">${esc(label)}</div></div>`;
+  }
+  function sourceLinks(landing, queryUrl){
+    return `<div class="src-links">
+      <a href="${landing}" target="_blank" rel="noopener">Open dataset on NYC Open Data ↗</a>
+      <a href="${queryUrl}" target="_blank" rel="noopener">View raw query results (JSON) ↗</a>
+    </div>`;
+  }
+  function loadingBlock(label){
+    // Skeleton shimmer — closer to what modern apps do than a spinner + text.
+    // Reads as "the shape of what's coming" while the query runs, which is
+    // much less anxious than a spinner that gives no size hint. The label is
+    // kept in a small caption above the bones so power users can still tell
+    // which section is which while everything's loading.
+    return `<div class="skel-block" role="status" aria-label="Loading ${esc(label)}">
+      <div class="skel-caption"><span class="spinner"></span> Loading ${esc(label)}…</div>
+      <div class="skel-row skel-w-70"></div>
+      <div class="skel-row skel-w-95"></div>
+      <div class="skel-row skel-w-85"></div>
+      <div class="skel-row skel-w-60"></div>
+    </div>`;
+  }
+
+  // ---------- A little something to look at while ~9 API calls settle ----------
+  const NYC_FUN_FACTS = [
+    "NYC's building code has required a certificate of occupancy since 1938 — before that, \"is this legal\" was more of a suggestion.",
+    'The Dakota, the Ansonia, and thousands of unremarkable walk-ups all sit in the same HPD violation database you\'re querying right now.',
+    "\"Cold water flat\" was a real, legal listing category in NYC into the 1970s — no hot water included.",
+    'Rent stabilization covers roughly 1 million NYC apartments — nearly half of the city\'s rental units.',
+    'A single NYC "Class C" violation means immediately hazardous — think no heat in winter, not just a chipped tile.',
+    "NYC's 311 system fields well over 2 million service requests a year — you're searching the same pipeline.",
+    'Basement and cellar apartments have their own legal distinction in NYC — cellars (mostly below curb level) are far more restricted than basements.',
+    'The oldest surviving building lot records in NYC property data go back to Dutch-era street grids in Lower Manhattan.',
+    'A building can be beautiful on StreetEasy and have a decade of open violations at the same time — that\'s the entire reason this site exists.',
+    'NYC has roughly 1 million buildings on file with the Department of Finance — this search is one tiny slice of that.',
+    'Multiple Dwelling Law requires buildings with 3+ units to register with HPD annually — that registration is one of the datasets behind this report.',
+    '"Railroad apartment" — rooms in a row with no hallway — is a real NYC floor-plan term, born from tenement-era construction economics.'
+  ];
+  let funFactTimer = null;
+  function startFunFactTicker(){
+    const el = document.getElementById('searchFunFact');
+    if(!el) return;
+    let i = Math.floor(Math.random() * NYC_FUN_FACTS.length);
+    const show = () => { el.textContent = `💡 ${NYC_FUN_FACTS[i]}`; i = (i + 1) % NYC_FUN_FACTS.length; };
+    show();
+    el.hidden = false;
+    clearInterval(funFactTimer);
+    funFactTimer = setInterval(show, 3500);
+  }
+  function stopFunFactTicker(){
+    clearInterval(funFactTimer);
+    funFactTimer = null;
+    const el = document.getElementById('searchFunFact');
+    if(el) el.hidden = true;
+  }
+  // retryKey is optional — when given (currently only the DATASETS.map loop
+  // passes one), adds a Retry button that re-fetches just that one section
+  // instead of forcing the user back through a whole new address search over
+  // what's often just a transient rate-limit or network blip.
+  function errBlock(msg, retryKey){
+    const retryHtml = retryKey ? ` <button type="button" class="secondary" style="padding:4px 10px; font-size:0.8rem;" data-retry-key="${esc(retryKey)}">🔄 Retry</button>` : '';
+    return `<div class="err">⚠ Couldn't load this dataset (${esc(msg)}). Try the source link above to check manually.${retryHtml}</div>`;
+  }
+  // If a fetch returns exactly `limit` rows, there may be more we didn't see — the
+  // stat cards above are computed only from what was fetched, so say so plainly rather
+  // than silently under-reporting a busy building's true violation/complaint count.
+  function truncationWarning(ds){
+    return `<p class="hint" style="color:var(--warn);">⚠️ Hit the ${ds.limit.toLocaleString()}-record fetch cap for this building — there may be more ${ds.label.toLowerCase()} than shown here, and the counts above could undercount the true total. Use "View raw query results" to check the full history.</p>`;
+  }
+  function statusCell(closed, text){
+    return `<td class="${closed?'status-closed':'status-open'}">${esc(text)}</td>`;
+  }
+  function dataAttrs(obj){
+    return Object.entries(obj||{}).map(([k,v]) => v==null ? '' : ` data-${k}="${esc(v)}"`).join('');
+  }
+
+  // Registry of {dateField, buildOpts} per section scope, populated the first time
+  // each section renders — lets the single delegated year-filter change handler
+  // (bound once, near the other resultsEl listeners) rebuild any section's stats/
+  // table from a filtered row subset without every render* function needing its
+  // own bespoke change listener.
+  const sectionRebuilders = {};
+
+  // Wraps renderSection with a "Show from year" dropdown, for any list-of-cases
+  // section where older rows just add noise (311 requests, complaints, permits,
+  // etc.). buildOpts(rows) must return the same opts renderSection expects,
+  // recomputed from whichever row subset is currently in view — this matters
+  // because per-category stat counts (e.g. "Noise: 12") need to reflect the
+  // filtered set, not the full history.
+  function renderFilterableSection(rows, dateField, buildOpts){
+    const opts = buildOpts(rows);
+    sectionRebuilders[opts.scope] = {dateField, buildOpts};
+    datasetRowsCache[opts.scope] = rows;
+    if(!rows.length) return `<p class="empty">${opts.emptyMsg}</p>`;
+
+    const {min: minYear, max: maxYear} = getYearRange2(rows, dateField);
+    let yearFilterHtml = '';
+    if(maxYear > minYear){
+      let yearOptions = '';
+      for(let y = maxYear; y >= minYear; y--){
+        yearOptions += `<option value="${y}"${y === minYear ? ' selected' : ''}>${y} onwards</option>`;
+      }
+      yearFilterHtml = `<div class="field" style="max-width:220px; margin-bottom:12px;">
+        <label for="${opts.scope}YearFilter">Show from</label>
+        <select id="${opts.scope}YearFilter" data-year-scope="${opts.scope}">${yearOptions}</select>
+      </div>`;
+    }
+    return `${yearFilterHtml}<div id="${opts.scope}Dynamic">${renderSection(rows, opts)}</div>`;
+  }
+
+  // Shared shape for every "stat cards + table" section: a summary-grid of clickable
+  // stats, an optional plain-English note, then the rows themselves (collapsed behind
+  // a <details> for long lists, capped at 150 and scroll-boxed so one huge table can't
+  // blow out the whole card).
+  //   opts: {emptyMsg, scope, noun, stats?, note?, headers, rowFn, collapsible?, scrollTable?, linkFn?}
+  //   rowFn(row) => {attrs, cells}  — attrs become <tr data-*>, cells are pre-built <td> strings
+  //   linkFn(row) => url|null — when present, adds a trailing "Details ↗" link column
+  function renderSection(rows, opts){
+    if(!rows.length) return `<p class="empty">${opts.emptyMsg}</p>`;
+    const statsHtml = (opts.stats && opts.stats.length)
+      ? `<div class="summary-grid">${opts.stats.map(s => statCard(s.n, s.label, s.tone, {scope:opts.scope, attr:s.attr, value:s.value})).join('')}</div>`
+      : '';
+    const noteHtml = opts.note ? `<p class="hint">${opts.note}</p>` : '';
+    const headers = opts.linkFn ? [...opts.headers, ''] : opts.headers;
+    const bodyRows = rows.slice(0,150).map(r => {
+      const {attrs, cells} = opts.rowFn(r);
+      const allCells = opts.linkFn
+        ? [...cells, (() => {
+            const url = opts.linkFn(r);
+            return url ? `<td><a href="${esc(url)}" target="_blank" rel="noopener">Details ↗</a></td>` : '<td></td>';
+          })()]
+        : cells;
+      return `<tr${dataAttrs(attrs)}>${allCells.join('')}</tr>`;
+    }).join('');
+    let tableHtml = `<table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${bodyRows}</tbody></table>`;
+    if(opts.scrollTable) tableHtml = `<div class="table-scroll">${tableHtml}</div>`;
+    const body = opts.collapsible === false
+      ? tableHtml
+      : `<details><summary>Show ${rows.length} individual ${opts.noun}${rows.length===1?'':'s'}</summary>${tableHtml}</details>`;
+    return statsHtml + noteHtml + body;
+  }
+
+  // Plain-English summary paragraph — regenerated from whatever row set is
+  // currently in view (full history or year-filtered), never hand-written per
+  // building.
+  function buildViolationsSummary(rows){
+    const total = rows.length;
+    const open = rows.filter(r=>r.violationstatus==='Open');
+    const classC = rows.filter(r=>r.class==='C');
+    const years = rows.map(r=>getYear(r.novissueddate||r.inspectiondate)).filter(Boolean);
+    const earliest = years.length ? Math.min(...years) : null;
+    let s = `This building has <b>${total}</b> recorded violation${total===1?'':'s'}${earliest ? ` since ${earliest}` : ''}. `;
+    if(open.length === 0){
+      s += `<b>None are currently open</b> — every one on file has been closed, dismissed, or certified corrected.`;
+    } else {
+      s += `<b>${open.length}</b> ${open.length===1?'is':'are'} still <b>open</b>`;
+      s += classC.length ? `, including <b>${classC.length}</b> at the most serious tier (Class C).` : `, none at the most serious tier (Class C).`;
+    }
+    return s;
+  }
+
+  // Renders everything that changes when the year filter changes: grade seal,
+  // summary paragraph, and table. Called on first render and again (replacing
+  // #violationsCfDynamic in place) on every year-select change — the <select>
+  // itself is never destroyed, so its focus/scroll position survives.
+  function violationsCfDynamicHtml(filteredRows){
+    if(!filteredRows.length){
+      return `<p class="empty">No violations on file in this range.</p>`;
+    }
+    const grade = calculateGrade(filteredRows);
+    const tone = (grade==='A'||grade==='B') ? '' : (grade==='C' ? 'warn' : 'bad');
+    const open = filteredRows.filter(r=>r.violationstatus==='Open').length;
+    const classC = filteredRows.filter(r=>r.class==='C').length;
+    const sealExplain = `Grade reflects how many violations are on file, how many are open, and how severe they are. In this range: ${filteredRows.length} violation${filteredRows.length===1?'':'s'}, ${open} open, ${classC} at the most serious tier (Class C) — landing on a ${grade}.`;
+
+    const rowsHtml = filteredRows.slice(0,150).map(r => {
+      const cls = r.class || '—';
+      const isOpen = r.violationstatus === 'Open';
+      const statusText = r.currentstatus || r.violationstatus || '—';
+      const descRaw = r.novdescription || '';
+      return `<tr>
+        <td class="cf-mono">${fmtDate(r.novissueddate||r.inspectiondate)}</td>
+        <td><span class="cf-term" tabindex="0" data-explain="${esc(explainViolationClass(r.class))}">${esc(cls)}</span></td>
+        <td class="${isOpen ? 'cf-status-open' : 'cf-status-closed'}"><span class="cf-term" tabindex="0" data-explain="${esc(explainViolationStatus(r.violationstatus||r.currentstatus))}">${esc(statusText)}</span></td>
+        <td><span class="cf-term" tabindex="0" data-explain="${esc(explainViolationDescription(descRaw, r.class))}">${esc(descRaw).slice(0,200)}</span></td>
+      </tr>`;
+    }).join('');
+
+    const truncNote = filteredRows.length > 150
+      ? `<p class="hint">Showing the first 150 of ${filteredRows.length} — use the raw query link below for the rest.</p>` : '';
+
+    return `
+      <div class="cf-toprow">
+        <div class="cf-seal ${tone}" tabindex="0" data-explain="${esc(sealExplain)}">${grade}</div>
+      </div>
+      <p class="cf-summary">${buildViolationsSummary(filteredRows)}</p>
+      <h4>Violations on file</h4>
+      <div class="table-scroll"><table>
+        <thead><tr><th>Issued</th><th>Class</th><th>Status</th><th>Description</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table></div>
+      ${truncNote}
+    `;
+  }
+
+  function renderViolations(rows){
+    if(!rows.length) return `<p class="empty">No HPD housing code violations found for this address/borough combination.</p>`;
+    datasetRowsCache['violations'] = rows;
+
+    const {min: minYear, max: maxYear} = getYearRange(rows);
+    let yearOptions = '';
+    for(let y = maxYear; y >= minYear; y--){
+      yearOptions += `<option value="${y}"${y === minYear ? ' selected' : ''}>${y} onwards</option>`;
+    }
+    const yearFilterHtml = maxYear > minYear ? `
+      <div class="cf-yearfield">
+        <label for="violationYearFilter">Show violations from</label>
+        <select id="violationYearFilter">${yearOptions}</select>
+      </div>` : '';
+
+    return `<div class="case-file">
+      ${yearFilterHtml}
+      <div id="violationsCfDynamic">${violationsCfDynamicHtml(rows)}</div>
+    </div>`;
+  }
+
+  function renderHpdComplaints(rows){
+    return renderFilterableSection(rows, 'received_date', filteredRows => {
+      const cats = {};
+      filteredRows.forEach(r=>{ const c=r.major_category||'Other'; cats[c]=(cats[c]||0)+1; });
+      const top = Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,5);
+      return {
+        emptyMsg:'No HPD housing complaints found for this address/borough combination.',
+        scope:'hpdComplaints', noun:'complaint',
+        stats:[{n:filteredRows.length, label:'Total complaints'}, ...top.map(([c,n])=>({n, label:c, attr:'category', value:c}))],
+        headers:['Received','Category','Status'],
+        rowFn: r => {
+          const closed = isClosed(r.complaint_status||r.problem_status);
+          return {
+            attrs:{category:r.major_category||'Other'},
+            cells:[
+              `<td>${fmtDate(r.received_date)}</td>`,
+              `<td>${esc(r.major_category)}${r.minor_category?' — '+esc(r.minor_category):''}</td>`,
+              statusCell(closed, r.complaint_status||r.problem_status||'—')
+            ]
+          };
+        }
+      };
+    });
+  }
+
+  function renderBedbugs(rows){
+    return renderFilterableSection(rows, 'filing_date', filteredRows => {
+    const confirmed = filteredRows.filter(r=>Number(r.infested_dwelling_unit_count)>0);
+    return {
+      emptyMsg:'No bedbug filings found for this building. (Owners must file this report annually — a lack of filings does not guarantee a bedbug-free history.)',
+      scope:'bedbugs', collapsible:false,
+      stats:[
+        {n:filteredRows.length, label:'Filing periods on record'},
+        {n:confirmed.length, label:'Periods with reported bedbugs', tone:confirmed.length>0?'bad':'good', attr:'infested', value:'yes'}
+      ],
+      headers:['Filing period','Filed','Infested units','Re-infested units'],
+      rowFn: r => {
+        const infested = Number(r.infested_dwelling_unit_count)||0;
+        return {
+          attrs:{infested: infested>0?'yes':'no'},
+          cells:[
+            `<td>${fmtDate(r.filing_period_start_date)} – ${fmtDate(r.filling_period_end_date)}</td>`,
+            `<td>${fmtDate(r.filing_date)}</td>`,
+            statusCell(infested===0, infested),
+            `<td>${esc(r.re_infested_dwelling_unit||0)}</td>`
+          ]
+        };
+      }
+    };
+    });
+  }
+
+  // Rows currently on screen for the DOB Complaints table, keyed by index — lets the
+  // click-to-expand handler look up full record detail without re-fetching.
+  let dobComplaintRows = [];
+  let dispositionCodesPromise = null;
+  function getDispositionCodes(){
+    if(!dispositionCodesPromise){
+      dispositionCodesPromise = socrataGet('6v9u-ndjg', new URLSearchParams({'$limit':'300'}))
+        .then(({rows}) => Object.fromEntries(rows.map(r => [r.code, r.disposition])))
+        .catch(() => ({}));
+    }
+    return dispositionCodesPromise;
+  }
+
+  function buildDobSummary(rows){
+    const total = rows.length;
+    const open = rows.filter(r=>!isClosed(r.status));
+    const years = rows.map(r=>getYear(r.date_entered)).filter(Boolean);
+    const earliest = years.length ? Math.min(...years) : null;
+    let s = `This building has <b>${total}</b> recorded DOB complaint${total===1?'':'s'}${earliest ? ` since ${earliest}` : ''}. `;
+    s += open.length === 0
+      ? `<b>All are marked closed</b> in DOB's system.`
+      : `<b>${open.length}</b> ${open.length===1?'is':'are'} still <b>open</b>.`;
+    return s;
+  }
+
+  // Renders everything that changes when the year filter changes. Also keeps
+  // dobComplaintRows in sync with exactly what's on screen — toggleDobDetail
+  // indexes into that array by the clicked row's data-idx, so as long as the
+  // array we set here matches the rows we just rendered (same order, same
+  // subset), the click-to-expand lookup stays correct without any separate
+  // show/hide-by-CSS bookkeeping.
+  function dobComplaintsCfDynamicHtml(filteredRows){
+    if(!filteredRows.length){
+      return `<p class="empty">No DOB complaints on file in this range.</p>`;
+    }
+    dobComplaintRows = filteredRows;
+
+    const rowsHtml = filteredRows.slice(0,150).map((r,i) => {
+      const closed = isClosed(r.status);
+      const plainCategory = DOB_COMPLAINT_CATEGORIES[r.complaint_category];
+      const categoryLabel = `${r.complaint_category || '—'}${plainCategory ? ' — ' + plainCategory : ''}`;
+      return `<tr class="expandable" data-idx="${i}">
+        <td style="color:var(--cf-muted);">▸</td>
+        <td class="cf-mono">${fmtDate(r.date_entered)}</td>
+        <td><span class="cf-term" tabindex="0" data-explain="${esc(explainDobComplaint(r.complaint_category, plainCategory))}">${esc(categoryLabel)}</span></td>
+        <td class="${closed ? 'cf-status-closed' : 'cf-status-open'}"><span class="cf-term" tabindex="0" data-explain="${esc(explainDobStatus(r.status))}">${esc(r.status || '—')}</span></td>
+      </tr>`;
+    }).join('');
+
+    const truncNote = filteredRows.length > 150
+      ? `<p class="hint">Showing the first 150 of ${filteredRows.length} — use the raw query link below for the rest.</p>` : '';
+
+    return `
+      <p class="cf-summary">${buildDobSummary(filteredRows)}</p>
+      <h4>DOB complaints on file</h4>
+      <p class="hint" style="margin-top:-4px;">Click a row for the full complaint detail.</p>
+      <div class="table-scroll"><table>
+        <thead><tr><th></th><th>Entered</th><th>Category</th><th>Status</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table></div>
+      ${truncNote}
+    `;
+  }
+
+  // Bespoke (not renderSection) because rows are click-to-expand and need the decoded
+  // category inline — see toggleDobDetail/dobDetailRowHtml below.
+  function renderDobComplaints(rows){
+    if(!rows.length) return '<p class="empty">No DOB building complaints found. Note: this dataset has no borough field, so double-check the source link if the street name is common.</p>';
+    datasetRowsCache['dobComplaints'] = rows;
+
+    const {min: minYear, max: maxYear} = getYearRange2(rows, 'date_entered');
+    let yearOptions = '';
+    for(let y = maxYear; y >= minYear; y--){
+      yearOptions += `<option value="${y}"${y === minYear ? ' selected' : ''}>${y} onwards</option>`;
+    }
+    const yearFilterHtml = maxYear > minYear ? `
+      <div class="cf-yearfield">
+        <label for="dobYearFilter">Show complaints from</label>
+        <select id="dobYearFilter">${yearOptions}</select>
+      </div>` : '';
+
+    return `<div class="case-file">
+      ${yearFilterHtml}
+      <div id="dobCfDynamic">${dobComplaintsCfDynamicHtml(rows)}</div>
+    </div>`;
+  }
+
+  function dobDetailRowHtml(r, dispositionMeaning){
+    const disposition = r.disposition_code
+      ? `${esc(r.disposition_code)}${dispositionMeaning ? ' — ' + esc(dispositionMeaning) : ''} (${fmtDate(r.disposition_date)})`
+      : '—';
+    const plainCategory = DOB_COMPLAINT_CATEGORIES[r.complaint_category];
+    const rawQueryUrl = `https://data.cityofnewyork.us/resource/eabe-havv.json?complaint_number=${encodeURIComponent(r.complaint_number||'')}`;
+    return `<tr class="detail-row"><td colspan="4"><div class="detail-panel">
+      <div>${esc(explainDobComplaint(r.complaint_category, plainCategory))}</div>
+      <div style="margin-top:8px;"><strong>Complaint #</strong> ${esc(r.complaint_number||'—')} &nbsp; <strong>Unit</strong> ${esc(r.unit||'—')} &nbsp; <strong>BIN</strong> ${esc(r.bin||'—')} &nbsp; <strong>Community board</strong> ${esc(r.community_board||'—')}</div>
+      <div style="margin-top:4px;"><strong>Inspected</strong> ${fmtDate(r.inspection_date)} &nbsp; <strong>Disposition</strong> ${disposition}</div>
+      <div class="src-links">
+        <a href="${rawQueryUrl}" target="_blank" rel="noopener">🔗 View this complaint's raw record (JSON) ↗</a>
+        <a href="https://www.nyc.gov/assets/buildings/pdf/complaint_category.pdf" target="_blank" rel="noopener">Full category code legend (PDF) ↗</a>
+      </div>
+    </div></td></tr>`;
+  }
+
+  function renderThreeOneOne(rows){
+    return renderFilterableSection(rows, 'created_date', filteredRows => {
+      const types = {};
+      filteredRows.forEach(r=>{ const t=r.complaint_type||'Other'; types[t]=(types[t]||0)+1; });
+      const top = Object.entries(types).sort((a,b)=>b[1]-a[1]).slice(0,5);
+      return {
+        emptyMsg:'No 311 service requests found for this address.',
+        scope:'threeOneOne', noun:'request',
+        stats:[{n:filteredRows.length, label:'Total 311 requests'}, ...top.map(([t,n])=>({n, label:t, attr:'type', value:t}))],
+        headers:['Created','Type','Descriptor','Status'],
+        // NYC 311's own public tracker resolves a case by "311-{unique_key}" — verified
+        // live against portal.311.nyc.gov, so this is a real per-case detail page, not
+        // just a link back to the raw dataset.
+        linkFn: r => r.unique_key ? `https://portal.311.nyc.gov/sr-details/?srnum=311-${encodeURIComponent(r.unique_key)}` : null,
+        rowFn: r => ({
+          attrs:{type:r.complaint_type||'Other'},
+          cells:[
+            `<td>${fmtDate(r.created_date)}</td>`,
+            `<td>${esc(r.complaint_type)}</td>`,
+            `<td>${esc(r.descriptor||'')}</td>`,
+            statusCell(isClosed(r.status), r.status||'—')
+          ]
+        })
+      };
+    });
+  }
+
+  function renderEvictions(rows){
+    return renderFilterableSection(rows, 'executed_date', filteredRows => ({
+      emptyMsg:'No executed evictions found on record for this address (NYC Marshal filings, 2017–present).',
+      scope:'evictions', collapsible:false,
+      stats:[{n:filteredRows.length, label:'Executed evictions', tone:filteredRows.length>0?'bad':'good'}],
+      headers:['Executed','Apt','Type','Docket #'],
+      rowFn: r => ({
+        attrs:{},
+        cells:[
+          `<td>${fmtDate(r.executed_date)}</td>`,
+          `<td>${esc(r.eviction_apt_num||'—')}</td>`,
+          `<td>${esc(r.residential_commercial_ind||'')}</td>`,
+          `<td class="muted">${esc(r.docket_number||'—')}</td>`
+        ]
+      })
+    }));
+  }
+
+  function renderRegistrations(rows){
+    return renderSection(rows, {
+      emptyMsg:'No HPD multiple-dwelling registration found for this address. (Small owner-occupied buildings may not be required to register.)',
+      scope:'registrations', collapsible:false,
+      headers:['Registration ID','Last registered','Expires'],
+      rowFn: r => ({
+        attrs:{},
+        cells:[
+          `<td>${esc(r.registrationid)}</td>`,
+          `<td>${fmtDate(r.lastregistrationdate)}</td>`,
+          `<td>${fmtDate(r.registrationenddate)}</td>`
+        ]
+      })
+    });
+  }
+
+  function renderRodents(rows){
+    return renderFilterableSection(rows, 'inspection_date', filteredRows => {
+      const failed = filteredRows.filter(r => (r.result||'').includes('Failed for Rat Activity'));
+      return {
+        emptyMsg:'No DOHMH rodent inspections found on record for this address.',
+        scope:'rodents', noun:'inspection',
+        stats:[
+          {n:filteredRows.length, label:'Total inspections'},
+          {n:failed.length, label:'Failed for rat activity', tone:failed.length>0?'bad':'good', attr:'ratActive', value:'yes'}
+        ],
+        headers:['Date','Result'],
+        rowFn: r => {
+          const active = (r.result||'').includes('Failed for Rat Activity');
+          return {
+            attrs:{ratActive: active ? 'yes' : 'no'},
+            cells:[`<td>${fmtDate(r.inspection_date)}</td>`, statusCell(!active, r.result||'—')]
+          };
+        }
+      };
+    });
+  }
+
+  function renderPermits(rows){
+    return renderFilterableSection(rows, 'latest_action_date', filteredRows => ({
+      emptyMsg:'No DOB permit filings found on record for this address.',
+      scope:'permits', noun:'permit filing',
+      stats:[{n:filteredRows.length, label:'Total filings on record'}],
+      headers:['Last updated','Type','Status','Description'],
+      rowFn: r => ({
+        attrs:{},
+        cells:[
+          `<td>${esc(r.latest_action_date)}</td>`,
+          `<td>${esc(r.job_type)}</td>`,
+          `<td>${esc(r.job_status_descrp)}</td>`,
+          `<td>${esc((r.job_description||'').slice(0,150))}</td>`
+        ]
+      })
+    }));
+  }
+
+  function renderContacts(rows){
+    return renderSection(rows, {
+      emptyMsg:'No owner/agent contact on file for the most recent registration.',
+      scope:'contacts', collapsible:false,
+      headers:['Role','Name','Business address'],
+      rowFn: r => {
+        const name = r.corporationname || [r.firstname,r.middleinitial,r.lastname].filter(Boolean).join(' ') || '—';
+        const addr = [r.businesshousenumber,r.businessstreetname].filter(Boolean).join(' ') +
+          (r.businessapartment?(' Apt '+r.businessapartment):'') +
+          (r.businesscity?(', '+r.businesscity):'') + (r.businessstate?(', '+r.businessstate):'') + (r.businesszip?(' '+r.businesszip):'');
+        return {
+          attrs:{},
+          cells:[
+            `<td>${esc(r.type||r.contactdescription||'—')}${r.title?' ('+esc(r.title)+')':''}</td>`,
+            `<td>${esc(name)}</td>`,
+            `<td class="muted">${esc(addr.trim()||'—')}</td>`
+          ]
+        };
+      }
+    });
+  }
+
+  // ---------- Transit & Safety: two more public APIs, layered onto the same address ----------
+  // Neither dataset knows a "building" — both are geographic. We reuse whatever lat/long
+  // came back on the datasets already fetched for this address (violations/complaints/
+  // bedbugs/311 all carry coordinates), so this costs zero extra address-matching risk.
+  function getBuildingCoords(byKey){
+    const sources = ['violations','hpdComplaints','threeOneOne','bedbugs'];
+    for(const key of sources){
+      const rows = (byKey[key] && byKey[key].rows) || [];
+      const hit = rows.find(r => r.latitude && r.longitude && !isNaN(Number(r.latitude)) && !isNaN(Number(r.longitude)));
+      if(hit) return {lat: Number(hit.latitude), lon: Number(hit.longitude)};
+    }
+    return null;
+  }
+  function haversineMiles(lat1, lon1, lat2, lon2){
+    const R = 3958.8, toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+    return R * 2 * Math.asin(Math.sqrt(a));
+  }
+
+  // MTA Subway Stations (data.ny.gov, same Socrata platform as NYC Open Data) — small
+  // and essentially static, so fetch once and reuse for every address checked this session.
+  let subwayStationsPromise = null;
+  async function fetchNearestSubwayStations(coords){
+    if(!subwayStationsPromise){
+      const url = `https://data.ny.gov/resource/39hk-dx4f.json?$select=stop_name,daytime_routes,gtfs_latitude,gtfs_longitude,complex_id&$limit=600`;
+      subwayStationsPromise = fetch(url, {headers:{'Accept':'application/json'}})
+        .then(r => { if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); });
+    }
+    const stations = await subwayStationsPromise;
+    const withDist = stations
+      .filter(s => s.gtfs_latitude && s.gtfs_longitude)
+      .map(s => ({
+        name: s.stop_name, routes: (s.daytime_routes||'').trim().split(/\s+/).filter(Boolean),
+        complexId: s.complex_id,
+        miles: haversineMiles(coords.lat, coords.lon, Number(s.gtfs_latitude), Number(s.gtfs_longitude))
+      }))
+      .sort((a,b) => a.miles - b.miles);
+    // collapse multiple platforms of the same station complex into one entry (nearest wins)
+    const seen = new Set(), nearest = [];
+    for(const s of withDist){
+      if(seen.has(s.complexId)) continue;
+      seen.add(s.complexId);
+      nearest.push(s);
+      if(nearest.length === 3) break;
+    }
+    return nearest;
+  }
+
+  async function fetchCrimeSnapshot(coords){
+    // ~0.4mi bounding box (not a true circle — SoQL's within_circle needs a geometry
+    // column this dataset doesn't expose in a documented way, so a lat/long box is the
+    // reliable option). Longitude degrees are narrower than latitude ones this far
+    // north, hence the cos(latitude) correction.
+    const milesBox = 0.4;
+    const latDelta = milesBox / 69;
+    const lonDelta = milesBox / (69 * Math.cos(coords.lat * Math.PI/180));
+    const since = new Date(); since.setDate(since.getDate() - 180);
+    const sinceStr = since.toISOString().slice(0,10);
+    const params = new URLSearchParams({
+      '$select': 'law_cat_cd, count(*) as n',
+      '$where': `latitude between ${coords.lat-latDelta} and ${coords.lat+latDelta} ` +
+                `AND longitude between ${coords.lon-lonDelta} and ${coords.lon+lonDelta} ` +
+                `AND cmplnt_fr_dt > '${sinceStr}T00:00:00'`,
+      '$group': 'law_cat_cd'
+    });
+    const url = `https://data.cityofnewyork.us/resource/5uac-w243.json?${params.toString()}`;
+    const res = await fetch(url, {headers:{'Accept':'application/json'}});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const rows = await res.json();
+    const counts = {FELONY:0, MISDEMEANOR:0, VIOLATION:0};
+    rows.forEach(r => { if(counts.hasOwnProperty(r.law_cat_cd)) counts[r.law_cat_cd] = Number(r.n); });
+    return {counts, url, radiusMiles: milesBox, sinceStr};
+  }
+
+  async function fetchCrashSnapshot(coords){
+    const milesBox = 0.3;
+    const latDelta = milesBox / 69;
+    const lonDelta = milesBox / (69 * Math.cos(coords.lat * Math.PI/180));
+    const since = new Date(); since.setDate(since.getDate() - 180);
+    const sinceStr = since.toISOString().slice(0,10);
+    const params = new URLSearchParams({
+      '$select': 'count(*) as n, sum(number_of_persons_injured) as injured, sum(number_of_persons_killed) as killed',
+      '$where': `latitude between ${coords.lat-latDelta} and ${coords.lat+latDelta} ` +
+                `AND longitude between ${coords.lon-lonDelta} and ${coords.lon+lonDelta} ` +
+                `AND crash_date > '${sinceStr}T00:00:00'`
+    });
+    const url = `https://data.cityofnewyork.us/resource/h9gi-nx95.json?${params.toString()}`;
+    const res = await fetch(url, {headers:{'Accept':'application/json'}});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const rows = await res.json();
+    const row = rows[0] || {};
+    return {crashes:Number(row.n)||0, injured:Number(row.injured)||0, killed:Number(row.killed)||0, radiusMiles:milesBox, sinceStr, url};
+  }
+
+  function renderTransitSafety(coords, subwayResult, crimeResult, crashResult){
+    if(!coords){
+      return '<p class="empty">No coordinates came back from any dataset for this address, so transit and safety data couldn\'t be looked up.</p>';
+    }
+    const parts = [];
+
+    if(subwayResult.status === 'fulfilled' && subwayResult.value.length){
+      parts.push(`<h3 style="margin:0 0 8px; font-size:1rem;">Nearest subway stations</h3>`);
+      parts.push(subwayResult.value.map(s => `
+        <div class="building-row" style="cursor:default;">
+          <div>
+            <div class="addr">${esc(s.name)}</div>
+            <div class="meta">${s.routes.map(r=>esc(r)).join(', ') || '—'}</div>
+          </div>
+          <span class="meta">${s.miles.toFixed(2)} mi</span>
+        </div>`).join(''));
+      parts.push(`<div class="src-links"><a href="https://data.ny.gov/Transportation/MTA-Subway-Stations/39hk-dx4f" target="_blank" rel="noopener">MTA Subway Stations dataset ↗</a></div>`);
+    } else if(subwayResult.status === 'rejected'){
+      parts.push(errBlock(subwayResult.reason && subwayResult.reason.message || 'subway lookup failed'));
+    } else {
+      parts.push('<p class="empty">No subway stations found nearby.</p>');
+    }
+
+    parts.push('<hr style="border:none; border-top:1px solid var(--border); margin:16px 0;">');
+
+    if(crimeResult.status === 'fulfilled'){
+      const {counts, url, radiusMiles, sinceStr} = crimeResult.value;
+      const total = counts.FELONY + counts.MISDEMEANOR + counts.VIOLATION;
+      parts.push(`<h3 style="margin:0 0 8px; font-size:1rem;">NYPD complaints within ~${radiusMiles} mi (since ${fmtDate(sinceStr)})</h3>`);
+      parts.push(`<div class="summary-grid">
+        ${statCard(total, 'Total complaints')}
+        ${statCard(counts.FELONY, 'Felony', counts.FELONY>0?'bad':'good')}
+        ${statCard(counts.MISDEMEANOR, 'Misdemeanor', counts.MISDEMEANOR>0?'warn':'good')}
+        ${statCard(counts.VIOLATION, 'Violation')}
+      </div>`);
+      parts.push(`<p class="hint">Area-level context, not specific to this building — NYPD complaints logged within roughly ${radiusMiles} miles, straight-line. A dense commercial strip nearby will show more activity than a quiet residential block even if both are equally safe.</p>`);
+      parts.push(`<div class="src-links">
+        <a href="https://data.cityofnewyork.us/Public-Safety/NYPD-Complaint-Data-Current-Year-To-Date-/5uac-w243" target="_blank" rel="noopener">NYPD Complaint Data dataset ↗</a>
+        <a href="${url}" target="_blank" rel="noopener">View raw query results (JSON) ↗</a>
+      </div>`);
+    } else {
+      parts.push(errBlock(crimeResult.reason && crimeResult.reason.message || 'crime lookup failed'));
+    }
+
+    parts.push('<hr style="border:none; border-top:1px solid var(--border); margin:16px 0;">');
+
+    if(crashResult.status === 'fulfilled'){
+      const {crashes, injured, killed, radiusMiles, sinceStr, url} = crashResult.value;
+      parts.push(`<h3 style="margin:0 0 8px; font-size:1rem;">Traffic crashes within ~${radiusMiles} mi (since ${fmtDate(sinceStr)})</h3>`);
+      parts.push(`<div class="summary-grid">
+        ${statCard(crashes, 'Crashes', crashes>0?'warn':'good')}
+        ${statCard(injured, 'People injured', injured>0?'bad':'good')}
+        ${statCard(killed, 'People killed', killed>0?'bad':'good')}
+      </div>`);
+      parts.push(`<div class="src-links">
+        <a href="https://data.cityofnewyork.us/Public-Safety/Motor-Vehicle-Collisions-Crashes/h9gi-nx95" target="_blank" rel="noopener">Motor Vehicle Collisions dataset ↗</a>
+        <a href="${url}" target="_blank" rel="noopener">View raw query results (JSON) ↗</a>
+      </div>`);
+    } else {
+      parts.push(errBlock(crashResult.reason && crashResult.reason.message || 'crash lookup failed'));
+    }
+
+    return parts.join('');
+  }
+
+  // ---------- Tax Exemptions & Rent Stabilization signal ----------
+  // 421-a and J-51 are the two tax-exemption programs that generally require a building's
+  // affected units to stay rent-stabilized for the benefit period. DOF's own exemption
+  // codes (e.g. "5110") aren't self-explanatory, so we decode them against DOF's own
+  // Exemption Classification Codes reference table rather than guessing at code numbers.
+  function getBuildingBbl(byKey){
+    const sources = ['violations','hpdComplaints','threeOneOne','dobComplaints','bedbugs','permits'];
+    for(const key of sources){
+      const rows = (byKey[key] && byKey[key].rows) || [];
+      const hit = rows.find(r => r.bbl && /^\d{10}$/.test(String(r.bbl)));
+      if(hit) return String(hit.bbl);
+    }
+    return null;
+  }
+
+  let exemptionCodeMapPromise = null;
+  function getExemptionCodeMap(){
+    if(!exemptionCodeMapPromise){
+      exemptionCodeMapPromise = socrataGet('myn9-hwsy', new URLSearchParams({'$limit':'5000'}))
+        .then(({rows}) => {
+          const map = {};
+          rows.forEach(r => { if(!map[r.exempt_code]) map[r.exempt_code] = {description:r.description, legalRef:r.legal_ref||''}; });
+          return map;
+        })
+        .catch(() => ({}));
+    }
+    return exemptionCodeMapPromise;
+  }
+
+  async function fetchTaxExemptions(bbl){
+    const params = new URLSearchParams({'$where': `parid='${soql(bbl)}'`, '$limit': '50'});
+    const [{rows, url}, codeMap] = await Promise.all([socrataGet('muvi-b6kx', params), getExemptionCodeMap()]);
+    const decoded = rows.map(r => {
+      const info = codeMap[r.exmp_code] || codeMap[String(r.exmp_code).split('-')[0]] || null;
+      const desc = info ? info.description : `Code ${r.exmp_code}`;
+      const legalRef = info ? info.legalRef : '';
+      return {code:r.exmp_code, desc, flagged: /421A|J51/i.test(desc+' '+legalRef), amount: Number(r.curexmptot)||0};
+    });
+    return {decoded, url};
+  }
+
+  function renderTaxExemptions(bbl, result){
+    if(!bbl){
+      return '<p class="empty">No BBL came back from any dataset for this address, so property tax exemption records couldn\'t be looked up.</p>';
+    }
+    if(result.status !== 'fulfilled'){
+      return errBlock(result.reason && result.reason.message || 'exemption lookup failed');
+    }
+    const {decoded, url} = result.value;
+    const dofLink = `<div class="src-links"><a href="https://data.cityofnewyork.us/City-Government/Property-Exemption-Detail/muvi-b6kx" target="_blank" rel="noopener">Property Exemption Detail dataset ↗</a> <a href="${url}" target="_blank" rel="noopener">View raw query results (JSON) ↗</a></div>`;
+    const condoCaveat = `<p class="hint">Condos and co-ops assign a separate BBL to each individual unit — this only looked up the one BBL that happened to surface in this building's other public records, so it may reflect a different unit than yours in a condo/co-op building. Rental buildings generally have one BBL for the whole building, so this is more reliable there.</p>`;
+    if(!decoded.length){
+      return `<p class="empty">No active property tax exemptions found for this BBL — no 421-a/J-51 signal either way.</p>${condoCaveat}${dofLink}`;
+    }
+    const flagged = decoded.filter(d => d.flagged);
+    let html = flagged.length
+      ? `<p class="hint" style="color:var(--warn);">🏷️ This building has a <strong>${flagged.map(f=>esc(f.desc)).join(', ')}</strong> exemption on file. Buildings receiving 421-a or J-51 benefits are generally required to keep affected units rent-stabilized for the benefit period — this doesn't confirm your specific unit is stabilized, but it's worth requesting a <a href="https://hcr.ny.gov/rent-history" target="_blank" rel="noopener">DHCR rent history</a> to check for sure.</p>`
+      : `<p class="hint">No 421-a or J-51 exemption found among this building's tax exemption records (other exemption types below may still apply, e.g. senior/veteran/nonprofit).</p>`;
+    html += condoCaveat;
+    html += `<table><thead><tr><th>Exemption</th><th>Code</th><th>Current benefit</th></tr></thead><tbody>`;
+    decoded.forEach(d => {
+      html += `<tr><td>${esc(d.desc)}</td><td class="muted">${esc(d.code)}</td><td>$${d.amount.toLocaleString()}</td></tr>`;
+    });
+    html += `</tbody></table>${dofLink}`;
+    return html;
+  }
+
+  // Positive-framed banner shown at the top of the report when the building has an
+  // active 421-a or J-51 tax exemption. Those programs require the beneficiary
+  // building to keep its residential units rent-stabilized during the benefit
+  // period, so the presence of one is a genuine positive signal for a renter (rent
+  // increases capped by the Rent Guidelines Board instead of the landlord's
+  // discretion at renewal). Careful with the copy: we can't guarantee a specific
+  // unit is stabilized (only that the building has stabilized units), and the
+  // condo/co-op BBL caveat still applies — see renderTaxExemptions above.
+  function renderRentStabBanner(bbl, result){
+    if(!bbl || !result || result.status !== 'fulfilled') return '';
+    const decoded = result.value && result.value.decoded;
+    if(!Array.isArray(decoded) || !decoded.length) return '';
+    const flagged = decoded.filter(d => d.flagged);
+    if(!flagged.length) return '';
+    const programs = flagged.map(f => f.desc).join(' + ');
+    return `<div class="card full rent-stab-banner">
+      <div class="rs-title">🏷️ Likely rent-stabilized</div>
+      <div class="rs-body">
+        This building has an active <strong>${esc(programs)}</strong> tax exemption on file — buildings receiving these benefits are generally required to keep affected units <strong>rent-stabilized</strong> for the benefit period. Rent increases would be capped by the <a href="https://rentguidelinesboard.cityofnewyork.us/current-guidelines/" target="_blank" rel="noopener">Rent Guidelines Board's</a> annual limits (typically 2–5%) instead of whatever the landlord sets at renewal.
+      </div>
+      <div class="rs-caveat">
+        This doesn't confirm <em>your specific unit</em> is stabilized — request a
+        <a href="https://hcr.ny.gov/rent-history" target="_blank" rel="noopener">DHCR rent history ↗</a>
+        (free, sent by mail in ~2 weeks) to verify. See the "Tax Exemptions" section below for the full record.
+      </div>
+    </div>`;
+  }
+
+  // ---------- FEMA Flood Zone ----------
+  // FEMA's own National Flood Hazard Layer map service, queried directly by point —
+  // free, no key, and authoritative (it's literally what mortgage lenders and flood
+  // insurance are based on), so no need to hunt for an NYC Open Data mirror of it.
+  // Layer 28 ("Flood Hazard Zones") is the polygon layer that carries the actual
+  // zone designation at a given lat/lon.
+  const FEMA_NFHL_ZONES_LAYER = 'https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query';
+
+  // FLD_ZONE code -> {label, tone, risk}. Reference: FEMA's own zone definitions
+  // (https://www.fema.gov/glossary/flood-zones). "SFHA" = Special Flood Hazard
+  // Area, the zone where mortgage lenders require flood insurance.
+  function describeFloodZone(zone, subty){
+    const z = (zone || '').toUpperCase();
+    if(z === 'X' || z === 'C'){
+      const isModerate = /0\.2 PCT|500.?YEAR|MODERATE/i.test(subty || '');
+      return isModerate
+        ? {label:`Zone ${z} — moderate flood hazard (0.2% annual chance / "500-year" floodplain)`, tone:'warn', sfha:false}
+        : {label:`Zone ${z} — minimal flood hazard`, tone:'good', sfha:false};
+    }
+    if(/^V/.test(z)){
+      return {label:`Zone ${z} — coastal high-hazard area (storm surge & wave action, 1% annual chance)`, tone:'bad', sfha:true};
+    }
+    if(/^A/.test(z)){
+      return {label:`Zone ${z} — high flood hazard (1% annual chance / "100-year" floodplain)`, tone:'bad', sfha:true};
+    }
+    if(z === 'D'){
+      return {label:'Zone D — flood hazard undetermined (area not fully studied by FEMA)', tone:'warn', sfha:false};
+    }
+    return {label:`Zone ${z || 'Unknown'}`, tone:'', sfha:false};
+  }
+
+  async function fetchFloodZone(coords){
+    const params = new URLSearchParams({
+      geometry: `${coords.lon},${coords.lat}`,
+      geometryType: 'esriGeometryPoint',
+      inSR: '4326',
+      spatialRel: 'esriSpatialRelIntersects',
+      outFields: 'FLD_ZONE,ZONE_SUBTY,SFHA_TF',
+      returnGeometry: 'false',
+      f: 'json'
+    });
+    const url = `${FEMA_NFHL_ZONES_LAYER}?${params.toString()}`;
+    const res = await fetch(url, {headers:{'Accept':'application/json'}});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if(data.error) throw new Error(data.error.message || 'FEMA service error');
+    const feature = (data.features || [])[0];
+    return {feature: feature ? feature.attributes : null, url};
+  }
+
+  function renderFloodZone(coords, result){
+    if(!coords){
+      return '<p class="empty">No coordinates came back from any dataset for this address, so flood zone couldn\'t be looked up.</p>';
+    }
+    const mscUrl = `https://msc.fema.gov/portal/search?AddressQuery=${encodeURIComponent(`${coords.lat},${coords.lon}`)}`;
+    const mscLink = `<div class="src-links"><a href="${mscUrl}" target="_blank" rel="noopener">View the official FEMA flood map for this location ↗</a></div>`;
+    if(!result || result.status !== 'fulfilled'){
+      return errBlock((result && result.reason && result.reason.message) || 'flood zone lookup failed') + mscLink;
+    }
+    const {feature, url} = result.value;
+    if(!feature){
+      return `<p class="empty">This point didn't match a mapped FEMA flood zone — either it's just outside FEMA's mapped area, or the point fell in a data gap. Check the official map to be sure.</p>${mscLink}`;
+    }
+    const {label, tone, sfha} = describeFloodZone(feature.FLD_ZONE, feature.ZONE_SUBTY);
+    const insuranceNote = sfha
+      ? `Properties in a Special Flood Hazard Area typically require flood insurance if the building has a federally-backed mortgage — worth budgeting for if you're the one paying utilities/insurance, and worth asking about for a basement or ground-floor unit specifically.`
+      : `Outside FEMA's Special Flood Hazard Area — flood insurance usually isn't required by a mortgage lender here, though it's still optional coverage worth considering near water.`;
+    return `
+      <div class="summary-grid">
+        ${statCard(feature.FLD_ZONE || '—', 'FEMA flood zone', tone)}
+      </div>
+      <p class="hint" style="margin-top:10px;"><strong>${esc(label)}</strong></p>
+      <p class="hint">${insuranceNote}</p>
+      ${mscLink}
+      <div class="src-links"><a href="${url}" target="_blank" rel="noopener">View raw query results (JSON) ↗</a></div>
+    `;
+  }
+
+  // ---------- Who Owns What: JustFix portfolio lookup ----------
+  // JustFix's Who Owns What ties an address to every OTHER building the same
+  // ownership network is behind — so a "small landlord" with 40 buildings and
+  // 2,000 units gets caught for what they are. We already link to their site
+  // in the external-sources block; this pulls the summary INTO the report so
+  // it's part of what the reader sees at a glance instead of one click away.
+  //
+  // API is free, no key, CORS-open. Two endpoints used here:
+  //   /api/address           - looks up a single building's registration
+  //   /api/address/aggregate - returns portfolio-wide stats when given a bbl
+  const WOW_BASE = 'https://api.justfix.org/api';
+  async function fetchWowPortfolio(bbl){
+    if(!bbl) return null;
+    const url = `${WOW_BASE}/address/aggregate?bbl=${encodeURIComponent(bbl)}`;
+    const res = await fetch(url, {headers: {'Accept': 'application/json'}});
+    if(!res.ok) throw new Error(`Who Owns What ${res.status}`);
+    const data = await res.json();
+    const row = (data && data.result && data.result[0]) || null;
+    return {row, url};
+  }
+  function renderWowPortfolio(bbl, result, wowLink){
+    if(!bbl) return '';
+    if(!result || result.status !== 'fulfilled'){
+      return `<p class="empty">Couldn't reach Who Owns What. <a href="${wowLink}" target="_blank" rel="noopener">Open it directly ↗</a></p>`;
+    }
+    const {row, url} = result.value || {};
+    if(!row || !Number(row.bldgs)){
+      // "bldgs: 0" means JustFix knows about the address but has no linked
+      // portfolio for it (typical for a lot without an HPD registration, e.g.
+      // owner-occupied 1-3 family homes). Show the link out, not an error.
+      return `<p class="empty">No linked portfolio was found for this address on JustFix — usually means the building isn't in HPD's registration database (small owner-occupied buildings often aren't). <a href="${wowLink}" target="_blank" rel="noopener">Search JustFix directly ↗</a></p>`;
+    }
+
+    // JustFix aggregate schema (verified live 2026-09):
+    //   bldgs, units, age (years since built),
+    //   totalopenviolations, totalviolations, openviolationsperbldg, openviolationsperresunit,
+    //   totalevictions, avgevictions,
+    //   totalrsgain, totalrsloss, totalrsdiff, rsproportion,
+    //   topowners (array of {value, count} — recurring owner names),
+    //   topcorp, topbusinessaddr (single strings)
+    const bldgs     = Number(row.bldgs) || 0;
+    const units     = Number(row.units) || null;
+    const evictions = row.totalevictions != null ? Number(row.totalevictions) : null;
+    const openviol  = row.totalopenviolations != null ? Number(row.totalopenviolations) : null;
+    const perUnit   = row.openviolationsperresunit != null ? Number(row.openviolationsperresunit) : null;
+    const rsdiff    = row.totalrsdiff != null ? Number(row.totalrsdiff) : null;
+
+    const owners = Array.isArray(row.topowners) ? row.topowners.slice(0, 4) : [];
+
+    const tile = (num, lbl, tone) => num == null ? '' :
+      `<div class="wow-stat${tone?' '+tone:''}"><div class="num">${Number(num).toLocaleString()}</div><div class="lbl">${lbl}</div></div>`;
+
+    const portfolioIsLarge = bldgs >= 10;
+
+    return `
+      <div class="wow-portfolio">
+        <p class="hint" style="margin-top:0;">The ownership network behind this address controls <strong>${bldgs.toLocaleString()} building${bldgs===1?'':'s'}</strong>${units?` and about <strong>${units.toLocaleString()} residential units</strong>`:''} citywide. ${portfolioIsLarge ? 'A portfolio this size means what happens in <em>other</em> buildings on it is a meaningful signal about how this one is likely to be managed.' : ''}</p>
+        <div class="wow-summary">
+          ${tile(bldgs, 'Buildings')}
+          ${tile(units, 'Units')}
+          ${tile(openviol, 'Open violations', openviol && openviol > 50 ? 'warn' : '')}
+          ${perUnit != null ? `<div class="wow-stat${perUnit > 1 ? ' warn' : ''}"><div class="num">${perUnit.toFixed(2)}</div><div class="lbl">Open viol. / unit</div></div>` : ''}
+          ${tile(evictions, 'Evictions filed', evictions && evictions > 5 ? 'warn' : '')}
+        </div>
+        ${rsdiff != null && rsdiff < 0 ? `<p class="hint" style="color:#c93500;"><strong>Warning:</strong> This portfolio has <strong>${Math.abs(rsdiff).toLocaleString()} fewer rent-stabilized units</strong> than it did in 2007. Some conversion is legal, but a large drop is a common signal of aggressive deregulation practices.</p>` : ''}
+        ${owners.length ? `<div class="wow-owner-list"><strong>Owners on record:</strong> ${owners.map(o => `<span class="wow-owner">${esc(o.value || o)}${o.count ? ` <small>(${o.count})</small>` : ''}</span>`).join('')}</div>` : ''}
+        <div class="src-links" style="margin-top:12px;">
+          <a href="${wowLink}" target="_blank" rel="noopener">Full portfolio on Who Owns What ↗</a>
+          ${url ? `<a href="${url}" target="_blank" rel="noopener">Raw API response ↗</a>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  // ---------- Sun / Daylight profile for the building's coordinates ----------
+  // Uses SunCalc (loaded from cdnjs on demand) to compute sunrise/sunset for
+  // today and the two solstices. Renters ask "how much light does this get?"
+  // and the honest answer without knowing the specific unit's orientation is
+  // the daylight envelope for the LOCATION — plus a note on which direction
+  // gets which time of day so the reader can match it to a unit's windows.
+  let sunCalcLoadingPromise = null;
+  function loadSunCalc(){
+    if(window.SunCalc) return Promise.resolve(window.SunCalc);
+    if(sunCalcLoadingPromise) return sunCalcLoadingPromise;
+    sunCalcLoadingPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.9.0/suncalc.min.js';
+      s.onload = () => resolve(window.SunCalc);
+      s.onerror = () => reject(new Error('Failed to load SunCalc'));
+      document.head.appendChild(s);
+    });
+    return sunCalcLoadingPromise;
+  }
+  function fmtTime(d){
+    if(!d || isNaN(d.getTime())) return '—';
+    return d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+  }
+  function fmtHours(ms){
+    const h = ms / 3600000;
+    const hh = Math.floor(h), mm = Math.round((h - hh) * 60);
+    return `${hh}h ${mm.toString().padStart(2,'0')}m`;
+  }
+  async function fetchSunProfile(coords){
+    const SunCalc = await loadSunCalc();
+    const now = new Date();
+    const y = now.getFullYear();
+    // Solstices are always ~Dec 21 (winter) and ~Jun 21 (summer) — good enough
+    // for the "shortest day / longest day" bracketing without astronomical exactness.
+    const winter = new Date(y, 11, 21, 12);
+    const summer = new Date(y, 5, 21, 12);
+    return {
+      today:  SunCalc.getTimes(now,    coords.lat, coords.lon),
+      winter: SunCalc.getTimes(winter, coords.lat, coords.lon),
+      summer: SunCalc.getTimes(summer, coords.lat, coords.lon)
+    };
+  }
+  function renderSunProfile(coords, result){
+    if(!coords) return '<p class="empty">No coordinates for this building, so daylight couldn\'t be computed.</p>';
+    if(!result || result.status !== 'fulfilled') return errBlock((result && result.reason && result.reason.message) || 'Sun/daylight lookup failed');
+    const {today, winter, summer} = result.value;
+    const tile = (title, times) => `
+      <div class="sun-tile">
+        <h4>${esc(title)}</h4>
+        <div class="sr"><span class="lbl">🌅 Sunrise</span><span class="val">${fmtTime(times.sunrise)}</span></div>
+        <div class="ss"><span class="lbl">🌇 Sunset</span><span class="val">${fmtTime(times.sunset)}</span></div>
+        <div class="sr" style="margin-top:6px; padding-top:6px; border-top:1px solid #f0e6c9;"><span class="lbl">Daylight</span><span class="val">${fmtHours(times.sunset - times.sunrise)}</span></div>
+      </div>`;
+    return `
+      <div class="sun-card">
+        <div class="sun-summary">
+          ${tile('Today', today)}
+          ${tile('Winter solstice (shortest day)', winter)}
+          ${tile('Summer solstice (longest day)', summer)}
+        </div>
+        <p class="sun-guidance">
+          A window's exposure matters more than the building's location: <strong>South-facing</strong> windows get the most direct sun year-round; <strong>East</strong> catches morning light, <strong>West</strong> catches strong afternoon light (hot in summer), and <strong>North</strong> gets steady but indirect light. Ask the listing agent which way the specific unit faces — it changes the light hours by hours per day.
+        </p>
+      </div>`;
+  }
+
+  // ---------- Building Grade: NYC-restaurant-style A–F letter grade from the same data ----------
+  // Transparent, hand-weighted scoring (not a black box) — the point is a fast, familiar
+  // gut-check, not a precise ranking. Every deduction is shown in the "why" breakdown.
+  function computeBuildingGrade(byKey){
+    const rowsOf = key => (byKey[key] && byKey[key].rows) || [];
+    let score = 100;
+    const notes = [];
+    const deduct = (amount, reason) => { if(amount <= 0) return; score -= amount; notes.push(`−${amount} — ${reason}`); };
+
+    const violations = rowsOf('violations').filter(r => r.violationstatus === 'Open');
+    const openC = violations.filter(r => r.class === 'C').length;
+    const openB = violations.filter(r => r.class === 'B').length;
+    const openA = violations.filter(r => r.class === 'A').length;
+    deduct(Math.min(openC*3, 30), `${openC} open Class C violation${openC===1?'':'s'} (immediately hazardous)`);
+    deduct(Math.min(openB*1.5, 15), `${openB} open Class B violation${openB===1?'':'s'} (hazardous)`);
+    deduct(Math.min(openA*0.5, 5), `${openA} open Class A violation${openA===1?'':'s'} (non-hazardous)`);
+
+    const latestBedbug = rowsOf('bedbugs')[0]; // fetched newest-filing-first
+    if(latestBedbug && Number(latestBedbug.infested_dwelling_unit_count) > 0){
+      deduct(15, `bedbugs reported in the most recent filing (${fmtDate(latestBedbug.filing_date)})`);
+    }
+
+    const openDob = rowsOf('dobComplaints').filter(r => !isClosed(r.status)).length;
+    deduct(Math.min(openDob*1, 10), `${openDob} open DOB complaint${openDob===1?'':'s'}`);
+
+    const evictions = rowsOf('evictions').length;
+    deduct(Math.min(evictions*8, 24), `${evictions} executed eviction${evictions===1?'':'s'}`);
+
+    const threeOneOne = rowsOf('threeOneOne').length;
+    if(threeOneOne > 10) deduct(Math.min((threeOneOne-10)*0.3, 10), `elevated 311 volume (${threeOneOne} requests on record)`);
+
+    score = Math.max(0, Math.min(100, Math.round(score)));
+    const grade = score>=90 ? 'A' : score>=75 ? 'B' : score>=60 ? 'C' : score>=40 ? 'D' : 'F';
+    return {score, grade, notes};
+  }
+
+  // Purely flavor text, no bearing on the actual score — a little personality on
+  // what is otherwise a wall of public-records data.
+  const GRADE_TAGLINES = {
+    A: 'Certified drama-free. This building could win an award. 🏆',
+    B: 'Solid. A few footnotes, nothing scandalous. 👍',
+    C: "It's... fine. Ask a couple extra questions at the viewing. 🤔",
+    D: "There's a story here. Bring popcorn — and maybe a lawyer's number. 🍿",
+    F: 'Main-character energy, for all the wrong reasons. 🚩'
+  };
+
+  function renderGradeBadge(gradeInfo){
+    const {score, grade, notes} = gradeInfo;
+    const summary = notes.length
+      ? `<ul>${notes.map(n=>`<li>${esc(n)}</li>`).join('')}</ul>`
+      : '<p>No deductions — nothing in the public record pulled the score down.</p>';
+    return `<details class="grade-wrap">
+      <summary class="grade-badge grade-${grade}"><span class="letter">${grade}</span> Building Grade (${score}/100)</summary>
+      <span class="grade-tagline">${esc(GRADE_TAGLINES[grade] || '')}</span>
+      <div class="grade-explain">${summary}</div>
+    </details>`;
+  }
+
+  // A little celebration for the best outcome a search can turn up — purely
+  // decorative, no functional purpose. Respects prefers-reduced-motion, and
+  // costs nothing when it doesn't fire (no canvas, no library — a handful of
+  // absolutely-positioned spans that remove themselves after the animation).
+  function fireConfetti(anchorEl){
+    if(!anchorEl) return;
+    if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const colors = ['#5b8cff', '#22d3ee', '#a78bfa', '#4caf7d', '#e6b95c'];
+    const rect = anchorEl.getBoundingClientRect();
+    const originX = rect.left + window.scrollX + rect.width / 2;
+    const originY = rect.top + window.scrollY + rect.height / 2;
+    const container = document.createElement('div');
+    container.className = 'confetti-burst';
+    document.body.appendChild(container);
+    const PIECES = 26;
+    for(let i = 0; i < PIECES; i++){
+      const piece = document.createElement('span');
+      piece.className = 'confetti-piece';
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 70 + Math.random() * 110;
+      piece.style.setProperty('--dx', `${Math.cos(angle) * distance}px`);
+      piece.style.setProperty('--dy', `${Math.sin(angle) * distance - 30}px`);
+      piece.style.setProperty('--rot', `${Math.random() * 720 - 360}deg`);
+      piece.style.left = `${originX}px`;
+      piece.style.top = `${originY}px`;
+      piece.style.background = colors[i % colors.length];
+      piece.style.animationDelay = `${Math.random() * 0.15}s`;
+      container.appendChild(piece);
+    }
+    setTimeout(() => container.remove(), 1700);
+  }
+
+  // ---------- Red flags: roll findings from every dataset into one summary ----------
+  // Thresholds are deliberately conservative "worth a look" signals, not proof of anything.
+  function computeRedFlags(byKey){
+    const rowsOf = key => (byKey[key] && byKey[key].rows) || [];
+    const landingOf = key => DATASETS.find(d => d.key === key).landing;
+    const flags = [];
+
+    const openViolations = rowsOf('violations').filter(r => r.violationstatus === 'Open');
+    const classC = openViolations.filter(r => r.class === 'C');
+    if(openViolations.length){
+      flags.push({
+        icon:'⚠️', anchor:'sec-violations', source:landingOf('violations'),
+        text:`${openViolations.length} open HPD housing code violation${openViolations.length===1?'':'s'}` +
+          (classC.length ? `, including ${classC.length} Class C (most serious).` : '.')
+      });
+    }
+
+    const latestBedbug = rowsOf('bedbugs')[0]; // fetched newest-filing-first
+    if(latestBedbug && Number(latestBedbug.infested_dwelling_unit_count) > 0){
+      flags.push({
+        icon:'🐛', anchor:'sec-bedbugs', source:landingOf('bedbugs'),
+        text:`Most recent bedbug filing (${fmtDate(latestBedbug.filing_date)}) reported ${latestBedbug.infested_dwelling_unit_count} infested unit(s).`
+      });
+    }
+
+    const openDob = rowsOf('dobComplaints').filter(r => !isClosed(r.status));
+    if(openDob.length){
+      flags.push({
+        icon:'🏗️', anchor:'sec-dobComplaints', source:landingOf('dobComplaints'),
+        text:`${openDob.length} open/non-closed DOB complaint${openDob.length===1?'':'s'}.`
+      });
+    }
+
+    const evictions = rowsOf('evictions');
+    if(evictions.length){
+      flags.push({
+        icon:'📦', anchor:'sec-evictions', source:landingOf('evictions'),
+        text:`${evictions.length} executed eviction${evictions.length===1?'':'s'} on record at this address.`
+      });
+    }
+
+    const threeOneOne = rowsOf('threeOneOne');
+    if(threeOneOne.length >= 15){
+      flags.push({
+        icon:'📞', anchor:'sec-threeOneOne', source:landingOf('threeOneOne'),
+        text:`${threeOneOne.length} 311 service requests on record for this address.`
+      });
+    }
+
+    const hpdComplaints = rowsOf('hpdComplaints');
+    if(hpdComplaints.length >= 15){
+      flags.push({
+        icon:'🛠️', anchor:'sec-hpdComplaints', source:landingOf('hpdComplaints'),
+        text:`${hpdComplaints.length} HPD housing complaints on record.`
+      });
+    }
+
+    return flags;
+  }
+
+  function renderRedFlags(flags, daysOnMarket){
+    const parts = [];
+    if(daysOnMarket){
+      const long = Number(daysOnMarket) >= 45;
+      parts.push(`<p class="${long?'err':'muted'}" style="margin:0 0 10px;">${
+        long
+          ? `⏳ Listed for ${esc(daysOnMarket)} days — longer than a typical NYC listing (often 30–45 days). ` +
+            (flags.length ? 'That may line up with the issues below.' : "We didn't find violations or complaints that obviously explain it — could be price, unit condition, or just timing.")
+          : `Listed for ${esc(daysOnMarket)} days — within a fairly normal range.`
+      }</p>`);
+    }
+    if(!flags.length){
+      parts.push('<p class="empty">✅ No major red flags (open violations, recent bedbugs, open DOB complaints, or evictions) found in public records for this address.</p>');
+      return parts.join('');
+    }
+    parts.push('<ul style="margin:0; padding-left:22px;">' + flags.map(f => `
+      <li style="margin-bottom:10px;">
+        ${f.icon} ${f.text}
+        <a href="#${f.anchor}">Jump to details ↓</a> ·
+        <a href="${f.source}" target="_blank" rel="noopener">View source on NYC Open Data ↗</a>
+      </li>`).join('') + '</ul>');
+    return parts.join('');
+  }
+
+  // ---------- Main search flow ----------
+  const resultsEl = document.getElementById('results');
+  const searchBtn = document.getElementById('searchBtn');
+  let currentSearch = null; // snapshot of the most recent completed search, for "Save to Watchlist"
+
+  async function runSearch(){
+    const houseNumber = document.getElementById('houseNumber').value.trim();
+    const streetRaw = document.getElementById('streetName').value.trim();
+    const borough = document.getElementById('borough').value;
+    const daysOnMarket = document.getElementById('daysOnMarket').value.trim();
+
+    if(!houseNumber || !streetRaw){
+      alert('Please enter both a house number and a street name.');
+      return;
+    }
+    if(!borough){
+      alert('Please select a borough — the public datasets are borough-specific.');
+      return;
+    }
+
+    const ctx = {houseNumber, streetTokens: streetTokens(streetRaw), borough};
+    const wowUrl = `https://whoownswhat.justfix.org/en/address/${encodeURIComponent(borough)}/${encodeURIComponent(houseNumber)}/${encodeURIComponent(ctx.streetTokens.join(' '))}`;
+
+    // Live rental listings are proprietary (StreetEasy/Zillow/etc. have no open API and
+    // block scraping), so we can't pull them inline like the NYC Open Data sections.
+    // Instead we build deep links that open each site's page for THIS building, pre-filled
+    // with the address, so the user lands on the live inventory in one click.
+    const seBoroTok = {MANHATTAN:'new_york', BROOKLYN:'brooklyn', QUEENS:'queens', BRONX:'bronx', 'STATEN ISLAND':'staten-island'}[borough] || 'new_york';
+    const cityForBoro = {MANHATTAN:'New York', BROOKLYN:'Brooklyn', QUEENS:'Queens', BRONX:'Bronx', 'STATEN ISLAND':'Staten Island'}[borough] || 'New York';
+    const streetSlug = ctx.streetTokens.join(' ').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const hnSlug = houseNumber.toLowerCase().trim();
+    const addrString = `${houseNumber} ${streetRaw}, ${cityForBoro}, NY`;
+    const listingLinks = {
+      streeteasy: `https://streeteasy.com/building/${hnSlug}-${streetSlug}-${seBoroTok}`,
+      zillow: `https://www.zillow.com/homes/${encodeURIComponent(addrString)}_rb/`,
+      openigloo: `https://www.openigloo.com/listings`,
+      google: `https://www.google.com/search?q=${encodeURIComponent(addrString + ' apartments for rent')}`
+    };
+
+    searchBtn.disabled = true;
+    searchBtn.textContent = 'Searching…';
+    startFunFactTicker();
+    resultsEl.classList.add('show');
+    resultsEl.innerHTML = `
+      <!-- Apple-style hero: address, subhead, rating line, primary CTA + text link. Grade
+           details populate later once fetchDataset resolves — grade badge lives in the
+           top-links row below to keep the existing DOM contract that renderGradeBadge
+           depends on, but a hero-scale slot up here mirrors it visually. -->
+      <div class="report-hero">
+        <p class="eyebrow">Building report</p>
+        <h1 class="hero-title">${esc(houseNumber)} ${esc(streetRaw)}.</h1>
+        <p class="hero-sub">Everything the public record says about this building, in one place.</p>
+        <div class="rating-line">
+          <span>${esc(BORO_NAMES[borough]||borough)}</span>
+          <span class="dot"></span>
+          <span id="heroGradeLine">Rating loading…</span>
+          <span class="dot"></span>
+          <span>Compiled ${new Date().toLocaleDateString('en-US',{year:'numeric', month:'short', day:'numeric'})}</span>
+        </div>
+        <div class="hero-ctas">
+          <button id="heroSaveBtn" type="button">Save to Watchlist</button>
+          <button id="heroShareBtn" class="cta-text" type="button">Share this report <span class="chev">›</span></button>
+          <button id="heroScrollBtn" class="cta-text" type="button">Read the full report <span class="chev">›</span></button>
+        </div>
+      </div>
+
+      <!-- Giant-grade canvas — one big idea per screen height, populated when grade resolves -->
+      <div class="grade-canvas reveal" id="gradeCanvas" style="display:none;">
+        <p class="eyebrow">Rating</p>
+        <div class="letter-huge" id="gradeCanvasLetter">?</div>
+        <div class="score-line"><span id="gradeCanvasScore">–</span><small>/100</small></div>
+        <p class="score-blurb" id="gradeCanvasBlurb">Compiling the record from HPD, DOB, DOI, and NYC 311.</p>
+      </div>
+
+      <div class="card full">
+        <!-- Slim actions row — Print is unique (not in the hero), commute/parks chips
+             carry live data. The hero above already covers Save + Share, and the
+             giant grade canvas / hero rating line covers grade — so those old chips
+             (gradeBadgeSlot, saveWatchlistBtn, shareReportBtn) are kept hidden here
+             via CSS so the JS that populates them stays intact, but no visual
+             duplication for the reader. -->
+        <div class="top-links top-links-slim">
+          <span id="gradeBadgeSlot" hidden></span>
+          <button id="saveWatchlistBtn" class="secondary" type="button" hidden>Save to Watchlist</button>
+          <button id="shareReportBtn" class="secondary" type="button" hidden>Share</button>
+          <button id="printReportBtn" class="secondary" type="button" title="Open browser Print dialog (use 'Save as PDF' for a clean PDF)">Print / PDF</button>
+          <span id="parksLinkSlot"></span>
+          <span id="commuteChipSlot"></span>
+        </div>
+        <div class="global-year-row">
+          <label for="globalYearFilter">Show records from</label>
+          <select id="globalYearFilter">${buildGlobalYearOptionsHtml()}</select>
+          <span class="hint" style="margin:0;">— applies the same cutoff to every section below at once (Violations, Complaints, 311, Permits, etc.), instead of setting each one individually.</span>
+        </div>
+      </div>
+      <!-- External sources block — 6 links to other city + civic-tech tools that
+           complement the report. Collapsed by default so they don't compete with
+           the hero for attention; expanded when the user actually wants them. -->
+      <div class="card full external-sources">
+        <details>
+          <summary>Search this address on other sites <span class="ext-caret" aria-hidden="true">›</span></summary>
+          <div class="ext-links">
+            <a href="${wowUrl}" target="_blank" rel="noopener">Who Owns What — portfolio, rent-stab &amp; sale history ↗</a>
+            <a href="https://hpdonline.nyc.gov/hpdonline/" target="_blank" rel="noopener">HPD Online ↗</a>
+            <a href="https://a810-bisweb.nyc.gov/bisweb/bispi00.jsp" target="_blank" rel="noopener">DOB NOW / BIS ↗</a>
+            <a href="https://www.landlordwatchlist.com/everylandlord" target="_blank" rel="noopener">Public Advocate's Worst Landlord Watchlist ↗</a>
+            <a href="https://www.localize.city/" target="_blank" rel="noopener">Localize.city — permits &amp; construction ↗</a>
+            <a href="https://www.floodhelpny.org/" target="_blank" rel="noopener">FloodHelpNY — flood risk ↗</a>
+          </div>
+          <p class="hint" style="margin-top:10px;">Tip: once you know the owner's name below (see "Registered Owner / Managing Agent"), Ctrl+F for it on the Watchlist page, or search it directly on <a href="https://whoownswhat.justfix.org/en/" target="_blank" rel="noopener">Who Owns What</a> to see every building tied to them.</p>
+        </details>
+      </div>
+      <div id="worstLandlordSlot"></div>
+      <div id="rentStabSlot"></div>
+
+      <!-- New section order surfaces value-first: Red Flags summary → the full
+           records (violations, DOB complaints, other datasets) → ownership → then
+           utility/context (listing sites, transit, tax records, flood zone). Old
+           order had Current Listings above Red Flags which pushed the most
+           important information five cards down. -->
+      <div class="card full" id="sec-redflags">
+        <div class="section-title"><h2>Possible Red Flags</h2></div>
+        <div class="body">${loadingBlock('for red flags')}</div>
+      </div>
+      ${DATASETS.map(ds => {
+        // Violations + DOB Complaints get the "Case File" treatment: a doc-style
+        // head (serif title, no emoji, tracked source tag) instead of the emoji
+        // header the rest of the report still uses — see design review.
+        const isCaseFile = ds.key === 'violations' || ds.key === 'dobComplaints';
+        const cardClass = isCaseFile ? 'card case-file-card' : 'card';
+        const head = isCaseFile
+          ? `<div class="section-title cf-head"><span class="eyebrow-label">${esc(ds.agency)} source</span><h2>${esc(ds.label)}</h2></div>`
+          : `<div class="section-title"><span class="eyebrow-label">${esc(ds.agency)}</span><h2>${esc(ds.label)}</h2></div>`;
+        return `<div class="${cardClass}" id="sec-${ds.key}">${head}<div class="body">${loadingBlock(ds.label)}</div></div>`;
+      }).join('')}
+      <div class="card" id="sec-contacts">
+        <div class="section-title"><span class="eyebrow-label">HPD</span><h2>Registered Owner / Managing Agent</h2></div>
+        <div class="body"><p class="empty">Waiting for registration lookup…</p></div>
+      </div>
+      <div class="card full" id="sec-listings">
+        <div class="section-title"><h2>Current Listings for This Building</h2></div>
+        <div class="top-links" style="margin-top:0;">
+          <a href="${listingLinks.streeteasy}" target="_blank" rel="noopener">StreetEasy — this building ↗</a>
+          <a href="${listingLinks.zillow}" target="_blank" rel="noopener">Zillow — rentals here ↗</a>
+          <a href="${listingLinks.openigloo}" target="_blank" rel="noopener">OpenIgloo — browse listings ↗</a>
+          <a href="${listingLinks.google}" target="_blank" rel="noopener">All sites (Google) ↗</a>
+        </div>
+        <p class="hint" style="margin-top:10px;">These open the live listing pages for <strong>${esc(houseNumber)} ${esc(streetRaw)}</strong> in a new tab — actual availability lives on those sites (no public API exists to show it here). If StreetEasy's building link 404s, the "All sites" search will still surface every current listing.</p>
+      </div>
+      <div class="card" id="sec-transit">
+        <div class="section-title"><span class="eyebrow-label">MTA / NYPD</span><h2>Transit &amp; Safety</h2></div>
+        <div class="body">${loadingBlock('transit and safety data')}</div>
+      </div>
+      <div class="card" id="sec-exemptions">
+        <div class="section-title"><span class="eyebrow-label">DOF</span><h2>Tax Exemptions &amp; Rent Stabilization</h2></div>
+        <div class="body">${loadingBlock('tax exemption records')}</div>
+      </div>
+      <div class="card" id="sec-floodzone">
+        <div class="section-title"><span class="eyebrow-label">FEMA</span><h2>Flood Zone</h2></div>
+        <div class="body">${loadingBlock('FEMA flood zone data')}</div>
+      </div>
+      <div class="card" id="sec-wow">
+        <div class="section-title"><span class="eyebrow-label">JustFix</span><h2>Landlord Portfolio</h2></div>
+        <div class="body">${loadingBlock('landlord portfolio data')}</div>
+      </div>
+      <div class="card" id="sec-sun">
+        <div class="section-title"><span class="eyebrow-label">Astronomical</span><h2>Daylight &amp; Sun Exposure</h2></div>
+        <div class="body">${loadingBlock('daylight profile')}</div>
+      </div>
+      <div class="disclaimer">
+        Address matching against city datasets is approximate (abbreviations, hyphenated numbers, and duplicate street names can cause mismatches). Always confirm findings using the source links before relying on them.
+      </div>
+    `;
+
+    let latestRegId = null;
+    const resultsByKey = {};
+
+    // Pulled out of the Promise.all loop so a single failed dataset (rate limit,
+    // network blip) can be retried on its own via the button in errBlock, instead
+    // of forcing a full address re-search. Note: a retry only updates that one
+    // card's own display — it doesn't retroactively recompute the building grade,
+    // red flags, or anything else that already ran off the first (failed) fetch.
+    // That's an intentional scope limit, not an oversight: those all run once,
+    // synchronously, right after every dataset settles, and re-running that whole
+    // cascade from a single-section retry would risk other subtle inconsistencies
+    // for a fairly rare case (most failures are transient and the retry succeeds).
+    async function loadDatasetSection(ds){
+      const body = document.querySelector(`#sec-${ds.key} .body`);
+      body.innerHTML = loadingBlock(ds.label);
+      try{
+        const {rows, url} = await fetchDataset(ds, ctx);
+        resultsByKey[ds.key] = {rows, url};
+        if(ds.registrationIdField && !latestRegId){
+          const withReg = rows.find(r => r[ds.registrationIdField] && r[ds.registrationIdField] !== '0');
+          if(withReg) latestRegId = withReg[ds.registrationIdField];
+        }
+        const truncated = rows.length === ds.limit ? truncationWarning(ds) : '';
+        body.innerHTML = ds.render(rows) + truncated + sourceLinks(ds.landing, url);
+      }catch(e){
+        body.innerHTML = errBlock(e.message, ds.key) + `<div class="src-links"><a href="${ds.landing}" target="_blank" rel="noopener">Open dataset on NYC Open Data ↗</a></div>`;
+      }
+    }
+    // Track per-dataset promises so coord/BBL-dependent work (transit, flood,
+    // sun, exemptions, landlord portfolio) can fire the MOMENT its source
+    // dataset resolves instead of waiting for all 9 datasets to settle. In
+    // practice this shaves 15–30 seconds off perceived load time — the 311
+    // dataset is usually the slowest by an order of magnitude, and it was
+    // previously blocking flood/exemptions/portfolio/sun from starting.
+    const perKey = {};
+    DATASETS.forEach(ds => { perKey[ds.key] = loadDatasetSection(ds); });
+    const allDatasetsSettled = Promise.all(Object.values(perKey));
+
+    // Kick off coord- and BBL-dependent work in parallel with the datasets.
+    // Each fires as soon as ANY source dataset that carries the value
+    // resolves — so if violations comes back in 800ms, transit/flood/sun
+    // start immediately, even though 311 might still be running.
+    const _waitForFirst = (sources, extract) => new Promise((resolve, reject) => {
+      let done = false;
+      const check = () => {
+        if(done) return;
+        const v = extract();
+        if(v){ done = true; resolve(v); }
+      };
+      const srcPromises = sources.map(k => perKey[k]).filter(Boolean);
+      srcPromises.forEach(p => p.finally(check));
+      // Backstop: if every source dataset settles without producing a value,
+      // fall back to waiting on the FULL settled set (a dataset outside our
+      // "usual sources" list might still carry the value), then reject if
+      // that doesn't yield anything either.
+      Promise.all(srcPromises).finally(() => {
+        if(done) return;
+        allDatasetsSettled.finally(() => {
+          if(done) return;
+          const v = extract();
+          if(v){ done = true; resolve(v); }
+          else { done = true; reject(new Error('No source dataset carried the required value.')); }
+        });
+      });
+    });
+    const coordsPromise = _waitForFirst(
+      ['violations','hpdComplaints','bedbugs','threeOneOne'],
+      () => getBuildingCoords(resultsByKey)
+    );
+    const bblPromise = _waitForFirst(
+      ['violations','hpdComplaints','bedbugs','registrations'],
+      () => getBuildingBbl(resultsByKey)
+    );
+
+    // Fire coord-dependent sections the moment coords are available. Each is
+    // independent — a failure in one doesn't hold up the others.
+    coordsPromise.then(coords => {
+      const transitBody = document.querySelector('#sec-transit .body');
+      if(transitBody){
+        document.getElementById('parksLinkSlot').innerHTML =
+          `<a href="https://www.google.com/maps/search/parks/@${coords.lat},${coords.lon},15z" target="_blank" rel="noopener">Find nearby parks ↗</a>`;
+        renderCommuteChip(coords);
+        Promise.allSettled([fetchNearestSubwayStations(coords), fetchCrimeSnapshot(coords), fetchCrashSnapshot(coords)])
+          .then(([subwayResult, crimeResult, crashResult]) => {
+            transitBody.innerHTML = renderTransitSafety(coords, subwayResult, crimeResult, crashResult);
+          });
+      }
+      const floodBody = document.querySelector('#sec-floodzone .body');
+      if(floodBody){
+        fetchFloodZone(coords)
+          .then(value => { floodBody.innerHTML = renderFloodZone(coords, {status:'fulfilled', value}); })
+          .catch(reason => { floodBody.innerHTML = renderFloodZone(coords, {status:'rejected', reason}); });
+      }
+      const sunBody = document.querySelector('#sec-sun .body');
+      if(sunBody){
+        fetchSunProfile(coords)
+          .then(value => { sunBody.innerHTML = renderSunProfile(coords, {status:'fulfilled', value}); })
+          .catch(reason => { sunBody.innerHTML = renderSunProfile(coords, {status:'rejected', reason}); });
+      }
+    }).catch(() => {
+      // No coords found in any dataset — render the empty-state for each.
+      const transitBody = document.querySelector('#sec-transit .body');
+      if(transitBody) transitBody.innerHTML = renderTransitSafety(null);
+      const floodBody = document.querySelector('#sec-floodzone .body');
+      if(floodBody) floodBody.innerHTML = renderFloodZone(null);
+      const sunBody = document.querySelector('#sec-sun .body');
+      if(sunBody) sunBody.innerHTML = renderSunProfile(null);
+    });
+
+    // Fire BBL-dependent sections the moment a BBL is available.
+    bblPromise.then(bbl => {
+      const exemptionsBody = document.querySelector('#sec-exemptions .body');
+      if(exemptionsBody){
+        fetchTaxExemptions(bbl)
+          .then(value => {
+            const result = {status:'fulfilled', value};
+            exemptionsBody.innerHTML = renderTaxExemptions(bbl, result);
+            document.getElementById('rentStabSlot').innerHTML = renderRentStabBanner(bbl, result);
+          })
+          .catch(reason => { exemptionsBody.innerHTML = renderTaxExemptions(bbl, {status:'rejected', reason}); });
+      }
+      const wowBody = document.querySelector('#sec-wow .body');
+      if(wowBody){
+        fetchWowPortfolio(bbl)
+          .then(value => { wowBody.innerHTML = renderWowPortfolio(bbl, {status:'fulfilled', value}, wowUrl); })
+          .catch(reason => { wowBody.innerHTML = renderWowPortfolio(bbl, {status:'rejected', reason}, wowUrl); });
+      }
+    }).catch(() => {
+      const exemptionsBody = document.querySelector('#sec-exemptions .body');
+      if(exemptionsBody) exemptionsBody.innerHTML = renderTaxExemptions(null);
+      const wowBody = document.querySelector('#sec-wow .body');
+      if(wowBody) wowBody.innerHTML = `<p class="empty">No BBL (borough-block-lot) was found for this address, so a portfolio lookup wasn't possible. <a href="${wowUrl}" target="_blank" rel="noopener">Search JustFix directly ↗</a></p>`;
+    });
+
+    // Grade, red flags, and contacts DO need the full record — wait on all.
+    await allDatasetsSettled;
+    currentLoadDatasetSection = loadDatasetSection; // the one delegated click listener (below, bound once) reads this
+
+    // Case File year filters: on change, replace only the "dynamic" zone inside
+    // each card — the <select> itself is never destroyed, so its scroll position
+    // and focus state survive. Filtering always re-derives from the full cached
+    // row set (datasetRowsCache), never from whatever's currently on screen, so
+    // switching from "2020 onward" back to "2015 onward" correctly brings the
+    // earlier rows back rather than staying stuck with what's already filtered.
+    const violationYearFilter = document.getElementById('violationYearFilter');
+    if(violationYearFilter){
+      violationYearFilter.addEventListener('change', (e) => {
+        const selectedYear = parseInt(e.target.value);
+        if(isNaN(selectedYear)) return;
+        const allRows = datasetRowsCache['violations'] || [];
+        const filtered = allRows.filter(r => {
+          const y = getYear(r.novissueddate||r.inspectiondate);
+          return y === null || y >= selectedYear;
+        });
+        const dynamic = document.getElementById('violationsCfDynamic');
+        if(dynamic) dynamic.innerHTML = violationsCfDynamicHtml(filtered);
+      });
+    }
+    const dobYearFilter = document.getElementById('dobYearFilter');
+    if(dobYearFilter){
+      dobYearFilter.addEventListener('change', (e) => {
+        const selectedYear = parseInt(e.target.value);
+        if(isNaN(selectedYear)) return;
+        const allRows = datasetRowsCache['dobComplaints'] || [];
+        const filtered = allRows.filter(r => {
+          const y = getYear(r.date_entered);
+          return y === null || y >= selectedYear;
+        });
+        const dynamic = document.getElementById('dobCfDynamic');
+        if(dynamic) dynamic.innerHTML = dobComplaintsCfDynamicHtml(filtered);
+      });
+    }
+
+    // Mount plain-English hover tooltips once per case-file card. Listeners are
+    // delegated from the card root, so they keep working after a year-filter
+    // change swaps the table markup beneath them — no re-binding needed.
+    mountCaseFileTooltips(document.getElementById('sec-violations'));
+    mountCaseFileTooltips(document.getElementById('sec-dobComplaints'));
+
+    document.querySelector('#sec-redflags .body').innerHTML =
+      renderRedFlags(computeRedFlags(resultsByKey), daysOnMarket);
+
+    const gradeInfo = computeBuildingGrade(resultsByKey);
+    const gradeBadgeSlot = document.getElementById('gradeBadgeSlot');
+    gradeBadgeSlot.innerHTML = renderGradeBadge(gradeInfo);
+    if(gradeInfo.grade === 'A') fireConfetti(gradeBadgeSlot.querySelector('.grade-badge'));
+
+    // Apple-style hero + giant-grade canvas: populate now that gradeInfo exists.
+    // Both live above the .card full block from the initial template; they don't
+    // exist on Watchlist/Explore views, so the guards below let this code stay
+    // no-op in those contexts.
+    const heroGradeLine = document.getElementById('heroGradeLine');
+    if(heroGradeLine){
+      heroGradeLine.innerHTML = `Rating <b class="grade-${gradeInfo.grade}">${esc(gradeInfo.grade)}</b> · ${gradeInfo.score}/100`;
+    }
+    const gradeCanvas = document.getElementById('gradeCanvas');
+    if(gradeCanvas){
+      const letter = document.getElementById('gradeCanvasLetter');
+      const score = document.getElementById('gradeCanvasScore');
+      const blurb = document.getElementById('gradeCanvasBlurb');
+      letter.textContent = gradeInfo.grade;
+      letter.className = 'letter-huge grade-' + gradeInfo.grade;
+      score.textContent = gradeInfo.score;
+      // Plain-English one-liner per grade band, mirrors renderGradeBadge tone
+      const blurbs = {
+        A: 'No open violations, no evictions on file, no bedbug history.',
+        B: 'Mostly clean, but a couple signals worth reading below.',
+        C: 'Some issues on record — worth reviewing the sections below before signing.',
+        D: 'Multiple risk signals — read the full report carefully.',
+        F: 'Serious signals on record. Reconsider or verify very carefully.'
+      };
+      blurb.textContent = blurbs[gradeInfo.grade] || blurb.textContent;
+      // Inject the small 3D "grade disk" (radial-gradient shaded, drop-shadowed)
+      // beneath the giant letter. Removed and re-created on every populate so
+      // re-runs update the color/letter cleanly.
+      const existingDisk = gradeCanvas.querySelector('.grade-disk');
+      if(existingDisk) existingDisk.remove();
+      const disk = document.createElement('div');
+      disk.className = 'grade-disk grade-' + gradeInfo.grade;
+      disk.textContent = gradeInfo.grade;
+      disk.title = `${gradeInfo.grade} · ${gradeInfo.score}/100`;
+      blurb.insertAdjacentElement('afterend', disk);
+      gradeCanvas.style.display = '';
+      // trigger the fade-up reveal immediately since it's above-the-fold
+      requestAnimationFrame(() => gradeCanvas.classList.add('in'));
+    }
+    // Wire hero CTAs to the existing button behavior — clicking the hero pill or
+    // "Share" text link is identical to clicking the same button in .top-links.
+    const heroSaveBtn = document.getElementById('heroSaveBtn');
+    if(heroSaveBtn){
+      heroSaveBtn.addEventListener('click', () => document.getElementById('saveWatchlistBtn')?.click(), {once:false});
+    }
+    const heroShareBtn = document.getElementById('heroShareBtn');
+    if(heroShareBtn){
+      heroShareBtn.addEventListener('click', () => document.getElementById('shareReportBtn')?.click(), {once:false});
+    }
+    const heroScrollBtn = document.getElementById('heroScrollBtn');
+    if(heroScrollBtn){
+      heroScrollBtn.addEventListener('click', () => {
+        document.getElementById('sec-redflags')?.scrollIntoView({behavior:'smooth', block:'start'});
+      }, {once:false});
+    }
+    currentSearch = {houseNumber, street: streetRaw, borough, gradeInfo, resultsByKey};
+
+    // Transit/flood/sun/exemptions/portfolio were kicked off early (right after
+    // the datasets started loading) so they can render as soon as their source
+    // dataset resolves — no need to re-fire them here. Contacts still runs below
+    // because it depends on latestRegId, which is only known after every
+    // dataset with registrationIdField has settled.
+    const contactsBody = document.querySelector('#sec-contacts .body');
+    if(!latestRegId){
+      contactsBody.innerHTML = '<p class="empty">No HPD registration ID found for this building, so no owner/agent contact could be looked up.</p>';
+    } else {
+      contactsBody.innerHTML = loadingBlock('Registered Owner / Managing Agent');
+      try{
+        const {rows, url} = await fetchContactsForRegistration(latestRegId);
+        contactsBody.innerHTML = renderContacts(rows) + sourceLinks(CONTACTS.landing, url);
+        // Cross-reference against the Worst Landlord Watchlist. Runs after
+        // contacts load (not during initial red-flags render) because the
+        // list of contacts isn't available until this async fetch resolves.
+        const wlMatches = checkWorstLandlordMatches(rows);
+        if(wlMatches.length){
+          document.getElementById('worstLandlordSlot').innerHTML = renderWorstLandlordBanner(wlMatches);
+          // Also prepend a red-flag entry so the "Possible Red Flags" section
+          // reflects it — otherwise the two callouts read as if they might be
+          // about different things.
+          const redFlagsBody = document.querySelector('#sec-redflags .body');
+          if(redFlagsBody){
+            const primary = wlMatches.slice().sort((a,b) => a.worstLandlord.rank - b.worstLandlord.rank)[0];
+            const wlLi = `<li style="margin-bottom:10px;">🚨 <strong>Registered contact ${esc(primary.matchedName)} matches #${primary.worstLandlord.rank} on the ${WORST_LANDLORDS_YEAR} Worst Landlord Watchlist.</strong> <a href="#worstLandlordSlot">See banner ↑</a> · <a href="${WORST_LANDLORDS_URL}" target="_blank" rel="noopener">View source ↗</a></li>`;
+            const ul = redFlagsBody.querySelector('ul');
+            if(ul){
+              ul.insertAdjacentHTML('afterbegin', wlLi);
+            } else {
+              // If the red flags section was previously empty ("no major red flags"),
+              // replace its content with a new list containing just this entry.
+              redFlagsBody.innerHTML = `<ul style="margin:0; padding-left:22px;">${wlLi}</ul>`;
+            }
+          }
+        }
+      }catch(e){
+        contactsBody.innerHTML = errBlock(e.message) + `<div class="src-links"><a href="${CONTACTS.landing}" target="_blank" rel="noopener">Open dataset on NYC Open Data ↗</a></div>`;
+      }
+    }
+
+    stopFunFactTicker();
+    searchBtn.disabled = false;
+    searchBtn.textContent = 'Search public records';
+  }
+
+  // ---------- Input wiring ----------
+  const ueInput = document.getElementById('ueInput');
+  const guessBanner = document.getElementById('guessBanner');
+
+  ueInput.addEventListener('change', () => {
+    const val = ueInput.value.trim();
+    if(!val) return;
+    const guess = parseInput(val);
+    const applied = [];
+    if(guess.houseNumber){ document.getElementById('houseNumber').value = guess.houseNumber; applied.push('house number'); }
+    if(guess.street){ document.getElementById('streetName').value = guess.street; applied.push('street'); }
+    if(guess.borough){ document.getElementById('borough').value = guess.borough; applied.push('borough'); }
+    if(applied.length){
+      guessBanner.textContent = `Guessed ${applied.join(', ')} from your input — please double check it's correct before searching.`;
+      guessBanner.classList.add('show');
+    } else {
+      guessBanner.textContent = `Couldn't guess an address from that link — please fill in the fields manually.`;
+      guessBanner.classList.add('show');
+    }
+  });
+
+  searchBtn.addEventListener('click', runSearch);
+
+  // Auto-run search from URL params. Enables shareable report links —
+  // ?a=123&s=West+45+Street&b=MANHATTAN populates the form and kicks off the
+  // search on load. Ignored if the borough doesn't match a valid option, so a
+  // malformed link falls back to a normal empty landing page.
+  (function autoRunFromUrl(){
+    const p = new URLSearchParams(location.search);
+    const a = p.get('a'), s = p.get('s'), b = p.get('b');
+    if(!a || !s || !b) return;
+    const boroSelect = document.getElementById('borough');
+    const boroValid = Array.from(boroSelect.options).some(o => o.value === b);
+    if(!boroValid) return;
+    document.getElementById('houseNumber').value = a;
+    document.getElementById('streetName').value = s;
+    boroSelect.value = b;
+    // Kick off after other init has finished registering listeners.
+    setTimeout(runSearch, 0);
+  })();
+  document.getElementById('clearBtn').addEventListener('click', () => {
+    ueInput.value=''; document.getElementById('houseNumber').value='';
+    document.getElementById('streetName').value=''; document.getElementById('borough').value='';
+    document.getElementById('daysOnMarket').value='';
+    guessBanner.classList.remove('show');
+    resultsEl.classList.remove('show'); resultsEl.innerHTML='';
+  });
+  ueInput.addEventListener('keydown', e => { if(e.key==='Enter') runSearch(); });
+
+  // ---------- Stat-card drill-down: click a stat to filter the table rows below it ----------
+  function applyStatFilter(card){
+    const scope = card.dataset.scope;
+    const attr = card.dataset.attr;   // e.g. "status", "class", "category" — matches tr[data-*]
+    const value = card.dataset.value;
+    const section = document.getElementById(`sec-${scope}`);
+    if(!section) return;
+
+    section.querySelectorAll('tr.detail-row').forEach(tr => tr.remove());
+    section.querySelectorAll('tr.expandable.open').forEach(tr => tr.classList.remove('open'));
+
+    const rows = Array.from(section.querySelectorAll('table tbody tr:not(.detail-row)'));
+    let visible = rows.length;
+    if(attr){
+      visible = 0;
+      rows.forEach(tr => {
+        const match = tr.dataset[attr] === value;
+        tr.style.display = match ? '' : 'none';
+        if(match) visible++;
+      });
+    } else {
+      rows.forEach(tr => { tr.style.display = ''; });
+    }
+
+    const grid = card.closest('.summary-grid');
+    if(grid) grid.querySelectorAll('.stat.clickable').forEach(s => s.classList.remove('active'));
+    card.classList.add('active');
+
+    const details = section.querySelector('details');
+    if(details) details.open = true;
+
+    const table = section.querySelector('table');
+    let note = section.querySelector('.filter-note');
+    if(attr && table){
+      if(!note){
+        note = document.createElement('div');
+        note.className = 'filter-note';
+        table.parentNode.insertBefore(note, table);
+      }
+      const label = card.querySelector('.l').textContent;
+      note.innerHTML = `Showing ${visible} of ${rows.length} matching “${esc(label)}”.<a href="#" class="clear-filter">Clear filter ✕</a>`;
+    } else if(note){
+      note.remove();
+    }
+    if(table) table.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+
+  // Expand/collapse a DOB complaint row into a detail panel with the full record.
+  async function toggleDobDetail(row){
+    const next = row.nextElementSibling;
+    if(next && next.classList.contains('detail-row')){
+      next.remove();
+      row.classList.remove('open');
+      return;
+    }
+    row.parentNode.querySelectorAll('tr.detail-row').forEach(tr => tr.remove());
+    row.parentNode.querySelectorAll('tr.expandable.open').forEach(tr => tr.classList.remove('open'));
+
+    const r = dobComplaintRows[Number(row.dataset.idx)];
+    if(!r) return;
+    row.classList.add('open');
+    const placeholder = document.createElement('tr');
+    placeholder.className = 'detail-row';
+    placeholder.innerHTML = `<td colspan="4" class="muted">Loading complaint detail…</td>`;
+    row.after(placeholder);
+
+    const codes = await getDispositionCodes();
+    if(!row.classList.contains('open')) return; // collapsed again while loading
+    placeholder.outerHTML = dobDetailRowHtml(r, codes[r.disposition_code]);
+  }
+
+  resultsEl.addEventListener('click', e => {
+    const retryBtn = e.target.closest('[data-retry-key]');
+    if(retryBtn){
+      const ds = DATASETS.find(d => d.key === retryBtn.dataset.retryKey);
+      if(ds && currentLoadDatasetSection) currentLoadDatasetSection(ds);
+      return;
+    }
+    const saveBtn = e.target.closest('#saveWatchlistBtn');
+    if(saveBtn){
+      if(!currentSearch) return;
+      addToWatchlist(currentSearch);
+      saveBtn.textContent = '✅ Saved!';
+      saveBtn.disabled = true;
+      setTimeout(() => { saveBtn.textContent = '⭐ Save to Watchlist'; saveBtn.disabled = false; }, 1500);
+      return;
+    }
+    const shareBtn = e.target.closest('#shareReportBtn');
+    if(shareBtn){
+      if(!currentSearch) return;
+      const params = new URLSearchParams({
+        a: currentSearch.houseNumber,
+        s: currentSearch.street,
+        b: currentSearch.borough
+      });
+      const shareUrl = `${location.origin}${location.pathname}?${params}`;
+      // navigator.clipboard needs a user gesture — the click provides that.
+      // Falls back to a manual prompt on browsers where it's blocked (e.g.
+      // insecure http origins).
+      const showCopied = () => {
+        shareBtn.textContent = '✅ Copied!';
+        setTimeout(() => { shareBtn.textContent = '🔗 Share'; }, 1500);
+      };
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(shareUrl).then(showCopied).catch(() => window.prompt('Copy this shareable link:', shareUrl));
+      } else {
+        window.prompt('Copy this shareable link:', shareUrl);
+      }
+      return;
+    }
+    const printBtn = e.target.closest('#printReportBtn');
+    if(printBtn){ window.print(); return; }
+    const clearLink = e.target.closest('.clear-filter');
+    if(clearLink){
+      e.preventDefault();
+      const section = clearLink.closest('.card');
+      const totalCard = section && section.querySelector('.stat.clickable');
+      if(totalCard) applyStatFilter(totalCard);
+      return;
+    }
+    const card = e.target.closest('.stat.clickable');
+    if(card){ applyStatFilter(card); return; }
+
+    const row = e.target.closest('tr.expandable');
+    if(row) toggleDobDetail(row);
+  });
+  resultsEl.addEventListener('keydown', e => {
+    if((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('clickable')){
+      e.preventDefault();
+      applyStatFilter(e.target);
+    }
+  });
+  // Single delegated handler for every renderFilterableSection's year dropdown —
+  // rebuilds that section's stats/table from the cached full row set filtered to
+  // the chosen year, using whichever {dateField, buildOpts} it registered at
+  // render time. Re-derives from the full cache every time (never from whatever's
+  // already on screen), so flipping from "2020 onward" back to "2015 onward"
+  // correctly brings the earlier rows back.
+  resultsEl.addEventListener('change', e => {
+    if(e.target.id === 'globalYearFilter'){
+      const v = e.target.value;
+      applyGlobalYearFilter(v === '' ? null : parseInt(v));
+      return;
+    }
+    const sel = e.target.closest('select[data-year-scope]');
+    if(!sel) return;
+    const scope = sel.dataset.yearScope;
+    const rebuild = sectionRebuilders[scope];
+    if(!rebuild) return;
+    const selectedYear = parseInt(sel.value);
+    if(isNaN(selectedYear)) return;
+    const allRows = datasetRowsCache[scope] || [];
+    const filtered = allRows.filter(r => {
+      const y = getYear(r[rebuild.dateField]);
+      return y === null || y >= selectedYear;
+    });
+    const dynamic = document.getElementById(`${scope}Dynamic`);
+    if(dynamic) dynamic.innerHTML = renderSection(filtered, rebuild.buildOpts(filtered));
+  });
+
+  // ---------- Tabs ----------
+  function switchTab(tab){
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+    document.querySelectorAll('.tab-btn').forEach(b => {
+      const active = b.dataset.tab === tab;
+      b.classList.toggle('active', active);
+      b.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    if(tab === 'watchlist') renderWatchlistPanel();
+    if(tab === 'listings') renderSavedListings(); // reflect any cloud updates arrived since last time
+    if(tab === 'nearby'){
+      // If the user just ran a Check search and hopped over here, prefill the
+      // address so they don't have to retype it. Only when the input is empty —
+      // if they've already typed something in Nearby, respect that.
+      const nearbyInput = document.getElementById('nearbyInput');
+      if(nearbyInput && !nearbyInput.value.trim() && currentSearch){
+        nearbyInput.value = `${currentSearch.houseNumber} ${currentSearch.street}, ${BORO_NAMES[currentSearch.borough] || currentSearch.borough}`;
+      }
+    }
+  }
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
+  // Generic "jump to another tab" link, used inline in hint copy (e.g. Explore a
+  // Neighborhood pointing back to Check an Address) — bound once at the document
+  // level since these links can appear inside any card, not just resultsEl.
+  document.addEventListener('click', e => {
+    const link = e.target.closest('[data-tab-link]');
+    if(!link) return;
+    e.preventDefault();
+    switchTab(link.dataset.tabLink);
+  });
+
+  // ---------- Watchlist: save/compare candidate addresses across visits ----------
+  const WATCHLIST_KEY = 'nycAptWatchlist';
+  const watchlistContainer = document.getElementById('watchlistContainer');
+
+  function loadWatchlist(){
+    try{ return JSON.parse(localStorage.getItem(WATCHLIST_KEY)) || []; }
+    catch(e){ return []; }
+  }
+  function persistWatchlist(list){
+    localStorage.setItem(WATCHLIST_KEY, JSON.stringify(list));
+    const n = list.length;
+    document.getElementById('watchlistCount').textContent = n ? `(${n})` : '';
+    if(fbUser) pushToCloud(); // fbUser/pushToCloud are defined further down but in the
+                              // same scope — safe, since this only runs on user action,
+                              // long after the whole script has finished its first pass.
+  }
+  function watchlistId(houseNumber, street, borough){
+    return `${borough}|${houseNumber}|${streetTokens(street).join(' ')}`;
+  }
+  function addToWatchlist(search){
+    const rowsOf = key => (search.resultsByKey[key] && search.resultsByKey[key].rows) || [];
+    const id = watchlistId(search.houseNumber, search.street, search.borough);
+    const latestBedbug = rowsOf('bedbugs')[0];
+    const existing = loadWatchlist().find(x => x.id === id);
+    const record = {
+      id, houseNumber: search.houseNumber, street: search.street, borough: search.borough,
+      grade: search.gradeInfo.grade, score: search.gradeInfo.score,
+      openViolations: rowsOf('violations').filter(r => r.violationstatus === 'Open').length,
+      evictions: rowsOf('evictions').length,
+      bedbugs: !!(latestBedbug && Number(latestBedbug.infested_dwelling_unit_count) > 0),
+      rent: existing ? existing.rent : null, // preserve any rent the user already typed in, across a recheck
+      listingUrl: existing ? existing.listingUrl : null,
+      scraped: existing ? existing.scraped : null, // cached /api/scrape-listing result for listingUrl, or null
+      savedAt: new Date().toISOString()
+    };
+    const list = loadWatchlist();
+    const existingIdx = list.findIndex(x => x.id === id);
+    if(existingIdx === -1) list.unshift(record); else list[existingIdx] = record;
+    persistWatchlist(list);
+  }
+  function removeFromWatchlist(id){
+    persistWatchlist(loadWatchlist().filter(x => x.id !== id));
+    renderWatchlistPanel();
+  }
+  function updateWatchlistRent(id, rentValue){
+    const list = loadWatchlist();
+    const item = list.find(x => x.id === id);
+    if(!item) return;
+    const n = Number(rentValue);
+    item.rent = (rentValue === '' || isNaN(n) || n < 0) ? null : n;
+    persistWatchlist(list); // silent — no re-render, so the input keeps focus while typing
+  }
+
+  // ---------- Best-effort listing detail extraction (Watchlist "Listing" column) ----------
+  // Backed by the api/scrape-listing serverless function — see that file for the full
+  // explanation of what it does and why it has to run server-side. Reliability varies a
+  // LOT by site: verified directly before shipping this — StreetEasy, Zillow,
+  // Apartments.com, and RentHop all returned either a 403 or a JS-challenge shell with
+  // no usable data even with a realistic browser User-Agent, while OpenIgloo's pages
+  // came back with real content. This is NOT a bug when a major site fails — it's
+  // exactly the outcome flagged before building this, and the UI says so rather than
+  // implying every site works equally well.
+  function setWatchlistListingUrl(id, url){
+    const list = loadWatchlist();
+    const item = list.find(x => x.id === id);
+    if(!item) return;
+    const trimmed = (url || '').trim();
+    item.listingUrl = trimmed || null;
+    item.scraped = null; // new URL invalidates whatever was cached for the old one
+    persistWatchlist(list);
+    renderWatchlistPanel();
+    if(trimmed) fetchListingDetails(id);
+  }
+  async function fetchListingDetails(id){
+    const list = loadWatchlist();
+    const item = list.find(x => x.id === id);
+    if(!item || !item.listingUrl) return;
+    item.scraped = {loading: true};
+    persistWatchlist(list);
+    renderWatchlistPanel();
+    try{
+      const res = await fetch(`/api/scrape-listing?url=${encodeURIComponent(item.listingUrl)}`);
+      const data = await res.json();
+      const fresh = loadWatchlist();
+      const freshItem = fresh.find(x => x.id === id);
+      if(!freshItem || freshItem.listingUrl !== item.listingUrl) return; // URL changed again while this was in flight
+      freshItem.scraped = data.ok
+        ? {ok:true, title:data.title, image:data.image, price:data.price, beds:data.beds, sqft:data.sqft, source:data.source, fetchedAt:data.fetchedAt}
+        : {ok:false, error: data.error || 'Could not extract details from this listing.'};
+      // Auto-fill Monthly Rent from the extracted price, but only if the user
+      // hasn't already typed one in — a scraped number shouldn't silently
+      // overwrite a rent they entered on purpose (e.g. a negotiated figure).
+      if(data.ok && data.price && freshItem.rent == null){
+        const n = Number(String(data.price).replace(/[^0-9.]/g, ''));
+        if(!isNaN(n) && n > 0) freshItem.rent = n;
+      }
+      persistWatchlist(fresh);
+      renderWatchlistPanel();
+    }catch(e){
+      const fresh = loadWatchlist();
+      const freshItem = fresh.find(x => x.id === id);
+      if(freshItem && freshItem.listingUrl === item.listingUrl){
+        freshItem.scraped = {ok:false, error: 'Network error reaching the extraction service.'};
+        persistWatchlist(fresh);
+        renderWatchlistPanel();
+      }
+    }
+  }
+  // Comparison table so candidates can be judged side by side rather than scrolling
+  // through separate cards. Monthly rent is the one field with no public source —
+  // it's typed in here purely for the user's own comparison.
+  function renderWatchlistPanel(){
+    const list = loadWatchlist();
+    if(!list.length){
+      watchlistContainer.innerHTML = `<div class="card"><p class="empty">No saved addresses yet. Search an address in "Check an Address" and click "⭐ Save to Watchlist" to start comparing candidates.</p></div>`;
+      return;
+    }
+    // Best-in-column detection — only meaningful with 2+ saved buildings.
+    // A "best" is the objectively better value on each dimension: highest
+    // score, fewest open violations, fewest evictions, no bedbugs, cheapest
+    // rent. Ties count (all tied entries win the badge), and we skip the
+    // badge entirely on 1-item lists (there's no comparison to make).
+    const rentValues  = list.map(i => i.rent).filter(r => r != null && r > 0);
+    const cheapestRent = rentValues.length ? Math.min(...rentValues) : null;
+    const bestScore    = list.length > 1 ? Math.max(...list.map(i => i.score ?? -1)) : null;
+    const fewestViol   = list.length > 1 ? Math.min(...list.map(i => i.openViolations ?? Infinity)) : null;
+    const fewestEvict  = list.length > 1 ? Math.min(...list.map(i => i.evictions ?? Infinity)) : null;
+    const winnerBadge  = ' <span class="cmp-best" title="Best in this column across your Watchlist">★ best</span>';
+
+    const rows = list.map(item => `
+      <tr>
+        <td class="cmp-addr">${esc(item.houseNumber)} ${esc(item.street)}, ${esc(BORO_NAMES[item.borough]||item.borough)}</td>
+        <td><span class="grade-badge grade-${item.grade}"><span class="letter">${item.grade}</span></span> ${item.score}/100${bestScore != null && item.score === bestScore ? winnerBadge : ''}</td>
+        <td class="${item.openViolations>0?'status-open':'status-closed'}">${item.openViolations}${fewestViol != null && item.openViolations === fewestViol ? winnerBadge : ''}</td>
+        <td class="${item.evictions>0?'status-open':'status-closed'}">${item.evictions}${fewestEvict != null && item.evictions === fewestEvict ? winnerBadge : ''}</td>
+        <td>${item.bedbugs ? '🐛 Yes' : `✅ No${list.length > 1 ? winnerBadge : ''}`}</td>
+        <td>
+          <input type="number" class="cmp-rent" data-id="${esc(item.id)}" min="0" placeholder="$/mo" value="${item.rent != null ? item.rent : ''}">
+          ${item.rent != null && item.rent === cheapestRent && rentValues.length > 1 ? winnerBadge : ''}
+        </td>
+        <td class="cmp-listing">${renderCmpListingCell(item)}</td>
+        <td class="muted">${fmtDate(item.savedAt)}</td>
+        <td class="cmp-actions">
+          <button type="button" class="secondary recheck-btn" data-id="${esc(item.id)}" title="Recheck this address">🔄</button>
+          <button type="button" class="secondary remove-btn" data-id="${esc(item.id)}" title="Remove">🗑️</button>
+        </td>
+      </tr>`).join('');
+
+    watchlistContainer.innerHTML = `<div class="card full">
+      <div class="section-title"><h2>⭐ My Watchlist</h2><span class="badge">${list.length} saved</span></div>
+      <p class="hint">Compare candidates side by side. Add a monthly rent per address to compare cost too — it's just for your own reference, not pulled from any listing.</p>
+      <p class="hint">Paste a listing URL in the "Listing" column to pull its photo/price/beds automatically where the site allows it — Monthly Rent auto-fills from the extracted price too (only if you haven't already typed one in). This is genuinely best-effort: verified directly against each site — OpenIgloo tends to return real data, but StreetEasy, Zillow, Apartments.com, and RentHop actively block automated requests (some return a "not found" page, others a blank shell with nothing to extract), so "couldn't extract" on those is the expected, common outcome, not a bug. Never guaranteed accurate — always confirm on the actual listing page.</p>
+      <div class="cmp-table-wrap">
+        <table class="cmp-table">
+          <thead><tr><th>Address</th><th>Grade</th><th>Open violations</th><th>Evictions</th><th>Bedbugs</th><th>Monthly rent</th><th>Listing</th><th>Saved</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+
+  function renderCmpListingCell(item){
+    if(!item.listingUrl){
+      return `<button type="button" class="secondary add-listing-btn" data-id="${esc(item.id)}" style="font-size:0.78rem; padding:5px 10px;">+ Add link</button>`;
+    }
+    const s = item.scraped;
+    const removeBtn = `<button type="button" class="secondary remove-listing-btn" data-id="${esc(item.id)}" title="Remove listing link" style="padding:3px 7px; font-size:0.72rem;">✕</button>`;
+    if(!s || s.loading){
+      return `<span class="loading" style="padding:0;"><span class="spinner"></span></span> ${removeBtn}`;
+    }
+    if(!s.ok){
+      return `<span class="cmp-listing-fail" title="${esc(s.error||'')}">⚠ Couldn't extract</span>
+        <div style="margin-top:4px; display:flex; gap:4px;">
+          <a href="${esc(item.listingUrl)}" target="_blank" rel="noopener" class="secondary" style="font-size:0.72rem; padding:3px 7px; border-radius:8px; border:1px solid var(--border); text-decoration:none;">View ↗</a>
+          ${removeBtn}
+        </div>`;
+    }
+    const details = [s.price, s.beds != null ? `${s.beds} BR` : null, s.sqft != null ? `${s.sqft} ft²` : null].filter(Boolean).join(' · ');
+    return `
+      <div class="cmp-listing-card">
+        ${s.image ? `<img src="${esc(s.image)}" alt="" loading="lazy">` : ''}
+        <div class="cmp-listing-info">
+          ${details ? `<div class="cmp-listing-price">${esc(details)}</div>` : ''}
+          <a href="${esc(item.listingUrl)}" target="_blank" rel="noopener">View listing ↗</a>
+        </div>
+      </div>
+      ${removeBtn}`;
+  }
+  watchlistContainer.addEventListener('click', e => {
+    const removeBtn = e.target.closest('.remove-btn');
+    if(removeBtn){ removeFromWatchlist(removeBtn.dataset.id); return; }
+    const recheckBtn = e.target.closest('.recheck-btn');
+    if(recheckBtn){
+      const item = loadWatchlist().find(x => x.id === recheckBtn.dataset.id);
+      if(!item) return;
+      switchTab('check');
+      document.getElementById('houseNumber').value = item.houseNumber;
+      document.getElementById('streetName').value = item.street;
+      document.getElementById('borough').value = item.borough;
+      runSearch();
+      return;
+    }
+    const addListingBtn = e.target.closest('.add-listing-btn');
+    if(addListingBtn){
+      const url = window.prompt('Paste a listing URL (StreetEasy, OpenIgloo, Zillow, etc.):');
+      if(url && url.trim()) setWatchlistListingUrl(addListingBtn.dataset.id, url.trim());
+      return;
+    }
+    const removeListingBtn = e.target.closest('.remove-listing-btn');
+    if(removeListingBtn){ setWatchlistListingUrl(removeListingBtn.dataset.id, ''); return; }
+  });
+  watchlistContainer.addEventListener('change', e => {
+    const rentInput = e.target.closest('.cmp-rent');
+    if(rentInput) updateWatchlistRent(rentInput.dataset.id, rentInput.value);
+  });
+  persistWatchlist(loadWatchlist()); // paint the (n) count on load without touching stored data
+
+  // ---------- Commute anchor (stored per user, shown as a chip on every report) ----------
+  // Reuses geocodeAddress() from the What's Nearby tab. Stored in localStorage with
+  // {address, displayName, lat, lon, savedAt} — we geocode once at save time so the
+  // per-report distance render is instant (no network hop per building search).
+  const COMMUTE_KEY = 'nycAptCommuteAnchor';
+  function loadCommuteAnchor(){
+    try{ return JSON.parse(localStorage.getItem(COMMUTE_KEY)) || null; }
+    catch(e){ return null; }
+  }
+  function persistCommuteAnchor(anchor){
+    if(anchor) localStorage.setItem(COMMUTE_KEY, JSON.stringify(anchor));
+    else localStorage.removeItem(COMMUTE_KEY);
+    renderCommuteCurrent();
+    if(fbUser) pushToCloud();
+  }
+  function renderCommuteCurrent(){
+    const el = document.getElementById('commuteCurrent');
+    if(!el) return;
+    const anchor = loadCommuteAnchor();
+    if(anchor){
+      el.classList.add('set');
+      el.innerHTML = `
+        <div class="cc-label">Currently saved</div>
+        <div class="cc-addr">${esc(anchor.displayName || anchor.address)}</div>
+      `;
+    } else {
+      el.classList.remove('set');
+      el.innerHTML = '';
+    }
+  }
+  async function saveCommuteAnchor(){
+    const input = document.getElementById('commuteInput');
+    const status = document.getElementById('commuteStatus');
+    const raw = input.value.trim();
+    if(!raw){ status.innerHTML = '<span class="err">Enter an address first.</span>'; return; }
+    status.innerHTML = '<span class="loading"><span class="spinner"></span> Looking up address…</span>';
+    try{
+      // Nudge the geocoder toward an NYC-area match when the user typed something
+      // ambiguous like a bare place name ("Times Square") without a state.
+      const q = /new york|nyc|manhattan|brooklyn|queens|bronx|staten/i.test(raw) ? raw : `${raw}, New York, NY`;
+      const hit = await geocodeAddress(q);
+      persistCommuteAnchor({
+        address: raw,
+        displayName: hit.displayName,
+        lat: hit.lat,
+        lon: hit.lon,
+        savedAt: new Date().toISOString()
+      });
+      input.value = '';
+      status.innerHTML = `<span style="color:var(--good);">✅ Saved: ${esc(hit.displayName.split(',').slice(0,3).join(','))}</span>`;
+    }catch(e){
+      status.innerHTML = `<span class="err">⚠ ${esc(e.message || 'Address not found')}. Try adding the borough or ZIP.</span>`;
+    }
+  }
+  function renderCommuteChip(buildingCoords){
+    const slot = document.getElementById('commuteChipSlot');
+    if(!slot) return;
+    slot.innerHTML = '';
+    const anchor = loadCommuteAnchor();
+    if(!anchor || !buildingCoords) return;
+    const miles = haversineMiles(buildingCoords.lat, buildingCoords.lon, anchor.lat, anchor.lon);
+    const dirUrl = `https://www.google.com/maps/dir/?api=1` +
+      `&origin=${buildingCoords.lat},${buildingCoords.lon}` +
+      `&destination=${anchor.lat},${anchor.lon}` +
+      `&travelmode=transit`;
+    const label = anchor.displayName ? anchor.displayName.split(',')[0] : anchor.address;
+    slot.innerHTML = `<a class="commute-chip" href="${esc(dirUrl)}" target="_blank" rel="noopener" title="Google Maps transit directions to ${esc(label)}"><span class="cc-miles">${miles.toFixed(1)} mi</span> to ${esc(label)} ↗</a>`;
+  }
+  document.getElementById('commuteSaveBtn').addEventListener('click', saveCommuteAnchor);
+  document.getElementById('commuteInput').addEventListener('keydown', e => { if(e.key==='Enter') saveCommuteAnchor(); });
+  document.getElementById('commuteClearBtn').addEventListener('click', () => {
+    persistCommuteAnchor(null);
+    document.getElementById('commuteInput').value = '';
+    document.getElementById('commuteStatus').innerHTML = '';
+  });
+  renderCommuteCurrent();
+
+  // ---------- Renter Tools: affordability calculator, lease scanner, checklist, rights ----------
+  function fmtMoney(n){
+    return '$' + Math.round(n).toLocaleString('en-US');
+  }
+
+  const calcRunBtn = document.getElementById('calcRunBtn');
+  const calcResultEl = document.getElementById('calcResult');
+  calcRunBtn.addEventListener('click', () => {
+    // Math.max(0, ...) on every one of these: the <input min="0"> attribute only
+    // blocks the spinner arrows, not a manually typed "-500" — without the guard
+    // a negative income would flip the affordability ratio's sign and show
+    // "Comfortable" for what's actually nonsense input.
+    const rent = Math.max(0, Number(document.getElementById('calcRent').value) || 0);
+    const income = Math.max(0, Number(document.getElementById('calcIncome').value) || 0);
+    const deposit = document.getElementById('calcDeposit').value === ''
+      ? rent // NY law: security deposit can't exceed one month's rent, so default to a sane guess
+      : Math.max(0, Number(document.getElementById('calcDeposit').value) || 0);
+    const feeType = document.getElementById('calcBrokerFeeType').value;
+    const feeValue = Math.max(0, Number(document.getElementById('calcBrokerFeeValue').value) || 0);
+    const applicants = Math.max(1, Number(document.getElementById('calcAppFee').value) || 1);
+
+    if(rent <= 0){
+      calcResultEl.innerHTML = `<p class="err">Enter a monthly rent to calculate.</p>`;
+      return;
+    }
+
+    let brokerFee = 0;
+    if(feeType === 'percent') brokerFee = rent * 12 * (feeValue / 100);
+    else if(feeType === 'flat') brokerFee = feeValue;
+
+    const appFeeCapPerPerson = 20; // NYS caps most rental application fees at $20
+    const appFees = appFeeCapPerPerson * applicants;
+    const firstMonth = rent;
+    const total = firstMonth + deposit + brokerFee + appFees;
+
+    const flags = [];
+    if(deposit > rent){
+      flags.push(`This deposit (${fmtMoney(deposit)}) is more than one month's rent (${fmtMoney(rent)}). Under NY's Housing Stability and Tenant Protection Act of 2019, security deposits statewide are capped at one month's rent — worth confirming with the landlord.`);
+    }
+
+    let ratioHtml = '';
+    if(income > 0){
+      const ratio = (rent * 12) / income;
+      const pct = Math.round(ratio * 100);
+      const tone = ratio <= 0.30 ? 'good' : ratio <= 0.40 ? 'warn' : 'bad';
+      const label = ratio <= 0.30 ? 'Comfortable' : ratio <= 0.40 ? 'Tight' : 'Stretched';
+      ratioHtml = `<div class="calc-ratio ${tone}">${label} — rent is ${pct}% of gross income</div>
+        <p class="hint" style="margin-top:8px;">The common guideline is to keep rent at or under 30% of gross income. Many NYC landlords also require annual income of 40× the monthly rent (or a guarantor at ~80×) to approve an application — check the listing.</p>`;
+    }
+
+    calcResultEl.innerHTML = `
+      <div class="calc-total">
+        <div class="n">${fmtMoney(total)}</div>
+        <div class="l">Estimated total to move in</div>
+      </div>
+      <div class="calc-line"><span>First month's rent</span><span class="amt">${fmtMoney(firstMonth)}</span></div>
+      <div class="calc-line"><span>Security deposit</span><span class="amt">${fmtMoney(deposit)}</span></div>
+      <div class="calc-line"><span>Broker fee</span><span class="amt">${fmtMoney(brokerFee)}</span></div>
+      <div class="calc-line"><span>Application fee${applicants>1?` (${applicants} applicants × $${appFeeCapPerPerson})`:''}</span><span class="amt">${fmtMoney(appFees)}</span></div>
+      ${ratioHtml}
+      ${flags.map(f => `<div class="calc-flag"><span class="ico">⚠️</span><span>${esc(f)}</span></div>`).join('')}
+      <p class="hint" style="margin-top:12px;">Estimate only — actual move-in costs vary by building. Application fees above $20/applicant, deposits above one month's rent, or broker fees charged to you for a listing the landlord's own broker posted are all worth double-checking against current NYC/NY State tenant law.</p>
+    `;
+  });
+
+  const leaseScanBtn = document.getElementById('leaseScanBtn');
+  const leaseClearBtn = document.getElementById('leaseClearBtn');
+  const leaseTextEl = document.getElementById('leaseText');
+  const leaseResultEl = document.getElementById('leaseResult');
+
+  // [pattern(s) to match, severity, title, explanation] — keyword-matched, not exhaustive.
+  // Severity is "worth asking about" (medium) vs. "worth verifying against the law before
+  // signing" (high) — never a claim that the clause is definitely illegal or unenforceable.
+  const LEASE_FLAG_PATTERNS = [
+    { test:/non-?refundable/i, severity:'high', title:'"Non-refundable" fee or deposit',
+      explain:'Security deposits in NY must be refundable (minus lawful deductions) and returned within 14 days of move-out with an itemized list of any deductions. A fee labeled "non-refundable" may be an attempt to relabel part of the deposit — worth clarifying what this charge actually is.' },
+    { test:/waive[s]?\s+(the\s+)?(right|claim)/i, severity:'high', title:'Tenant "waives" a right',
+      explain:'Many tenant protections (habitability, retaliation protection, etc.) can\'t be legally waived by lease language, regardless of what the lease says. Worth confirming which right this refers to.' },
+    { test:/as-?is\s+condition|accepts?\s+the\s+(apartment|unit|premises)\s+as-?is/i, severity:'medium', title:'"As-is" condition clause',
+      explain:'Even with an "as-is" clause, landlords are still legally required to maintain a habitable apartment (the "warranty of habitability") — heat, hot water, working locks, no serious pest or safety issues.' },
+    { test:/change\s+the\s+locks|remove\s+(the\s+)?tenant.{0,20}belongings|self-?help\s+eviction/i, severity:'high', title:'Landlord may change locks / remove belongings',
+      explain:'"Self-help" evictions — changing locks, removing belongings, or shutting off utilities to force a tenant out without a court order — are illegal in NY regardless of lease terms. Evictions must go through housing court.' },
+    { test:/credit\s+(check|report)\s+fee|application\s+fee/i, severity:'medium', title:'Application / credit check fee',
+      explain:'NY State caps most rental application fees (including credit/background checks) at $20 per applicant, or the landlord\'s actual cost if lower. Worth checking the amount being charged.' },
+    { test:/no\s+pets?\s+(under\s+any\s+circumstances|whatsoever|permitted)/i, severity:'medium', title:'Absolute no-pets clause',
+      explain:'A blanket no-pets clause generally doesn\'t override separate legal requirements to accommodate service animals or emotional support animals under fair housing law.' },
+    { test:/automatically?\s+renew|evergreen\s+clause/i, severity:'medium', title:'Automatic lease renewal',
+      explain:'Check the notice window required to opt out before it renews — missing a short window can lock you in for another term.' },
+    { test:/sublet(ting)?\s+(is\s+)?(strictly\s+)?prohibited|no\s+subletting\s+under\s+any/i, severity:'medium', title:'Outright sublet ban',
+      explain:'NY Real Property Law gives tenants in buildings with 4+ units some statutory right to request permission to sublet, subject to the landlord\'s reasonable consent — an absolute ban may not be fully enforceable.' },
+    { test:/tenant\s+(is\s+)?responsible\s+for\s+all\s+repairs|no\s+repairs?\s+by\s+(the\s+)?landlord/i, severity:'high', title:'Tenant responsible for all repairs',
+      explain:'The warranty of habitability generally can\'t be shifted entirely onto the tenant — landlords remain responsible for keeping the unit livable regardless of lease language assigning "all" repairs to the tenant.' },
+    { test:/waives?\s+(the\s+)?right\s+to\s+a\s+jury\s+trial/i, severity:'medium', title:'Waives right to a jury trial',
+      explain:'Common in NYC leases and generally enforceable, but worth knowing it\'s there — it affects how a future dispute with the landlord would be resolved.' },
+    { test:/joint\s+and\s+several(ly)?\s+liab/i, severity:'medium', title:'Joint and several liability',
+      explain:'If you have roommates, this typically means each of you can be held responsible for the full rent if another roommate doesn\'t pay — not illegal, but worth knowing before signing with roommates.' },
+    { test:/attorney.{0,15}fees?.{0,40}(landlord|owner)/i, severity:'medium', title:'One-sided attorney fees clause',
+      explain:'If the lease lets the landlord recover attorney fees in a dispute but doesn\'t give the tenant the same right, that asymmetry is worth noting — some NYC leases are required to make this reciprocal.' }
+  ];
+
+  function scanLease(text){
+    const flags = [];
+    LEASE_FLAG_PATTERNS.forEach(p => {
+      const match = text.match(p.test);
+      if(match){
+        const idx = match.index;
+        const start = Math.max(0, idx - 60);
+        const end = Math.min(text.length, idx + match[0].length + 60);
+        const quote = (start>0?'…':'') + text.slice(start, end).trim().replace(/\s+/g,' ') + (end<text.length?'…':'');
+        flags.push({...p, quote});
+      }
+    });
+    return flags;
+  }
+
+  leaseScanBtn.addEventListener('click', () => {
+    const text = leaseTextEl.value || '';
+    if(!text.trim()){
+      leaseResultEl.innerHTML = `<p class="err">Paste some lease text first.</p>`;
+      return;
+    }
+    const flags = scanLease(text);
+    if(!flags.length){
+      leaseResultEl.innerHTML = `<p class="empty">No patterns from our checklist matched. This isn't a clean bill of health — the scanner only catches known patterns — but nothing obvious jumped out.</p>`;
+      return;
+    }
+    const high = flags.filter(f=>f.severity==='high').length;
+    leaseResultEl.innerHTML = `
+      <p class="hint" style="margin-bottom:10px;">${flags.length} clause${flags.length===1?'':'s'} worth a closer look${high?`, including ${high} worth verifying against current law before you sign`:''}.</p>
+      ${flags.map(f => `
+        <div class="lease-flag ${f.severity}">
+          <div class="lf-title"><span class="lf-sev">${f.severity === 'high' ? 'Verify before signing' : 'Worth asking about'}</span> ${esc(f.title)}</div>
+          <div class="lf-body">${esc(f.explain)}</div>
+          <span class="lf-quote">${esc(f.quote)}</span>
+        </div>`).join('')}
+    `;
+  });
+  leaseClearBtn.addEventListener('click', () => {
+    leaseTextEl.value = '';
+    leaseResultEl.innerHTML = '';
+  });
+
+  // ---------- Document checklist (persists checked state locally) ----------
+  const DOC_CHECKLIST_ITEMS = [
+    {id:'id', title:'Photo ID', note:'Driver\'s license, state ID, or passport for every adult applicant.'},
+    {id:'income', title:'Proof of income', note:'2–3 recent pay stubs, an offer letter, or 2 years of tax returns if self-employed.'},
+    {id:'employer', title:'Employer verification letter', note:'Confirms your position, salary, and start date — some buildings require this in addition to pay stubs.'},
+    {id:'bank', title:'Bank statements', note:'Usually the last 2–3 months, especially if income is variable or you\'re self-employed.'},
+    {id:'credit', title:'Credit report authorization', note:'Landlords typically run this themselves — the fee is capped at $20/applicant in NY. Some buildings accept a report you already have.'},
+    {id:'reference', title:'Previous landlord reference', note:'Name and contact info, or a reference letter if you have one.'},
+    {id:'guarantor', title:'Guarantor documents (if needed)', note:'If your income doesn\'t meet the building\'s requirement (commonly ~40× monthly rent), a guarantor\'s ID + proof of income (commonly ~80×) may be required.'},
+    {id:'funds', title:'Funds ready for move-in', note:'First month\'s rent, security deposit (legally capped at one month\'s rent), and any broker fee — see the calculator above.'},
+    {id:'appfee', title:'Application fee', note:'Bring a card or check — capped at $20 per applicant under NY law.'}
+  ];
+  const CHECKLIST_STATE_KEY = 'nycAptChecklistState';
+  function loadChecklistState(){
+    try{ return JSON.parse(localStorage.getItem(CHECKLIST_STATE_KEY)) || {}; }
+    catch(e){ return {}; }
+  }
+  function renderChecklist(){
+    const state = loadChecklistState();
+    const list = document.getElementById('docChecklist');
+    list.innerHTML = DOC_CHECKLIST_ITEMS.map(item => `
+      <li class="${state[item.id] ? 'checked' : ''}" data-id="${item.id}">
+        <input type="checkbox" ${state[item.id] ? 'checked' : ''}>
+        <div>
+          <div class="ci-title">${esc(item.title)}</div>
+          <div class="ci-note">${esc(item.note)}</div>
+        </div>
+      </li>`).join('');
+  }
+  document.getElementById('docChecklist').addEventListener('change', e => {
+    const li = e.target.closest('li[data-id]');
+    if(!li) return;
+    const state = loadChecklistState();
+    state[li.dataset.id] = e.target.checked;
+    localStorage.setItem(CHECKLIST_STATE_KEY, JSON.stringify(state));
+    li.classList.toggle('checked', e.target.checked);
+    if(fbUser) pushToCloud();
+  });
+  renderChecklist();
+
+  // ---------- Know Your Rights ----------
+  const RIGHTS_ITEMS = [
+    {title:'Warranty of habitability', body:'Landlords must keep the apartment livable — working heat (Oct 1–May 31), hot water year-round, no serious pest infestations, working smoke/CO detectors — regardless of what the lease says, including "as-is" language.'},
+    {title:'Security deposit rules', body:'Capped at one month\'s rent statewide since 2019. Must be returned within 14 days of move-out, with an itemized list of any deductions if the landlord keeps part of it.'},
+    {title:'Application fees', body:'Capped at $20 per applicant (or the landlord\'s actual cost, if lower) for a credit or background check.'},
+    {title:'No illegal lockouts', body:'A landlord can\'t change your locks, remove your belongings, or shut off utilities to force you out — even if you\'re behind on rent. Eviction has to go through housing court.'},
+    {title:'Bedbug disclosure', body:'NYC building owners must file an annual bedbug history report and disclose the building\'s infestation history to prospective tenants — this app\'s Bedbug Filings section pulls that same public data.'},
+    {title:'Source-of-income & discrimination protections', body:'NYC Human Rights Law bars housing discrimination based on source of income (including housing vouchers), and federal Fair Housing Act protections apply on top of that.'},
+    {title:'Free tenant help', raw:true, body:`
+      <a href="https://www.metcouncilonhousing.org/" target="_blank" rel="noopener">Met Council on Housing</a> — tenant rights hotline<br>
+      <a href="https://www.courts.state.ny.us/courts/nyc/housing/" target="_blank" rel="noopener">NYC Housing Court</a> resources<br>
+      <a href="https://www.legalaidnyc.org/" target="_blank" rel="noopener">The Legal Aid Society</a> — free legal help for eligible tenants<br>
+      <a href="https://hcr.ny.gov/tenants-rights-guide" target="_blank" rel="noopener">NYS Homes & Community Renewal — Tenants' Rights Guide</a>
+    `}
+  ];
+  document.getElementById('rightsAccordion').innerHTML = RIGHTS_ITEMS.map(r => `
+    <details class="rights-item">
+      <summary>${esc(r.title)}</summary>
+      <div class="ri-body">${r.raw ? r.body : esc(r.body)}</div>
+    </details>`).join('');
+
+  // ---------- Find Listings: multi-site deep-link search + saved listings ----------
+  // We can't fetch listings inline (StreetEasy/OpenIgloo/Zillow all block automated
+  // access and none expose a public rental-search API). What we CAN do is construct
+  // each site's URL with the user's filters pre-applied, then open the site's own
+  // search page for them. URL formats vary by site — some accept every filter, others
+  // only accept location and beds — so the summary card above the links spells out
+  // which filters got applied, and the hint below reminds the user to adjust on-site
+  // if a page loads unfiltered.
+
+  const seBoroSlug = {MANHATTAN:'manhattan', BROOKLYN:'brooklyn', QUEENS:'queens', BRONX:'bronx', 'STATEN ISLAND':'staten-island'};
+  const acBoroSlug = {MANHATTAN:'new-york-ny', BROOKLYN:'brooklyn-ny', QUEENS:'queens-ny', BRONX:'bronx-ny', 'STATEN ISLAND':'staten-island-ny'};
+  const rhBoroSlug = {MANHATTAN:'nyc', BROOKLYN:'brooklyn', QUEENS:'queens', BRONX:'bronx', 'STATEN ISLAND':'staten-island'};
+
+  // Curated neighborhood list per borough — the names renters actually use, not
+  // NYC Planning's NTA names (things like "West Central Queens" don't map to how
+  // people search). Alphabetical within each borough. When the user picks "All NYC"
+  // (borough=""), the dropdown flattens to all neighborhoods labeled by borough.
+  const NEIGHBORHOODS_BY_BOROUGH = {
+    MANHATTAN: [
+      'Battery Park City','Central Harlem','Chelsea','Chinatown','East Harlem','East Village',
+      'Financial District','Flatiron','Gramercy','Greenwich Village','Hamilton Heights',
+      'Harlem','Hell’s Kitchen','Inwood','Kips Bay','Lincoln Square','Little Italy',
+      'Lower East Side','Marble Hill','Midtown East','Midtown West','Morningside Heights',
+      'Murray Hill','NoHo','Nolita','Roosevelt Island','SoHo','Stuyvesant Town','Sugar Hill',
+      'Theater District','Times Square','Tribeca','Two Bridges','Upper East Side','Upper West Side',
+      'Washington Heights','West Harlem','West Village','Yorkville'
+    ],
+    BROOKLYN: [
+      'Bay Ridge','Bedford-Stuyvesant','Bensonhurst','Bergen Beach','Boerum Hill','Borough Park',
+      'Brighton Beach','Brooklyn Heights','Brownsville','Bushwick','Canarsie','Carroll Gardens',
+      'Clinton Hill','Cobble Hill','Coney Island','Crown Heights','DUMBO','Ditmas Park','Downtown Brooklyn',
+      'Dyker Heights','East Flatbush','East New York','East Williamsburg','Flatbush','Flatlands',
+      'Fort Greene','Gowanus','Gravesend','Greenpoint','Kensington','Manhattan Beach','Marine Park',
+      'Midwood','Mill Basin','Park Slope','Prospect Heights','Prospect Lefferts Gardens','Red Hook',
+      'Sea Gate','Sheepshead Bay','Sunset Park','Vinegar Hill','Williamsburg','Windsor Terrace'
+    ],
+    QUEENS: [
+      'Astoria','Bay Terrace','Bayside','Broad Channel','College Point','Corona','Douglaston',
+      'Elmhurst','Far Rockaway','Flushing','Forest Hills','Fresh Meadows','Glendale','Howard Beach',
+      'Jackson Heights','Jamaica','Kew Gardens','Kew Gardens Hills','Little Neck','Long Island City',
+      'Maspeth','Middle Village','Ozone Park','Rego Park','Richmond Hill','Ridgewood','Rockaway Beach',
+      'Sunnyside','Whitestone','Woodhaven','Woodside'
+    ],
+    BRONX: [
+      'Baychester','Bedford Park','Belmont','Castle Hill','Clason Point','Concourse','Co-op City',
+      'Country Club','Eastchester','Fordham','Foxhurst','Highbridge','Hunts Point','Kingsbridge',
+      'Kingsbridge Heights','Longwood','Melrose','Morris Heights','Morris Park','Morrisania',
+      'Mott Haven','Norwood','Parkchester','Pelham Bay','Port Morris','Riverdale','Soundview',
+      'Spuyten Duyvil','Throgs Neck','Tremont','University Heights','Van Nest','Wakefield','Woodlawn'
+    ],
+    'STATEN ISLAND': [
+      'Annadale','Arden Heights','Bulls Head','Charleston','Dongan Hills','Eltingville','Great Kills',
+      'Grymes Hill','Huguenot','Livingston','Mariners Harbor','New Brighton','New Dorp','New Springville',
+      'Oakwood','Port Richmond','Prince’s Bay','Rosebank','St. George','Stapleton','Todt Hill',
+      'Tompkinsville','Tottenville','West Brighton','Willowbrook'
+    ]
+  };
+
+  // Populates #lsLocationPanel's checkboxes based on the currently-selected
+  // borough. When no borough is picked, flattens to every neighborhood with its
+  // borough suffix so "Astoria — Queens" is still one selectable item in the
+  // All-NYC view. Checkbox items (not a native <select multiple>) so mobile gets
+  // a real tap-to-toggle gesture and the current picks stay visible as chips
+  // rather than disappearing once the dropdown closes.
+  function populateNeighborhoodDropdown(){
+    const panel = document.getElementById('lsLocationPanel');
+    if(!panel) return;
+    const boro = document.getElementById('lsBorough').value;
+    const prevChecked = new Set(Array.from(panel.querySelectorAll('input:checked')).map(i => i.value));
+    let itemsHtml = '';
+    if(boro && NEIGHBORHOODS_BY_BOROUGH[boro]){
+      itemsHtml += NEIGHBORHOODS_BY_BOROUGH[boro]
+        .map(n => `<label><input type="checkbox" value="${esc(n)}"> ${esc(n)}</label>`).join('');
+    } else {
+      // All NYC — flatten with borough suffix so identical names in different
+      // boroughs (rare but happens) don't collide as duplicate items.
+      Object.entries(NEIGHBORHOODS_BY_BOROUGH).forEach(([boroCode, list]) => {
+        const boroLabel = BORO_NAMES[boroCode];
+        list.forEach(n => {
+          itemsHtml += `<label><input type="checkbox" value="${esc(n)}" data-boro="${esc(boroCode)}"> ${esc(n)} — ${esc(boroLabel)}</label>`;
+        });
+      });
+    }
+    panel.innerHTML = itemsHtml;
+    // Re-check whichever previously-chosen neighborhoods are still valid options.
+    panel.querySelectorAll('input').forEach(i => { if(prevChecked.has(i.value)) i.checked = true; });
+    renderLocationChips();
+  }
+
+  function selectedNeighborhoodInputs(){
+    return Array.from(document.querySelectorAll('#lsLocationPanel input:checked'));
+  }
+
+  // Chips mirror the panel's current checked state and the dropdown button's
+  // label, so "what's currently picked" stays visible even with the panel closed.
+  function renderLocationChips(){
+    const chipsEl = document.getElementById('lsLocationChips');
+    const btn = document.getElementById('lsLocationBtn');
+    if(!chipsEl || !btn) return;
+    const chosen = selectedNeighborhoodInputs();
+    chipsEl.innerHTML = chosen.map(i =>
+      `<span class="ls-location-chip">${esc(i.value)}<button type="button" data-remove="${esc(i.value)}" aria-label="Remove ${esc(i.value)}">×</button></span>`
+    ).join('');
+    btn.textContent = chosen.length === 0 ? 'Any (whole borough)'
+      : chosen.length === 1 ? chosen[0].value
+      : `${chosen.length} neighborhoods selected`;
+  }
+
+  const lsLocationBtn = document.getElementById('lsLocationBtn');
+  const lsLocationPanel = document.getElementById('lsLocationPanel');
+  function closeLsLocationPanel(){
+    lsLocationPanel.hidden = true;
+    lsLocationBtn.setAttribute('aria-expanded', 'false');
+  }
+  lsLocationBtn.addEventListener('click', () => {
+    const opening = lsLocationPanel.hidden;
+    lsLocationPanel.hidden = !opening;
+    lsLocationBtn.setAttribute('aria-expanded', String(opening));
+  });
+  lsLocationPanel.addEventListener('change', renderLocationChips);
+  document.addEventListener('click', e => {
+    if(!lsLocationPanel.hidden && !e.target.closest('.ms-dropdown')) closeLsLocationPanel();
+  });
+  document.getElementById('lsLocationChips').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-remove]');
+    if(!btn) return;
+    const input = document.querySelector(`#lsLocationPanel input[value="${CSS.escape(btn.dataset.remove)}"]`);
+    if(input) input.checked = false;
+    renderLocationChips();
+  });
+
+  function slugifyLoc(s){
+    return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  }
+
+  // Human-readable filter labels, used in the per-site "Set on-site: X, Y" hints
+  const FILTER_LABELS = {
+    beds: 'bedrooms', baths: 'bathrooms', price: 'price',
+    pets: 'pets', sort: 'sort order', listedWithin: 'listing date'
+  };
+  function activeFilters(f){
+    const out = [];
+    if(f.beds !== '' && f.beds != null) out.push('beds');
+    if(f.baths) out.push('baths');
+    if(f.minRent || f.maxRent) out.push('price');
+    if(f.pets) out.push('pets');
+    if(f.sort && f.sort !== 'default') out.push('sort');
+    if(f.listedWithin && Number(f.listedWithin) > 0) out.push('listedWithin');
+    return out;
+  }
+
+  // Each URL builder returns {url, encoded: string[]} — encoded lists the filter keys
+  // we actually put into the URL. Anything active on the form but NOT in `encoded` is
+  // shown to the user as "Set on-site: ..." next to that site's link, so they know
+  // exactly what to adjust after clicking through. This prevents the previous bug
+  // where the summary claimed a filter was applied when the site had silently
+  // stripped it out of the URL.
+
+  // StreetEasy — verified live (Aug 2026 test): the site accepts price:min-max and
+  // beds:N as pipe-separated path segments, and sort_by as a QUERY PARAM with
+  // UPPERCASE values (NEWEST / LEAST_EXPENSIVE / MOST_EXPENSIVE). Prior versions of
+  // this code used sort_by:listed_desc as a path segment, plus dogs_allowed:1 /
+  // cats_allowed:1 / days_on_market:N — all silently stripped by StreetEasy on load
+  // (verified by watching the site rewrite the URL). We don't pass what we can't
+  // confirm: a wrong filter is worse than an absent one because the user assumes it
+  // was applied.
+  function buildStreetEasyUrl(f){
+    let loc;
+    if(f.location) loc = slugifyLoc(f.location);
+    else if(f.borough) loc = seBoroSlug[f.borough] || 'nyc';
+    else loc = 'nyc';
+    const encoded = [];
+    const path = [];
+    if(f.minRent || f.maxRent){
+      path.push(`price:${f.minRent||''}-${f.maxRent||''}`);
+      encoded.push('price');
+    }
+    if(f.beds !== '' && f.beds != null){
+      path.push(`beds:${f.beds}`);
+      encoded.push('beds');
+    }
+    const pathStr = path.length ? '/' + path.join('%7C') : '';
+    const query = new URLSearchParams();
+    if(f.sort === 'newest'){ query.set('sort_by', 'NEWEST'); encoded.push('sort'); }
+    else if(f.sort === 'price-asc'){ query.set('sort_by', 'LEAST_EXPENSIVE'); encoded.push('sort'); }
+    else if(f.sort === 'price-desc'){ query.set('sort_by', 'MOST_EXPENSIVE'); encoded.push('sort'); }
+    const queryStr = query.toString() ? '?' + query.toString() : '';
+    return {url: `https://streeteasy.com/for-rent/${loc}${pathStr}${queryStr}`, encoded};
+  }
+
+  // Zillow — their URL uses base64-encoded searchQueryState for filters, which we
+  // can't reliably reconstruct client-side. We pass location only and let the user
+  // adjust filters on their site.
+  function buildZillowUrl(f){
+    let loc;
+    if(f.borough && f.location) loc = `${slugifyLoc(f.location)}-${slugifyLoc(BORO_NAMES[f.borough])}-ny`;
+    else if(f.borough) loc = `${slugifyLoc(BORO_NAMES[f.borough])}-ny`;
+    else if(f.location) loc = `${slugifyLoc(f.location)}-new-york-ny`;
+    else loc = 'new-york-ny';
+    return {url: `https://www.zillow.com/${loc}/rentals/`, encoded: []};
+  }
+
+  // OpenIgloo — URL filter surface is minimal. We pass location as a search query
+  // and let the user filter on their site.
+  function buildOpenIglooUrl(f){
+    const params = new URLSearchParams();
+    if(f.location) params.set('search', f.location);
+    else if(f.borough) params.set('search', BORO_NAMES[f.borough]);
+    const q = params.toString();
+    return {url: `https://www.openigloo.com/listings${q ? '?' + q : ''}`, encoded: []};
+  }
+
+  // Apartments.com — path-segment style filters. Format is fairly stable; we pass
+  // location + beds + price + pets. Bedrooms/price haven't been re-verified this
+  // session — flagging as "attempted" not "verified" via the encoded list.
+  function buildApartmentsComUrl(f){
+    const loc = f.borough ? acBoroSlug[f.borough] : 'new-york-ny';
+    const segments = [loc];
+    const encoded = [];
+    if(f.beds !== '' && f.beds != null){
+      if(f.beds === '0') segments.push('studios');
+      else segments.push(`${f.beds}-bedrooms`);
+      encoded.push('beds');
+    }
+    if(f.minRent || f.maxRent){
+      segments.push(`${f.minRent||0}-to-${f.maxRent||''}`);
+      encoded.push('price');
+    }
+    if(f.pets){ segments.push('pet-friendly'); encoded.push('pets'); }
+    return {url: `https://www.apartments.com/${segments.join('/')}/`, encoded};
+  }
+
+  function buildPadMapperUrl(f){
+    const loc = f.borough === 'BROOKLYN' ? 'brooklyn-ny'
+               : f.borough === 'QUEENS' ? 'queens-ny'
+               : f.borough === 'BRONX' ? 'bronx-ny'
+               : f.borough === 'STATEN ISLAND' ? 'staten-island-ny'
+               : 'new-york-ny';
+    const segments = ['apartments', loc];
+    const encoded = [];
+    if(f.beds !== '' && f.beds != null){
+      if(f.beds === '0') segments.push('studio');
+      else segments.push(`${f.beds}-bedroom`);
+      encoded.push('beds');
+    }
+    if(f.minRent || f.maxRent){
+      segments.push(`${f.minRent||0}-${f.maxRent||10000}-rent`);
+      encoded.push('price');
+    }
+    if(f.pets){ segments.push('pets-allowed'); encoded.push('pets'); }
+    return {url: `https://www.padmapper.com/${segments.join('/')}`, encoded};
+  }
+
+  function buildRentHopUrl(f){
+    const loc = f.borough ? (rhBoroSlug[f.borough] || 'nyc') : 'nyc';
+    const params = new URLSearchParams();
+    const encoded = [];
+    if(f.minRent){ params.set('min_price', f.minRent); encoded.push('price'); }
+    if(f.maxRent){ params.set('max_price', f.maxRent); if(!encoded.includes('price')) encoded.push('price'); }
+    if(f.beds !== '' && f.beds != null){
+      params.set('min_bedrooms', f.beds);
+      params.set('max_bedrooms', f.beds);
+      encoded.push('beds');
+    }
+    if(f.baths){ params.set('min_bathrooms', f.baths); encoded.push('baths'); }
+    if(f.sort === 'newest'){ params.set('sort', 'posted'); encoded.push('sort'); }
+    else if(f.sort === 'price-asc'){ params.set('sort', 'price_low'); encoded.push('sort'); }
+    else if(f.sort === 'price-desc'){ params.set('sort', 'price_high'); encoded.push('sort'); }
+    const q = params.toString();
+    return {url: `https://www.renthop.com/${loc}/apartments-for-rent${q ? '?' + q : ''}`, encoded};
+  }
+
+  // Catch-all — Google search phrased so the top results are typically listing pages
+  // themselves. All filters are packed into the query string as natural language;
+  // Google handles the interpretation, so we treat every active filter as "encoded".
+  function buildGoogleListingSearchUrl(f){
+    const parts = ['apartments for rent'];
+    const encoded = [];
+    if(f.location) parts.push(f.location);
+    if(f.borough) parts.push(BORO_NAMES[f.borough]);
+    if(!f.location && !f.borough) parts.push('NYC');
+    if(f.beds === '0'){ parts.push('studio'); encoded.push('beds'); }
+    else if(f.beds){ parts.push(`${f.beds} bedroom`); encoded.push('beds'); }
+    if(f.maxRent){ parts.push(`under $${f.maxRent}`); encoded.push('price'); }
+    if(f.pets){ parts.push('pets allowed'); encoded.push('pets'); }
+    if(f.sort === 'newest'){ parts.push('new listings'); encoded.push('sort'); }
+    if(f.listedWithin && Number(f.listedWithin) > 0){
+      parts.push(`posted last ${f.listedWithin} days`);
+      encoded.push('listedWithin');
+    }
+    return {url: `https://www.google.com/search?q=${encodeURIComponent(parts.join(' '))}`, encoded};
+  }
+
+  function buildListingSearchLinks(f){
+    return [
+      {site:'StreetEasy', icon:'', caption:'Best NYC filter support · newest-first sort works via URL', ...buildStreetEasyUrl(f)},
+      {site:'OpenIgloo', icon:'', caption:'Includes tenant reviews · minimal URL filter support', ...buildOpenIglooUrl(f)},
+      {site:'Zillow', icon:'', caption:'Big inventory · filter on-site (their URL scheme blocks external filters)', ...buildZillowUrl(f)},
+      {site:'Apartments.com', icon:'', caption:'National platform, strong NYC coverage', ...buildApartmentsComUrl(f)},
+      {site:'PadMapper', icon:'', caption:'Map-first · aggregates from several sources', ...buildPadMapperUrl(f)},
+      {site:'RentHop', icon:'', caption:'Ranks by data quality · newest-sort in URL', ...buildRentHopUrl(f)},
+      {site:'Google', icon:'', caption:'Catch-all — surfaces smaller brokerage sites too', ...buildGoogleListingSearchUrl(f)}
+    ];
+  }
+
+  // Returns one entry per selected neighborhood: {name, borough}. borough comes
+  // from the checkbox's own data-boro (set in the All-NYC flat view) when
+  // present, otherwise from the single borough dropdown — so mixing
+  // neighborhoods from different boroughs in the flat view still resolves each
+  // to the right borough.
+  function selectedNeighborhoods(){
+    const boroFromDropdown = document.getElementById('lsBorough').value;
+    return selectedNeighborhoodInputs().map(i => ({
+      name: i.value,
+      borough: i.dataset.boro || boroFromDropdown
+    }));
+  }
+
+  function collectListingFilters(location, borough){
+    let minRent = document.getElementById('lsMinRent').value.trim();
+    let maxRent = document.getElementById('lsMaxRent').value.trim();
+    // A reversed min/max (typo, or dragging the max field down without noticing)
+    // would otherwise flow straight into every site's URL as e.g. "price:2000-1000"
+    // — some sites silently ignore that, others just return zero results, and
+    // either way the user never finds out why. Swapping is the only sane
+    // interpretation of "min $2000, max $1000" anyway.
+    if(minRent !== '' && maxRent !== '' && Number(minRent) > Number(maxRent)){
+      [minRent, maxRent] = [maxRent, minRent];
+    }
+    return {
+      location: location || '',
+      borough: borough || '',
+      minRent, maxRent,
+      beds: document.getElementById('lsBeds').value,
+      baths: document.getElementById('lsBaths').value,
+      pets: document.getElementById('lsPets').value,
+      listedWithin: document.getElementById('lsListedWithin').value,
+      sort: document.getElementById('lsSort').value
+    };
+  }
+
+  // Shared filter-summary phrase (bedrooms, price, pets, etc.) — same for every
+  // neighborhood section, so built once from a filters object without a location.
+  function describeNonLocationFilters(f){
+    const parts = [];
+    if(f.beds !== '' && f.beds != null){
+      parts.push(f.beds === '0' ? '<strong>studio</strong>' : `<strong>${esc(f.beds)}${f.beds==='4'?'+':''} BR</strong>`);
+    }
+    if(f.baths) parts.push(`<strong>${esc(f.baths)}+ bath</strong>`);
+    if(f.minRent || f.maxRent){
+      const price = `${f.minRent?'$'+f.minRent:''}${f.minRent&&f.maxRent?'–':(f.maxRent?'up to ':'')}${f.maxRent?'$'+f.maxRent:''}`;
+      parts.push(`<strong>${price}</strong>/mo`);
+    }
+    const petLabels = {any:'pets OK', cats:'cats OK', dogs:'dogs OK'};
+    if(petLabels[f.pets]) parts.push(`<strong>${petLabels[f.pets]}</strong>`);
+    if(f.listedWithin && Number(f.listedWithin) > 0){
+      parts.push(`listed in the last <strong>${esc(f.listedWithin)} day${Number(f.listedWithin)===1?'':'s'}</strong>`);
+    }
+    const sortLabels = {newest:'newest first', 'price-asc':'cheapest first', 'price-desc':'priciest first'};
+    if(sortLabels[f.sort]) parts.push(`sorted <strong>${sortLabels[f.sort]}</strong>`);
+    return parts;
+  }
+
+  function renderSiteLinksHtml(f, active){
+    const links = buildListingSearchLinks(f);
+    return `<div class="ls-links">
+        ${links.map(l => {
+          const missed = active.filter(k => !l.encoded.includes(k));
+          const missedHtml = missed.length
+            ? `<div class="ls-caption" style="color:var(--warn);">Set on-site: ${missed.map(k => esc(FILTER_LABELS[k]||k)).join(', ')}</div>`
+            : (active.length ? `<div class="ls-caption" style="color:var(--good);">All filters applied via URL ✓</div>` : '');
+          return `
+            <a class="ls-link" href="${esc(l.url)}" target="_blank" rel="noopener">
+              <div class="ls-site">${l.icon} ${esc(l.site)} <span style="color:var(--muted); font-weight:400;">↗</span></div>
+              <div class="ls-caption">${esc(l.caption)}</div>
+              ${missedHtml}
+            </a>`;
+        }).join('')}
+      </div>`;
+  }
+
+  function renderListingSearchResults(){
+    const neighborhoods = selectedNeighborhoods();
+    const boroOnly = document.getElementById('lsBorough').value;
+
+    if(neighborhoods.length <= 1){
+      // Zero or one neighborhood picked — same single-section layout as before.
+      const chosen = neighborhoods[0];
+      const f = collectListingFilters(chosen && chosen.name, chosen ? chosen.borough : boroOnly);
+      const active = activeFilters(f);
+      const parts = [];
+      if(f.location && f.borough) parts.push(`<strong>${esc(f.location)}</strong>, ${esc(BORO_NAMES[f.borough])}`);
+      else if(f.location) parts.push(`<strong>${esc(f.location)}</strong>`);
+      else if(f.borough) parts.push(`<strong>${esc(BORO_NAMES[f.borough])}</strong>`);
+      else parts.push('<strong>all of NYC</strong>');
+      parts.push(...describeNonLocationFilters(f));
+      document.getElementById('lsSearchResults').innerHTML = `
+        <div class="ls-summary">Search: ${parts.join(', ')}. Each site card below shows which filters it accepts via URL — the rest need to be set on the site after clicking through.</div>
+        ${renderSiteLinksHtml(f, active)}
+        <p class="hint" style="margin-top:12px;">StreetEasy's newest-first sort is verified to work via URL — <strong>use it as the primary site</strong> for finding recently-posted listings. Site URL schemes change over time; if any card looks unfiltered after loading, adjust the filters on that site directly.</p>
+      `;
+      return;
+    }
+
+    // Multiple neighborhoods — most listing sites' URL schemes only accept one
+    // area per search, so instead of guessing at an unverified "combined" URL
+    // (this app doesn't encode filters it can't confirm work), we build one
+    // section per neighborhood, each with its own set of verified site links.
+    const sampleFilters = collectListingFilters('', boroOnly);
+    const sharedParts = describeNonLocationFilters(sampleFilters);
+    const sections = neighborhoods.map(n => {
+      const f = collectListingFilters(n.name, n.borough);
+      const active = activeFilters(f);
+      return `
+        <div class="ls-neighborhood-section" style="margin-top:18px;">
+          <h3 style="font-size:0.98rem; margin:0 0 8px;">${esc(n.name)}${n.borough ? `, ${esc(BORO_NAMES[n.borough])}` : ''}</h3>
+          ${renderSiteLinksHtml(f, active)}
+        </div>`;
+    }).join('');
+    document.getElementById('lsSearchResults').innerHTML = `
+      <div class="ls-summary">Search: <strong>${neighborhoods.length} neighborhoods</strong>${sharedParts.length ? ', ' + sharedParts.join(', ') : ''}. Most listing sites only support one area per link, so each neighborhood below gets its own set of site links.</div>
+      ${sections}
+      <p class="hint" style="margin-top:12px;">StreetEasy's newest-first sort is verified to work via URL — <strong>use it as the primary site</strong> for finding recently-posted listings. Site URL schemes change over time; if any card looks unfiltered after loading, adjust the filters on that site directly.</p>
+    `;
+  }
+
+  document.getElementById('lsSearchBtn').addEventListener('click', renderListingSearchResults);
+  document.getElementById('lsClearBtn').addEventListener('click', () => {
+    ['lsMinRent','lsMaxRent'].forEach(id => { document.getElementById(id).value = ''; });
+    ['lsBorough','lsBeds','lsBaths','lsPets'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('lsListedWithin').value = '7';
+    document.getElementById('lsSort').value = 'newest';
+    document.getElementById('lsSearchResults').innerHTML = '';
+    document.querySelectorAll('#lsLocationPanel input:checked').forEach(i => { i.checked = false; });
+    closeLsLocationPanel();
+    populateNeighborhoodDropdown(); // resets neighborhood options to All-NYC view (and clears selection/chips)
+  });
+
+  // Repopulate the neighborhood dropdown whenever the borough changes.
+  document.getElementById('lsBorough').addEventListener('change', populateNeighborhoodDropdown);
+
+  // Initial population — options aren't there until this runs.
+  populateNeighborhoodDropdown();
+
+  // ----- Saved Listings storage (parallel to the Watchlist) -----
+  // Watchlist = buildings the user has researched; Saved Listings = specific listing
+  // URLs. Deliberately separate keys and separate render surfaces so the two concepts
+  // don't blur — a building can have several listings over time.
+  const SAVED_LISTINGS_KEY = 'nycAptSavedListings';
+  const savedListingsContainer = document.getElementById('savedListingsContainer');
+
+  function loadSavedListings(){
+    try{ return JSON.parse(localStorage.getItem(SAVED_LISTINGS_KEY)) || []; }
+    catch(e){ return []; }
+  }
+  function persistSavedListings(list){
+    localStorage.setItem(SAVED_LISTINGS_KEY, JSON.stringify(list));
+    const badge = document.getElementById('savedListingsCount');
+    if(badge) badge.textContent = list.length ? `(${list.length})` : '';
+    if(fbUser) pushToCloud();
+  }
+  function detectListingSite(url){
+    const u = url.toLowerCase();
+    if(u.includes('streeteasy.com')) return 'StreetEasy';
+    if(u.includes('openigloo.com')) return 'OpenIgloo';
+    if(u.includes('zillow.com')) return 'Zillow';
+    if(u.includes('apartments.com')) return 'Apartments.com';
+    if(u.includes('padmapper.com')) return 'PadMapper';
+    if(u.includes('renthop.com')) return 'RentHop';
+    if(u.includes('compass.com')) return 'Compass';
+    if(u.includes('nakedapartments.com') || u.includes('naked-apartments')) return 'Naked Apartments';
+    if(u.includes('trulia.com')) return 'Trulia';
+    return 'Other';
+  }
+  // Normalize a URL for dedup: strip query and hash, drop trailing slashes and case-
+  // fold the origin. Keeps the path intact since that's what identifies the listing.
+  function savedListingId(url){
+    try{
+      const u = new URL(url);
+      return (u.origin + u.pathname).toLowerCase().replace(/\/+$/,'');
+    }catch(e){
+      return String(url).replace(/[?#].*$/,'').replace(/\/+$/,'').toLowerCase();
+    }
+  }
+
+  function saveListing(){
+    const urlInput = document.getElementById('savedListingInput');
+    const noteInput = document.getElementById('savedListingNote');
+    const url = urlInput.value.trim();
+    const note = noteInput.value.trim();
+    if(!url){
+      alert('Paste a listing URL first.');
+      return;
+    }
+    if(!/^https?:\/\//i.test(url)){
+      alert('Please paste a full URL starting with http:// or https://');
+      return;
+    }
+    const list = loadSavedListings();
+    const id = savedListingId(url);
+    const site = detectListingSite(url);
+    // parseInput already handles StreetEasy + OpenIgloo URLs and extracts the address;
+    // for other sites it'll return empty fields, and the render code handles that by
+    // hiding the "Research building" button rather than showing a broken one.
+    const parsed = parseInput(url);
+    const record = {
+      id, url, site, note,
+      houseNumber: parsed.houseNumber || '',
+      street: parsed.street || '',
+      borough: parsed.borough || '',
+      savedAt: new Date().toISOString()
+    };
+    const idx = list.findIndex(x => x.id === id);
+    if(idx === -1) list.unshift(record);
+    else list[idx] = {...list[idx], ...record, note: note || list[idx].note};
+    persistSavedListings(list);
+    urlInput.value = '';
+    noteInput.value = '';
+    renderSavedListings();
+  }
+
+  function removeSavedListing(id){
+    persistSavedListings(loadSavedListings().filter(x => x.id !== id));
+    renderSavedListings();
+  }
+
+  function renderSavedListings(){
+    const list = loadSavedListings();
+    if(!list.length){
+      savedListingsContainer.innerHTML = `<p class="empty">No saved listings yet. Paste a listing URL above to save it for later.</p>`;
+      return;
+    }
+    savedListingsContainer.innerHTML = list.map(item => {
+      const hasAddr = !!(item.houseNumber && item.street && item.borough);
+      const addrDisplay = hasAddr
+        ? `${esc(item.houseNumber)} ${esc(item.street)}, ${esc(BORO_NAMES[item.borough] || item.borough)}`
+        : 'Address not detected in URL';
+      const urlDisplay = item.url.length > 80 ? esc(item.url.slice(0, 77)) + '…' : esc(item.url);
+      return `
+        <div class="saved-listing" data-id="${esc(item.id)}">
+          <div class="sl-main">
+            <div class="sl-site">${esc(item.site)}</div>
+            <div class="sl-addr">${addrDisplay}</div>
+            <div class="sl-url">${urlDisplay}</div>
+            ${item.note ? `<div class="sl-note">${esc(item.note)}</div>` : ''}
+            <div class="sl-meta">Saved ${fmtDate(item.savedAt)}</div>
+          </div>
+          <div class="sl-actions">
+            <a class="sl-open" href="${esc(item.url)}" target="_blank" rel="noopener">🔗 Open listing</a>
+            ${hasAddr ? `<button type="button" class="sl-research" data-id="${esc(item.id)}">🔍 Research building</button>` : ''}
+            <button type="button" class="sl-remove" data-id="${esc(item.id)}" title="Remove">🗑️</button>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  document.getElementById('savedListingSaveBtn').addEventListener('click', saveListing);
+  document.getElementById('savedListingInput').addEventListener('keydown', e => {
+    if(e.key === 'Enter') saveListing();
+  });
+  savedListingsContainer.addEventListener('click', e => {
+    const removeBtn = e.target.closest('.sl-remove');
+    if(removeBtn){ removeSavedListing(removeBtn.dataset.id); return; }
+    const researchBtn = e.target.closest('.sl-research');
+    if(researchBtn){
+      const item = loadSavedListings().find(x => x.id === researchBtn.dataset.id);
+      if(!item || !item.houseNumber) return;
+      switchTab('check');
+      document.getElementById('houseNumber').value = item.houseNumber;
+      document.getElementById('streetName').value = item.street;
+      document.getElementById('borough').value = item.borough;
+      runSearch();
+    }
+  });
+
+  persistSavedListings(loadSavedListings()); // paint the (n) count on load without touching stored data
+  renderSavedListings();
+
+  // ---------- What's Nearby: Leaflet map + OpenStreetMap POIs ----------
+  // Both geocoding (Nominatim) and POI search (Overpass) are free, no-key APIs from
+  // the OpenStreetMap ecosystem. Nominatim asks callers to set a descriptive
+  // User-Agent and stay under 1 req/sec — we're well below that (one geocode per
+  // user click). Overpass tolerates browser-origin queries, so no proxy needed.
+
+  const NEARBY_CATEGORIES = {
+    transit:    {icon:'🚇', label:'Transit', color:'#1976d2'},
+    coffee:     {icon:'☕', label:'Coffee', color:'#795548'},
+    grocery:    {icon:'🛒', label:'Groceries', color:'#43a047'},
+    attractions:{icon:'🎭', label:'Attractions', color:'#8e24aa'},
+    parks:      {icon:'🌳', label:'Parks', color:'#2e7d32'},
+    laundry:    {icon:'🧺', label:'Laundromats', color:'#00897b'},
+    nightlife:  {icon:'🍸', label:'Bars & Nightlife', color:'#d81b60'}
+  };
+
+  // Overpass query fragments per category — kept in one place so it's easy to see
+  // what OSM tags we're relying on for each category. Anything tagged in OSM but
+  // not listed here won't show up on the map — the tradeoff is completeness vs.
+  // noise (adding e.g. `amenity:fast_food` under coffee would surface McDonald's,
+  // which isn't the "coffee shops" the user asked for).
+  const OVERPASS_TAGS = {
+    transit:    ['node["railway"="station"]["station"="subway"]',
+                 'node["public_transport"="station"]["subway"="yes"]'],
+    coffee:     ['node["amenity"="cafe"]', 'way["amenity"="cafe"]'],
+    // Real grocery shopping only — supermarkets, greengrocers, and health-food
+    // stores (Whole Foods, Trader Joe's, etc. are tagged shop=supermarket or
+    // shop=health_food in OSM). `convenience` and `deli` are deliberately
+    // excluded: that's what was flooding results with bodegas/corner stores.
+    // Big-box stores with grocery sections (Target, Walmart, Costco) are tagged
+    // shop=department_store / shop=wholesale in OSM, not as a grocery shop, so
+    // we pull those in by name match instead.
+    grocery:    ['node["shop"~"^(supermarket|greengrocer|health_food)$"]',
+                 'way["shop"~"^(supermarket|greengrocer|health_food)$"]',
+                 'node["shop"~"^(department_store|wholesale)$"]["name"~"Target|Walmart|Costco|Wegmans",i]',
+                 'way["shop"~"^(department_store|wholesale)$"]["name"~"Target|Walmart|Costco|Wegmans",i]'],
+    attractions:['node["tourism"~"^(attraction|museum|artwork|viewpoint|gallery|theatre)$"]',
+                 'way["tourism"~"^(attraction|museum|artwork|viewpoint|gallery|theatre)$"]',
+                 'node["amenity"="theatre"]', 'way["amenity"="theatre"]'],
+    parks:      ['way["leisure"="park"]', 'node["leisure"="park"]',
+                 'way["leisure"="garden"]'],
+    laundry:    ['node["shop"="laundry"]', 'way["shop"="laundry"]',
+                 'node["shop"="dry_cleaning"]', 'way["shop"="dry_cleaning"]'],
+    // "Nightlife" as in "could be loud near this building at night", not a
+    // curated nightlife guide — bars/pubs/nightclubs only, not restaurants
+    // that happen to serve alcohol.
+    nightlife:  ['node["amenity"~"^(bar|pub|nightclub)$"]',
+                 'way["amenity"~"^(bar|pub|nightclub)$"]']
+  };
+
+  let nearbyMap = null;           // Leaflet map instance
+  let nearbyLayers = {};          // per-category LayerGroup
+  let nearbyHomeMarker = null;    // the "you are here" pin
+  let nearbyCurrentCoords = null; // last geocoded lat/lon, for re-render on toggle
+  let nearbyCurrentPois = null;   // last Overpass result set, for re-render on toggle
+  let leafletLoadingPromise = null;
+  const nearbyPoiCache = new Map(); // "lat,lon,radius" -> {cats: Set<string>, pois: []} — only the categories actually fetched so far
+  let nearbyCacheKey = null; // cache key for whatever's currently shown, so toggling a category can fetch just that one
+
+  // Load Leaflet from a CDN on first use. Kept out of the initial page bundle
+  // because the map is optional — most sessions never open this tab.
+  function loadLeaflet(){
+    if(window.L) return Promise.resolve(window.L);
+    if(leafletLoadingPromise) return leafletLoadingPromise;
+    leafletLoadingPromise = new Promise((resolve, reject) => {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      css.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
+      css.crossOrigin = '';
+      document.head.appendChild(css);
+      const js = document.createElement('script');
+      js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      js.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+      js.crossOrigin = '';
+      js.onload = () => resolve(window.L);
+      js.onerror = () => reject(new Error('Failed to load Leaflet from CDN'));
+      document.head.appendChild(js);
+    });
+    return leafletLoadingPromise;
+  }
+
+  // Address → {lat, lon, displayName}. Tries NYC's own GeoSearch first (free,
+  // no key, NYC-tuned — understands "5 Ave" for "Fifth Avenue", forgiving of
+  // typos and abbreviations, and by definition can't return an out-of-NYC
+  // match by accident). Falls back to Nominatim if GeoSearch has nothing —
+  // covers the rare case of an address on the very edge of the mapped NYC
+  // planning-labs dataset, or a landmark name that GeoSearch doesn't index.
+  async function geocodeAddress(address){
+    try{
+      const url = `https://geosearch.planninglabs.nyc/v2/search?size=1&text=${encodeURIComponent(address)}`;
+      const res = await fetch(url, {headers: {'Accept': 'application/json'}});
+      if(res.ok){
+        const data = await res.json();
+        const f = (data.features || [])[0];
+        if(f && f.geometry && Array.isArray(f.geometry.coordinates)){
+          return {
+            lat: Number(f.geometry.coordinates[1]),
+            lon: Number(f.geometry.coordinates[0]),
+            displayName: f.properties && f.properties.label
+          };
+        }
+      }
+    }catch(_){ /* GeoSearch down or offline — fall through */ }
+    // Fallback: OSM Nominatim, bounded to the NYC viewbox so it doesn't return
+    // a same-named street from Newark or Yonkers.
+    const nurl = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
+      q: address, format: 'json', limit: '1', countrycodes: 'us',
+      viewbox: '-74.26,40.92,-73.68,40.48',
+      bounded: '1'
+    });
+    const res = await fetch(nurl, {headers: {'Accept': 'application/json'}});
+    if(!res.ok) throw new Error(`Geocoder ${res.status}`);
+    const data = await res.json();
+    if(!data.length) throw new Error('Address not found');
+    return {
+      lat: Number(data[0].lat), lon: Number(data[0].lon),
+      displayName: data[0].display_name
+    };
+  }
+
+  // Live NYC-specific autocomplete on any address input. Debounced (~180ms) so
+  // we don't hammer GeoSearch on every keystroke, aborts in-flight requests
+  // when the user keeps typing, and keyboard-navigable (↑/↓/Enter/Esc). No
+  // key, no auth — GeoSearch is NYC Planning Labs's public API. If it's ever
+  // unavailable this silently no-ops rather than blocking input.
+  const _geoAcMenus = new WeakSet();
+  function attachGeoSearchAutocomplete(input, opts){
+    if(!input || _geoAcMenus.has(input)) return;
+    _geoAcMenus.add(input);
+    opts = opts || {};
+    const menu = document.createElement('div');
+    menu.className = 'geo-autocomplete-menu';
+    menu.hidden = true;
+    document.body.appendChild(menu);
+    let feats = [];
+    let activeIdx = -1;
+    let debounceTimer = null;
+    let currentController = null;
+    const hide = () => { menu.hidden = true; activeIdx = -1; };
+    const position = () => {
+      const r = input.getBoundingClientRect();
+      menu.style.top = (r.bottom + window.scrollY + 4) + 'px';
+      menu.style.left = (r.left + window.scrollX) + 'px';
+      menu.style.width = Math.max(240, r.width) + 'px';
+    };
+    const render = () => {
+      menu.innerHTML = feats.map((f, i) => {
+        const label = (f.properties && f.properties.label) || '';
+        const layer = (f.properties && f.properties.layer) || '';
+        const hint = layer === 'venue' ? '📍' : layer === 'address' ? '🏠' : layer === 'street' ? '🛣️' : '📌';
+        return `<div class="geo-item${i===activeIdx?' active':''}" data-idx="${i}"><span class="geo-pin">${hint}</span><span class="geo-label">${esc(label)}</span></div>`;
+      }).join('');
+    };
+    const doSelect = (i) => {
+      const f = feats[i]; if(!f) return;
+      input.value = (f.properties && f.properties.label) || input.value;
+      hide();
+      input.dispatchEvent(new Event('change', {bubbles: true}));
+      if(opts.onSelect) opts.onSelect(f);
+    };
+    input.addEventListener('input', () => {
+      const q = input.value.trim();
+      clearTimeout(debounceTimer);
+      if(q.length < 3){ hide(); return; }
+      debounceTimer = setTimeout(async () => {
+        if(currentController) currentController.abort();
+        currentController = new AbortController();
+        try{
+          const res = await fetch(`https://geosearch.planninglabs.nyc/v2/autocomplete?size=6&text=${encodeURIComponent(q)}`, {signal: currentController.signal});
+          if(!res.ok){ hide(); return; }
+          const data = await res.json();
+          feats = (data.features || []).filter(f => f.properties && f.properties.label);
+          if(!feats.length){ hide(); return; }
+          activeIdx = -1;
+          render();
+          position();
+          menu.hidden = false;
+        }catch(e){ if(e.name !== 'AbortError'){ /* silent fail — autocomplete is progressive-enhancement */ } }
+      }, 180);
+    });
+    input.addEventListener('keydown', (e) => {
+      if(menu.hidden || !feats.length) return;
+      if(e.key === 'ArrowDown'){ e.preventDefault(); activeIdx = Math.min(activeIdx+1, feats.length-1); render(); }
+      else if(e.key === 'ArrowUp'){ e.preventDefault(); activeIdx = Math.max(activeIdx-1, 0); render(); }
+      else if(e.key === 'Enter' && activeIdx >= 0){ e.preventDefault(); doSelect(activeIdx); }
+      else if(e.key === 'Escape'){ hide(); }
+    });
+    input.addEventListener('blur', () => setTimeout(hide, 150));
+    window.addEventListener('resize', position);
+    window.addEventListener('scroll', () => { if(!menu.hidden) position(); }, {passive: true});
+    menu.addEventListener('mousedown', (e) => {
+      const item = e.target.closest('.geo-item');
+      if(!item) return;
+      e.preventDefault();
+      doSelect(Number(item.dataset.idx));
+    });
+  }
+
+  // Public Overpass mirrors are individually flaky in a way that's transient, not
+  // permanent — verified directly (curl, same endpoints, minutes apart): different
+  // mirrors succeeded and failed each run, including one that fully hung on one
+  // pass and returned in under a second on the next. So a mirror that's down
+  // right now is not necessarily down a few seconds from now — it's worth one
+  // full retry of the race before treating it as a real failure.
+  //
+  // overpass.osm.ch was tried as a 5th mirror (fast, CORS-enabled) but removed
+  // after catching it live returning HTTP 200 with an EMPTY result set for a
+  // query that genuinely had 164 matches (confirmed against overpass-api.de
+  // directly for the same bbox) — a real Midtown Manhattan location silently
+  // showing "nothing found nearby". A mirror that's fast but wrong is worse
+  // than one that's merely slow, so it's out. The race logic below also now
+  // defends against ANY mirror doing this (a fast empty response no longer
+  // wins outright — see raceOverpassMirrorsOnce).
+  const OVERPASS_ENDPOINTS = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter',
+    'https://lz4.overpass-api.de/api/interpreter'
+  ];
+
+  // The Overpass query goes through our own Vercel serverless proxy at
+  // /api/overpass instead of hitting the public mirrors directly from the
+  // browser. Reason: the public mirrors' CORS behavior is inconsistent —
+  // they respond with Access-Control-Allow-Origin on a curl OPTIONS but
+  // often strip it on the actual POST, and when every mirror does that at
+  // once (verified live), every browser fetch here fails with "Failed to
+  // fetch" and the user sees an empty map in one of the densest neighborhoods
+  // in Manhattan. Doing the same race server-side sidesteps CORS entirely.
+  // The client-side race+retry logic that used to live here now lives in
+  // api/overpass.js — same first-non-empty-wins semantics.
+  //
+  // The mirror list below is kept for reference (and for the smoke test which
+  // still exercises the client-side race in isolation), but is no longer used
+  // by the running app.
+  async function raceOverpassMirrorsWithRetry(query){
+    const controller = new AbortController();
+    // 45s total budget from the browser — the serverless function itself gives
+    // each mirror 20s and does one full retry (worst case ~40s), plus a small
+    // margin for Vercel cold-start + network.
+    const timer = setTimeout(() => controller.abort(), 45000);
+    try{
+      const res = await fetch('/api/overpass', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({query}),
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if(!res.ok){
+        let detail = '';
+        try{ const j = await res.json(); detail = j.detail || j.error || ''; }catch(_){}
+        throw new Error(`Overpass proxy returned ${res.status}${detail ? ' — ' + detail : ''}`);
+      }
+      const data = await res.json();
+      return data.elements || [];
+    }catch(e){
+      clearTimeout(timer);
+      if(e.name === 'AbortError') throw new Error('Overpass request timed out.');
+      throw e;
+    }
+  }
+
+  // Overpass query for POIs within a bounding box around the target address.
+  // We ask for all requested categories in one query (Overpass fans out internally
+  // faster than issuing sequential HTTP calls). `out center` returns just the
+  // centroid for ways (buildings with area), keeping the response small.
+  async function fetchNearbyPOIs(lat, lon, radiusMi, cats){
+    // Bounding box in decimal degrees. 1 deg latitude ≈ 69 miles; longitude is
+    // narrower at NYC's latitude, corrected by cos(lat).
+    const latDelta = radiusMi / 69;
+    const lonDelta = radiusMi / (69 * Math.cos(lat * Math.PI / 180));
+    const bbox = `${lat-latDelta},${lon-lonDelta},${lat+latDelta},${lon+lonDelta}`;
+    const parts = [];
+    cats.forEach(cat => {
+      (OVERPASS_TAGS[cat] || []).forEach(sel => {
+        parts.push(`${sel}(${bbox});`);
+      });
+    });
+    const query = `[out:json][timeout:25];(${parts.join('')});out center;`;
+    const elements = await raceOverpassMirrorsWithRetry(query);
+    // Tag each element with its category based on which OSM tag it matched, so
+    // the renderer can color-code without re-running the tag logic.
+    const categorize = el => {
+      const t = el.tags || {};
+      if(t.railway === 'station' || t.subway === 'yes') return 'transit';
+      if(t.amenity === 'cafe') return 'coffee';
+      if(t.shop && /^(supermarket|greengrocer|health_food)$/.test(t.shop)) return 'grocery';
+      if(t.shop && /^(department_store|wholesale)$/.test(t.shop) &&
+         t.name && /Target|Walmart|Costco|Wegmans/i.test(t.name)) return 'grocery';
+      if(t.tourism && /^(attraction|museum|artwork|viewpoint|gallery|theatre)$/.test(t.tourism)) return 'attractions';
+      if(t.amenity === 'theatre') return 'attractions';
+      if(t.leisure === 'park' || t.leisure === 'garden') return 'parks';
+      if(t.shop === 'laundry' || t.shop === 'dry_cleaning') return 'laundry';
+      if(t.amenity && /^(bar|pub|nightclub)$/.test(t.amenity)) return 'nightlife';
+      return null;
+    };
+    return elements.map(el => {
+      const c = categorize(el);
+      const point = el.type === 'node' ? {lat: el.lat, lon: el.lon}
+                  : (el.center ? {lat: el.center.lat, lon: el.center.lon} : null);
+      if(!c || !point || !el.tags) return null;
+      const hasName = !!(el.tags.name || el.tags['brand']);
+      return {
+        cat: c,
+        lat: point.lat, lon: point.lon,
+        name: el.tags.name || el.tags['brand'] || NEARBY_CATEGORIES[c].label,
+        hasName,
+        website: el.tags.website || el.tags['contact:website'] || null,
+        addr: [el.tags['addr:housenumber'], el.tags['addr:street']].filter(Boolean).join(' ') || '',
+        raw: el
+      };
+    }).filter(Boolean);
+  }
+
+  // Fetches only whichever of `cats` haven't already been fetched for the given
+  // cache key, merges the result into nearbyCurrentPois, and updates the cache.
+  // This is what lets the initial search stay a small, fast query (just the
+  // categories checked by default) while still making a newly-toggled-on
+  // category (Parks, Laundry, Nightlife) show up on demand without ever
+  // re-fetching a category that's already in hand.
+  async function ensureNearbyCatsFetched(lat, lon, radiusMi, cats){
+    let entry = nearbyPoiCache.get(nearbyCacheKey);
+    if(!entry){ entry = {cats: new Set(), pois: []}; nearbyPoiCache.set(nearbyCacheKey, entry); }
+    const missing = cats.filter(c => !entry.cats.has(c));
+    if(missing.length){
+      const newPois = await fetchNearbyPOIs(lat, lon, radiusMi, missing);
+      entry.pois = entry.pois.concat(newPois);
+      missing.forEach(c => entry.cats.add(c));
+    }
+    nearbyCurrentPois = entry.pois;
+  }
+
+  // Not every OSM point carries a name (as seen — a grocery marker with nothing
+  // but its category tag), and even named ones rarely carry a website tag. Rather
+  // than link to an unverified guess at a Yelp/Google Maps page for a specific
+  // business, this searches Google for whatever we do know (name if we have one,
+  // otherwise the category + street address) — always resolves to something
+  // useful, never a wrong business's page.
+  function poiLookupUrl(p){
+    const q = p.hasName
+      ? `${p.name}${p.addr ? ' ' + p.addr : ''} NYC`
+      : `${NEARBY_CATEGORIES[p.cat].label} ${p.addr ? 'at ' + p.addr : `near ${p.lat.toFixed(5)},${p.lon.toFixed(5)}`} NYC`;
+    return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+  }
+  function poiLearnMoreHtml(p){
+    return p.website
+      ? `<a href="${esc(p.website)}" target="_blank" rel="noopener">Website ↗</a>`
+      : `<a href="${esc(poiLookupUrl(p))}" target="_blank" rel="noopener">🔎 Look up ↗</a>`;
+  }
+
+  function selectedNearbyCats(){
+    return Array.from(document.querySelectorAll('.nearby-toggle input:checked'))
+      .map(cb => cb.dataset.cat);
+  }
+
+  function buildDivIcon(L, cat, isHome){
+    const inner = isHome ? '📍' : NEARBY_CATEGORIES[cat].icon;
+    const cls = isHome ? 'nearby-marker cat-home' : `nearby-marker cat-${cat}`;
+    return L.divIcon({
+      html: `<div class="${cls}"><span>${inner}</span></div>`,
+      className: '', // suppress Leaflet's default marker box
+      iconSize: isHome ? [32,32] : [28,28],
+      iconAnchor: isHome ? [16,32] : [14,28],
+      popupAnchor: [0, isHome ? -30 : -26]
+    });
+  }
+
+  function renderNearbyMap(){
+    if(!nearbyMap || !nearbyCurrentCoords || !nearbyCurrentPois) return;
+    const L = window.L;
+    const visible = new Set(selectedNearbyCats());
+
+    // Clear existing layer groups then rebuild those that are toggled on. Building
+    // a fresh layerGroup per render is cheaper than tracking per-marker visibility.
+    Object.values(nearbyLayers).forEach(lg => nearbyMap.removeLayer(lg));
+    nearbyLayers = {};
+
+    nearbyCurrentPois.forEach(p => {
+      if(!visible.has(p.cat)) return;
+      if(!nearbyLayers[p.cat]) nearbyLayers[p.cat] = L.layerGroup().addTo(nearbyMap);
+      const dist = haversineMiles(nearbyCurrentCoords.lat, nearbyCurrentCoords.lon, p.lat, p.lon);
+      const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}`;
+      const displayName = p.hasName ? esc(p.name) : `Unnamed ${esc(NEARBY_CATEGORIES[p.cat].label.toLowerCase().replace(/s$/,''))}`;
+      const popupHtml = `
+        <strong>${displayName}</strong><br>
+        <span style="color:var(--muted);">${esc(NEARBY_CATEGORIES[p.cat].label)}${p.addr ? ' · ' + esc(p.addr) : ''}</span><br>
+        ${dist.toFixed(2)} mi away · <a href="${gmapsUrl}" target="_blank" rel="noopener">Directions ↗</a> · ${poiLearnMoreHtml(p)}
+      `;
+      L.marker([p.lat, p.lon], {icon: buildDivIcon(L, p.cat, false)})
+        .bindPopup(popupHtml)
+        .addTo(nearbyLayers[p.cat]);
+    });
+  }
+
+  function renderNearbyList(){
+    const container = document.getElementById('nearbyList');
+    if(!nearbyCurrentPois || !nearbyCurrentCoords){ container.innerHTML = ''; return; }
+    const visible = new Set(selectedNearbyCats());
+    const byCat = {};
+    nearbyCurrentPois.forEach(p => {
+      if(!visible.has(p.cat)) return;
+      if(!byCat[p.cat]) byCat[p.cat] = [];
+      byCat[p.cat].push({...p, miles: haversineMiles(nearbyCurrentCoords.lat, nearbyCurrentCoords.lon, p.lat, p.lon)});
+    });
+    Object.values(byCat).forEach(arr => arr.sort((a,b) => a.miles - b.miles));
+    const cats = Object.keys(NEARBY_CATEGORIES).filter(c => byCat[c] && byCat[c].length);
+    if(!cats.length){ container.innerHTML = '<p class="empty">Nothing found within this radius — try a bigger radius or a different address.</p>'; return; }
+    container.innerHTML = `<div class="nearby-list">${cats.map(c => {
+      const items = byCat[c].slice(0, 8); // top 8 nearest per category
+      const total = byCat[c].length;
+      return `<div class="nl-cat">
+        <h4>${NEARBY_CATEGORIES[c].icon} ${esc(NEARBY_CATEGORIES[c].label)}<span class="count">${total} within ${document.getElementById('nearbyRadius').value} mi</span></h4>
+        ${items.map(p => {
+          const displayName = p.hasName ? esc(p.name) : `Unnamed ${esc(NEARBY_CATEGORIES[p.cat].label.toLowerCase().replace(/s$/,''))}`;
+          return `<div class="nl-item"><span>${displayName} · ${poiLearnMoreHtml(p)}</span><span class="nl-dist">${p.miles.toFixed(2)} mi</span></div>`;
+        }).join('')}
+        ${total > items.length ? `<div class="nl-item"><span class="muted" style="font-size:0.78rem;">+${total - items.length} more on the map</span></div>` : ''}
+      </div>`;
+    }).join('')}</div>`;
+  }
+
+  async function runNearbySearch(){
+    const input = document.getElementById('nearbyInput');
+    const raw = input.value.trim();
+    if(!raw){ alert('Paste a listing link or type an address first.'); return; }
+    const status = document.getElementById('nearbyStatus');
+    const mapEl = document.getElementById('nearbyMap');
+    const listEl = document.getElementById('nearbyList');
+    status.innerHTML = '<span class="loading"><span class="spinner"></span> Loading map & finding places nearby…</span>';
+    listEl.innerHTML = '';
+
+    try{
+      // If the user pasted a StreetEasy/OpenIgloo URL, try to reconstruct a
+      // human-readable address string from the parsed components before geocoding.
+      const parsed = parseInput(raw);
+      let addressForGeocoder;
+      if(parsed.houseNumber && parsed.street){
+        addressForGeocoder = `${parsed.houseNumber} ${parsed.street}, ${BORO_NAMES[parsed.borough] || 'New York'}, NY`;
+      } else {
+        // treat as a raw address string, but append NYC if the user forgot
+        addressForGeocoder = /new york|nyc|manhattan|brooklyn|queens|bronx|staten/i.test(raw) ? raw : `${raw}, New York, NY`;
+      }
+      // Nominatim geocodes buildings/streets, not individual units — it doesn't
+      // ignore a unit suffix and geocode the building anyway, it just returns
+      // zero results outright (verified live: "123 West 45th Street" finds a
+      // match, "123 West 45th Street Apt 4B" finds nothing). Since typing an
+      // apartment number is completely natural — it's the address on the lease
+      // — strip it before geocoding rather than let the whole search fail on
+      // exactly the input someone touring a specific unit is most likely to type.
+      addressForGeocoder = stripUnitSuffix(addressForGeocoder);
+
+      const [_, hit] = await Promise.all([loadLeaflet(), geocodeAddress(addressForGeocoder)]);
+      nearbyCurrentCoords = {lat: hit.lat, lon: hit.lon};
+
+      // Initialize (or recenter) the map. Keeping one map instance across searches
+      // avoids Leaflet's "Map container is already initialized" error.
+      const L = window.L;
+      if(!nearbyMap){
+        nearbyMap = L.map('nearbyMap').setView([hit.lat, hit.lon], 15);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
+        }).addTo(nearbyMap);
+      } else {
+        nearbyMap.setView([hit.lat, hit.lon], 15);
+      }
+      mapEl.classList.add('ready');
+      // Leaflet needs an invalidateSize() after a container becomes visible
+      // (going from display:none to display:block), otherwise the tiles render
+      // as a broken grey grid until the user resizes the window.
+      setTimeout(() => nearbyMap.invalidateSize(), 50);
+
+      // Home marker
+      if(nearbyHomeMarker) nearbyMap.removeLayer(nearbyHomeMarker);
+      nearbyHomeMarker = L.marker([hit.lat, hit.lon], {icon: buildDivIcon(L, 'home', true), zIndexOffset: 1000})
+        .bindPopup(`<strong>${esc(hit.displayName.split(',').slice(0,2).join(','))}</strong>`)
+        .addTo(nearbyMap);
+
+      // POI fetch — only for whichever categories are actually checked right now,
+      // not all 7. A single Overpass query covering everything at once was the
+      // most likely reason searches in dense areas (lower Manhattan, UES) were
+      // timing out: doubling the category count (adding Laundry/Nightlife) made
+      // an already-heavy combined query heavier still. Cached per rounded-
+      // coordinate+radius+category so re-searching the same spot, or toggling a
+      // category back on after it was already fetched once, never re-hits
+      // Overpass for data we already have.
+      const radius = Number(document.getElementById('nearbyRadius').value) || 0.5;
+      nearbyCacheKey = `${hit.lat.toFixed(4)},${hit.lon.toFixed(4)},${radius}`;
+      await ensureNearbyCatsFetched(hit.lat, hit.lon, radius, selectedNearbyCats());
+      renderNearbyMap();
+      renderNearbyList();
+      status.innerHTML = `<span style="color:var(--muted);">Centered on <strong>${esc(hit.displayName.split(',').slice(0,3).join(','))}</strong> · showing places within ${radius} mi.</span>`;
+    }catch(e){
+      console.error(e);
+      status.innerHTML = `<span class="err">⚠ ${esc(e.message || 'Something went wrong.')} — try a more specific address (e.g. "123 West 45th Street, Manhattan").</span>`;
+    }
+  }
+
+  document.getElementById('nearbyGoBtn').addEventListener('click', runNearbySearch);
+  document.getElementById('nearbyInput').addEventListener('keydown', e => {
+    if(e.key === 'Enter') runNearbySearch();
+  });
+  document.getElementById('nearbyClearBtn').addEventListener('click', () => {
+    document.getElementById('nearbyInput').value = '';
+    document.getElementById('nearbyStatus').innerHTML = '';
+    document.getElementById('nearbyList').innerHTML = '';
+    document.getElementById('nearbyMap').classList.remove('ready');
+    if(nearbyMap){
+      Object.values(nearbyLayers).forEach(lg => nearbyMap.removeLayer(lg));
+      nearbyLayers = {};
+      if(nearbyHomeMarker){ nearbyMap.removeLayer(nearbyHomeMarker); nearbyHomeMarker = null; }
+    }
+    nearbyCurrentCoords = null;
+    nearbyCurrentPois = null;
+    nearbyCacheKey = null;
+  });
+  // Category toggles: a category already fetched just re-renders from the cache;
+  // a newly-checked category not yet fetched (e.g. turning on Parks/Laundry/
+  // Nightlife, which start unchecked) fetches only that category on demand.
+  document.querySelectorAll('.nearby-toggle input').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      if(!nearbyCurrentCoords || !nearbyCacheKey) return; // no search run yet
+      if(cb.checked){
+        const radius = Number(document.getElementById('nearbyRadius').value) || 0.5;
+        const status = document.getElementById('nearbyStatus');
+        const prevStatus = status.innerHTML;
+        const entry = nearbyPoiCache.get(nearbyCacheKey);
+        const alreadyFetched = entry && entry.cats.has(cb.dataset.cat);
+        if(!alreadyFetched){
+          status.innerHTML = `<span class="loading"><span class="spinner"></span> Loading ${esc(NEARBY_CATEGORIES[cb.dataset.cat].label)}…</span>`;
+          try{
+            await ensureNearbyCatsFetched(nearbyCurrentCoords.lat, nearbyCurrentCoords.lon, radius, [cb.dataset.cat]);
+          }catch(e){
+            status.innerHTML = `<span class="err">⚠ ${esc(e.message || 'Failed to load that category.')}</span>`;
+            cb.checked = false; // toggle back off — nothing to show for it
+            return;
+          }
+          status.innerHTML = prevStatus;
+        }
+      }
+      renderNearbyMap();
+      renderNearbyList();
+    });
+  });
+  document.getElementById('nearbyRadius').addEventListener('change', () => {
+    // Radius change needs a refetch since it defines Overpass's bounding box.
+    if(nearbyCurrentCoords) runNearbySearch();
+  });
+
+  // ---------- Affordable Housing tab ----------
+  // Backed by NYC Open Data's "Affordable Housing Production by Building" dataset
+  // (hg8x-zxpr). Note this shows the supply of affordable housing (built and
+  // preserved by HPD), NOT currently-open lotteries — Housing Connect itself
+  // doesn't publish a public API. Each project card links out to Housing
+  // Connect where the actual lottery listings and their deadlines live.
+  //
+  // AMI (Area Median Income) tiers per HPD's own definitions — see
+  // https://www.nyc.gov/site/hpd/services-and-information/area-median-income.page
+  const AFFORDABLE_DATASET_ID = 'hg8x-zxpr';
+  const AFFORDABLE_LANDING = 'https://data.cityofnewyork.us/Housing-Development/Affordable-Housing-Production-by-Building/hg8x-zxpr';
+
+  async function runAffordableSearch(){
+    const boro = document.getElementById('affBorough').value;
+    const bedCol = document.getElementById('affBeds').value;
+    const incomeCol = document.getElementById('affIncome').value;
+    const sinceYear = document.getElementById('affSinceYear').value;
+    const statusEl = document.getElementById('affStatus');
+    const resultsEl = document.getElementById('affResults');
+    statusEl.innerHTML = '<span class="loading"><span class="spinner"></span> Searching affordable housing projects…</span>';
+    resultsEl.innerHTML = '';
+
+    // Build Socrata SoQL where clauses. Column names include leading underscores
+    // for the bedroom fields (Socrata's rewrite of "1_br_units") — this quirks
+    // once when composing the query and never again.
+    const whereParts = [];
+    if(boro) whereParts.push(`borough='${boro}'`);
+    if(sinceYear) whereParts.push(`project_start_date >= '${sinceYear}-01-01T00:00:00'`);
+    // "Filter by bedroom" means: only projects that have at least 1 unit of that
+    // bedroom size. Similarly for income tier.
+    if(bedCol) whereParts.push(`${bedCol} > 0`);
+    if(incomeCol) whereParts.push(`${incomeCol} > 0`);
+    const where = whereParts.length ? whereParts.join(' AND ') : '';
+
+    const params = new URLSearchParams({
+      '$order': 'project_start_date DESC',
+      '$limit': '100',
+      '$select': [
+        'project_id','project_name','house_number','street_name','borough','postcode',
+        'latitude','longitude','reporting_construction_type','project_start_date',
+        'extremely_low_income_units','very_low_income_units','low_income_units','other_income_units',
+        'studio_units','_1_br_units','_2_br_units','_3_br_units','_4_br_units',
+        'all_counted_units','total_units'
+      ].join(',')
+    });
+    if(where) params.set('$where', where);
+    const url = `https://data.cityofnewyork.us/resource/${AFFORDABLE_DATASET_ID}.json?${params}`;
+
+    try{
+      const res = await fetch(url);
+      if(!res.ok) throw new Error(`NYC Open Data returned ${res.status}`);
+      const rows = await res.json();
+      // De-duplicate by project_id (the dataset lists one row per BUILDING within
+      // a project, so a multi-building project would otherwise appear N times).
+      // We aggregate unit counts across the project's buildings so the card shows
+      // the whole project's numbers, not just one building's.
+      const projectMap = new Map();
+      rows.forEach(r => {
+        const key = r.project_id;
+        if(!projectMap.has(key)){
+          projectMap.set(key, {...r, buildingCount: 1, aggregate: {
+            extremely_low: Number(r.extremely_low_income_units)||0,
+            very_low: Number(r.very_low_income_units)||0,
+            low: Number(r.low_income_units)||0,
+            other: Number(r.other_income_units)||0,
+            studio: Number(r.studio_units)||0,
+            br1: Number(r._1_br_units)||0,
+            br2: Number(r._2_br_units)||0,
+            br3: Number(r._3_br_units)||0,
+            br4: Number(r._4_br_units)||0,
+            total: Number(r.all_counted_units || r.total_units)||0
+          }});
+        } else {
+          const p = projectMap.get(key);
+          p.buildingCount++;
+          p.aggregate.extremely_low += Number(r.extremely_low_income_units)||0;
+          p.aggregate.very_low += Number(r.very_low_income_units)||0;
+          p.aggregate.low += Number(r.low_income_units)||0;
+          p.aggregate.other += Number(r.other_income_units)||0;
+          p.aggregate.studio += Number(r.studio_units)||0;
+          p.aggregate.br1 += Number(r._1_br_units)||0;
+          p.aggregate.br2 += Number(r._2_br_units)||0;
+          p.aggregate.br3 += Number(r._3_br_units)||0;
+          p.aggregate.br4 += Number(r._4_br_units)||0;
+          p.aggregate.total += Number(r.all_counted_units || r.total_units)||0;
+        }
+      });
+      const projects = Array.from(projectMap.values());
+
+      if(!projects.length){
+        statusEl.innerHTML = `<span style="color:var(--muted);">No projects matched. Try broadening the filters.</span>`;
+        return;
+      }
+      statusEl.innerHTML = `<span style="color:var(--muted);">${projects.length} project${projects.length===1?'':'s'} found${projects.length===100?' (showing first 100 — narrow filters for more specific results)':''}.</span>`;
+
+      // Titlecase the ALL-CAPS project names and street names for readability
+      const tc = s => String(s||'').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
+      const dateStr = d => d ? new Date(d).toLocaleDateString('en-US', {year:'numeric', month:'short'}) : '—';
+
+      resultsEl.innerHTML = `<div class="aff-project-list">${projects.map(p => {
+        const addr = `${p.house_number || ''} ${tc(p.street_name || '')}`.trim();
+        const fullAddr = `${addr}, ${p.borough}, NY${p.postcode ? ' ' + p.postcode : ''}`;
+        const gmapsUrl = p.latitude && p.longitude
+          ? `https://www.google.com/maps/search/?api=1&query=${p.latitude},${p.longitude}`
+          : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddr)}`;
+        // Search Housing Connect for lottery listings at this project — imperfect
+        // (their search takes street text, not a stable project id) but the best
+        // handoff we can offer with public data alone.
+        const hcSearchUrl = `https://housingconnect.nyc.gov/PublicWeb/search-results?searchText=${encodeURIComponent(addr)}`;
+        const bedParts = [];
+        if(p.aggregate.studio) bedParts.push(`${p.aggregate.studio} studio`);
+        if(p.aggregate.br1) bedParts.push(`${p.aggregate.br1} 1BR`);
+        if(p.aggregate.br2) bedParts.push(`${p.aggregate.br2} 2BR`);
+        if(p.aggregate.br3) bedParts.push(`${p.aggregate.br3} 3BR`);
+        if(p.aggregate.br4) bedParts.push(`${p.aggregate.br4} 4BR+`);
+        const tierParts = [];
+        if(p.aggregate.extremely_low) tierParts.push(`<span class="ap-tier"><span class="n">${p.aggregate.extremely_low}</span> extremely low</span>`);
+        if(p.aggregate.very_low) tierParts.push(`<span class="ap-tier"><span class="n">${p.aggregate.very_low}</span> very low</span>`);
+        if(p.aggregate.low) tierParts.push(`<span class="ap-tier"><span class="n">${p.aggregate.low}</span> low</span>`);
+        if(p.aggregate.other) tierParts.push(`<span class="ap-tier"><span class="n">${p.aggregate.other}</span> moderate+</span>`);
+        return `<div class="aff-project">
+          <div class="ap-name">${esc(tc(p.project_name))}</div>
+          <div class="ap-addr">${esc(addr)}, ${esc(p.borough)}</div>
+          <div class="ap-meta">
+            <span>${esc(p.reporting_construction_type || 'Unknown type')}</span>
+            <span>Reported ${esc(dateStr(p.project_start_date))}</span>
+            <span><strong>${p.aggregate.total.toLocaleString()}</strong> unit${p.aggregate.total===1?'':'s'}${p.buildingCount>1?` across ${p.buildingCount} buildings`:''}</span>
+          </div>
+          ${bedParts.length ? `<div class="ap-tiers">Unit mix: ${esc(bedParts.join(' · '))}</div>` : ''}
+          ${tierParts.length ? `<div class="ap-tiers">Income tiers: ${tierParts.join('')}</div>` : ''}
+          <div class="ap-actions">
+            <a href="${esc(gmapsUrl)}" target="_blank" rel="noopener">📍 Map</a>
+            <a href="${esc(hcSearchUrl)}" target="_blank" rel="noopener">Search Housing Connect ↗</a>
+          </div>
+        </div>`;
+      }).join('')}</div>
+      <p class="hint" style="margin-top:14px;">Data: HPD Affordable Housing Production by Building (<a href="${AFFORDABLE_LANDING}" target="_blank" rel="noopener">NYC Open Data ↗</a>). Reports HPD-financed affordable units, so 100% market-rate construction isn't included here. A project appearing here doesn't guarantee a currently-open lottery — check the "Search Housing Connect" link for the building.</p>`;
+    }catch(e){
+      statusEl.innerHTML = `<span class="err">⚠ ${esc(e.message || 'Search failed')}. NYC Open Data is intermittent; try again.</span>`;
+    }
+  }
+  document.getElementById('affSearchBtn').addEventListener('click', runAffordableSearch);
+
+  // ---------- Explore a Neighborhood: rank buildings by violation history ----------
+  function titleCase(s){ return String(s||'').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()); }
+  function buildingRowHtml(b, tone){
+    return `<div class="building-row" data-house="${esc(b.houseNumber)}" data-street="${esc(b.street)}" data-boro="${esc(b.boro)}">
+      <div>
+        <div class="addr">${esc(b.houseNumber)} ${esc(titleCase(b.street))}</div>
+        <div class="meta">${b.open} open violation${b.open===1?'':'s'}${b.classC?`, ${b.classC} Class C`:''} · ${b.total} total on record</div>
+      </div>
+      <span>${tone==='good' ? '👍' : '⚠️'}</span>
+    </div>`;
+  }
+
+  const exploreBtn = document.getElementById('exploreBtn');
+  const exploreResultsEl = document.getElementById('exploreResults');
+
+  // A LIKE '%term%' scan of the whole violations table (millions of rows) took 16+
+  // seconds in testing. Matching against the real, short list of NTA names for the
+  // chosen borough (~50-60 names) lets every real query use a fast exact/IN match
+  // instead — 3-4x faster — and doubles as a picker when the user's spelling doesn't
+  // match NYC Planning's official name. Cached per borough since it barely ever changes.
+  // Normalize a neighborhood name for tolerant matching: lowercase, DROP apostrophes
+  // entirely (so "Hell's" == "Hells" == "Hells'"), turn any other punctuation into
+  // spaces, and collapse whitespace. Apostrophes are removed rather than spaced so the
+  // three spellings above all collapse to the same token.
+  function normNbhd(s){
+    return String(s || '').toLowerCase()
+      .replace(/[’‘']/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+  // Common colloquial names that appear in NO official NTA name, mapped to a normalized
+  // fragment of the official name they belong to. (Many other colloquial names — SoHo,
+  // Tribeca, DUMBO, Red Hook, Hudson Yards, Turtle Bay… — already match directly because
+  // NYC's combined NTA names contain them, so they aren't listed here.) Borough-scoped
+  // search keeps these safe, e.g. "clinton" only resolves to Hell's Kitchen in Manhattan.
+  const NBHD_ALIASES = {
+    'alphabet city': 'east village',
+    'nolita': 'little italy',
+    'nomad': 'flatiron',
+    'clinton': 'hells kitchen',
+    'bed stuy': 'bedford stuyvesant',
+    'bedstuy': 'bedford stuyvesant',
+    'spanish harlem': 'east harlem',
+    'el barrio': 'east harlem',
+    'lic': 'long island city',
+    'fidi': 'financial district'
+  };
+  // Return the official NTA names that match a free-text term, tolerant of punctuation
+  // and common nicknames.
+  function matchNeighborhoods(ntas, term){
+    const q = normNbhd(term);
+    if(!q) return [];
+    const targets = [q];
+    for(const [alias, official] of Object.entries(NBHD_ALIASES)){
+      if(q === alias || q.includes(alias) || alias.includes(q)) targets.push(official);
+    }
+    return ntas.filter(n => {
+      const nn = normNbhd(n);
+      return targets.some(t => nn.includes(t));
+    });
+  }
+
+  const ntaListCache = {};
+  async function getNtasForBorough(boro){
+    if(!ntaListCache[boro]){
+      const {rows} = await socrataGet('wvxf-dwi5', new URLSearchParams({
+        '$select': 'nta', '$where': `boro='${soql(boro)}'`, '$group': 'nta', '$limit': '200'
+      }));
+      ntaListCache[boro] = rows.map(r => r.nta).filter(Boolean).sort();
+    }
+    return ntaListCache[boro];
+  }
+
+  function ntaSuggestionsHtml(ntas){
+    return `<div class="top-links">${ntas.map(n => `<a href="#" class="nta-suggestion" data-nta="${esc(n)}">${esc(n)}</a>`).join('')}</div>`;
+  }
+
+  async function runNeighborhoodSearch(){
+    const term = document.getElementById('neighborhoodInput').value.trim();
+    const boro = document.getElementById('neighborhoodBorough').value;
+    if(!term){ alert('Please enter a neighborhood name.'); return; }
+    if(!boro){ alert('Please select a borough.'); return; }
+
+    exploreBtn.disabled = true;
+    exploreBtn.textContent = 'Searching…';
+    exploreResultsEl.innerHTML = `<div class="card">${loadingBlock('neighborhood names')}</div>`;
+
+    try{
+      const ntas = await getNtasForBorough(boro);
+      const matches = matchNeighborhoods(ntas, term);
+
+      if(!matches.length){
+        exploreResultsEl.innerHTML = `<div class="card">
+          <p class="empty">No neighborhood in ${esc(BORO_NAMES[boro]||boro)} matched “${esc(term)}.” Pick one below (these are NYC Planning's official neighborhood names for this borough):</p>
+          ${ntaSuggestionsHtml(ntas)}
+        </div>`;
+        return;
+      }
+
+      exploreResultsEl.innerHTML = `<div class="card">${loadingBlock(`violation records for ${matches.join(', ')}`)}</div>`;
+
+      // Grouped counts computed server-side (not a client-side tally of a capped row
+      // fetch) — a busy building can rack up 1000+ historical violation rows, which
+      // would silently swallow a page cap long before the neighborhood's other
+      // buildings got counted. $group/count(*) aggregates over the *full* matching set
+      // regardless of row volume, so counts stay accurate no matter how dense the area.
+      const ntaWhere = matches.length === 1
+        ? `nta='${soql(matches[0])}'`
+        : `nta IN (${matches.map(n => `'${soql(n)}'`).join(',')})`;
+      const baseWhere = `boro='${soql(boro)}' AND ${ntaWhere}`;
+      // $order biases which buildings survive the 5000-group cap on a very broad match:
+      // the "total" list favors low counts (feeds "cleanest"), the other two favor high
+      // counts (feed "worst") — so a truncated result still holds the buildings each
+      // ranking actually needs, rather than an arbitrary unsorted 5000.
+      const groupParams = (extraWhere, countAs, order) => new URLSearchParams({
+        '$select': `housenumber,streetname,count(*) as ${countAs}`,
+        '$where': extraWhere ? `${baseWhere} AND ${extraWhere}` : baseWhere,
+        '$group': 'housenumber,streetname',
+        '$order': `${countAs} ${order}`,
+        '$limit': '5000'
+      });
+
+      const [totalRes, openRes, classCRes] = await Promise.all([
+        socrataGet('wvxf-dwi5', groupParams('', 'total', 'ASC')),
+        socrataGet('wvxf-dwi5', groupParams(`violationstatus='Open'`, 'open', 'DESC')),
+        socrataGet('wvxf-dwi5', groupParams(`violationstatus='Open' AND class='C'`, 'classc', 'DESC'))
+      ]);
+      const url = totalRes.url;
+      const possiblyTruncated = totalRes.rows.length >= 5000 || openRes.rows.length >= 5000;
+
+      const buildings = {};
+      const keyOf = r => `${r.housenumber}|${r.streetname}`;
+      totalRes.rows.forEach(r => {
+        buildings[keyOf(r)] = {houseNumber:r.housenumber, street:r.streetname, boro, total:Number(r.total), open:0, classC:0};
+      });
+      openRes.rows.forEach(r => { const b = buildings[keyOf(r)]; if(b) b.open = Number(r.open); });
+      classCRes.rows.forEach(r => { const b = buildings[keyOf(r)]; if(b) b.classC = Number(r.classc); });
+      const list = Object.values(buildings);
+
+      if(!list.length){
+        exploreResultsEl.innerHTML = `<div class="card"><p class="empty">${esc(matches.join(', '))} has no HPD violations on record — nothing to rank yet.</p>
+          <div class="src-links"><a href="${url}" target="_blank" rel="noopener">View raw query results (JSON) ↗</a></div></div>`;
+        return;
+      }
+
+      const cleanest = [...list].sort((a,b) => a.open-b.open || a.classC-b.classC).slice(0,10);
+      const worst = [...list].filter(b => b.classC>0 || b.open>0).sort((a,b) => b.classC-a.classC || b.open-a.open).slice(0,10);
+
+      exploreResultsEl.innerHTML = `
+        <div class="card full">
+          <p class="hint" style="margin-top:0;">${list.length}${possiblyTruncated?'+':''} building${list.length===1?'':'s'} with a violation on record in <strong>${esc(matches.join(', '))}</strong>, ${esc(BORO_NAMES[boro]||boro)}. Click any building to run the full check on it.</p>
+          ${possiblyTruncated ? `<p class="hint" style="color:var(--warn);">⚠️ That's a lot of neighborhoods matched at once — this hit the per-search fetch cap, so the rankings below are drawn from a large but not exhaustive sample. Pick one of the specific neighborhoods above (e.g. just "${esc(matches[0])}") for a complete ranking.</p>` : ''}
+          <div class="neighborhood-cols">
+            <div>
+              <h3 style="margin:0 0 8px; font-size:1rem;" title="Ranked among buildings that have at least one violation on record — buildings with zero violations aren't captured by this search at all, see note above.">🏆 Best records (among buildings with violations)</h3>
+              ${cleanest.map(b => buildingRowHtml(b,'good')).join('')}
+            </div>
+            <div>
+              <h3 style="margin:0 0 8px; font-size:1rem;">⚠️ Most serious violations</h3>
+              ${worst.length ? worst.map(b => buildingRowHtml(b,'bad')).join('') : '<p class="empty">No open Class C violations found among matched buildings.</p>'}
+            </div>
+          </div>
+          <div class="src-links"><a href="${url}" target="_blank" rel="noopener">View raw query results (JSON) ↗</a></div>
+        </div>`;
+    }catch(e){
+      exploreResultsEl.innerHTML = `<div class="card">${errBlock(e.message)}</div>`;
+    }finally{
+      exploreBtn.disabled = false;
+      exploreBtn.textContent = '🗺️ Search neighborhood';
+    }
+  }
+  exploreBtn.addEventListener('click', runNeighborhoodSearch);
+  document.getElementById('neighborhoodInput').addEventListener('keydown', e => { if(e.key==='Enter') runNeighborhoodSearch(); });
+  exploreResultsEl.addEventListener('click', e => {
+    const suggestion = e.target.closest('.nta-suggestion');
+    if(suggestion){
+      e.preventDefault();
+      document.getElementById('neighborhoodInput').value = suggestion.dataset.nta;
+      runNeighborhoodSearch();
+      return;
+    }
+    const row = e.target.closest('.building-row');
+    if(!row) return;
+    switchTab('check');
+    document.getElementById('houseNumber').value = row.dataset.house;
+    document.getElementById('streetName').value = titleCase(row.dataset.street);
+    document.getElementById('borough').value = row.dataset.boro;
+    runSearch();
+  });
+
+  // ---------- Accounts: Google sign-in + cloud sync (Firebase Auth + Firestore) ----------
+  // Loaded via dynamic import() from inside this classic script (not a <script type="module">)
+  // so it can share scope directly with loadWatchlist/persistWatchlist/renderWatchlistPanel/
+  // loadChecklistState/renderChecklist above rather than needing a window-global bridge.
+  //
+  // This apiKey is a public client identifier, not a secret — Firebase access control is
+  // enforced by Firestore security rules (each user can only read/write their own document),
+  // not by hiding this value. Safe to have visible in client-side JS.
+  const firebaseConfig = {
+    apiKey: "AIzaSyCXE3Eek_b6ZY8_AdpAtSsQD08LtxSyxYQ",
+    authDomain: "nyc-bulding-report.firebaseapp.com",
+    projectId: "nyc-bulding-report",
+    storageBucket: "nyc-bulding-report.firebasestorage.app",
+    messagingSenderId: "567105277720",
+    appId: "1:567105277720:web:f39e77008a84cbce4ad86d"
+    // measurementId intentionally omitted — this app doesn't use Firebase Analytics.
+  };
+  const FB_SDK = 'https://www.gstatic.com/firebasejs/11.6.0/';
+  // fbAuth/fbDb/fbUser/fbDocRef/fbAuthMod/fbFsMod are declared near the top of this
+  // script (see comment there) so persistWatchlist's early call doesn't hit the TDZ.
+
+  function renderAuthArea(){
+    const area = document.getElementById('authArea');
+    if(!area) return;
+    if(fbUser){
+      area.innerHTML = `
+        ${fbUser.photoURL ? `<img src="${esc(fbUser.photoURL)}" alt="">` : ''}
+        <span class="auth-name">${esc(fbUser.displayName || fbUser.email || 'Signed in')}</span>
+        <span class="auth-sync" id="authSyncStatus">Syncing…</span>
+        <button type="button" class="secondary" id="signOutBtn">Sign out</button>
+      `;
+      document.getElementById('signOutBtn').addEventListener('click', () => {
+        fbAuthMod.signOut(fbAuth).catch(err => console.error('Sign-out failed', err));
+      });
+    } else {
+      area.innerHTML = `
+        <button type="button" class="secondary" id="signInBtn">Sign in with Google</button>
+        <span class="auth-sync">Saved on this device only</span>
+      `;
+      document.getElementById('signInBtn').addEventListener('click', () => {
+        if(!fbAuthMod || !fbAuth){
+          alert('Sign-in is still loading — try again in a moment.');
+          return;
+        }
+        const provider = new fbAuthMod.GoogleAuthProvider();
+        fbAuthMod.signInWithPopup(fbAuth, provider).catch(err => {
+          console.error('Sign-in failed', err);
+          alert('Sign-in failed: ' + err.message);
+        });
+      });
+    }
+  }
+  renderAuthArea(); // paint the signed-out state immediately, before Firebase finishes loading
+
+  async function pushToCloud(){
+    if(!fbDocRef) return;
+    const status = document.getElementById('authSyncStatus');
+    try{
+      await fbFsMod.setDoc(fbDocRef, {
+        watchlist: loadWatchlist(),
+        checklistState: loadChecklistState(),
+        savedListings: loadSavedListings(),
+        commuteAnchor: loadCommuteAnchor(),
+        updatedAt: new Date().toISOString()
+      });
+      if(status) status.textContent = 'Synced';
+    }catch(e){
+      console.error('Cloud sync (push) failed', e);
+      if(status) status.textContent = 'Sync error — saved on this device only';
+    }
+  }
+
+  // Runs once right after sign-in. Cloud data (if any) is merged with whatever's
+  // already on this device — by id, per collection — rather than one silently
+  // overwriting the other, so saving addresses or listings before ever signing
+  // in doesn't lose them.
+  async function syncFromCloudOnSignIn(){
+    if(!fbDocRef) return;
+    const status = document.getElementById('authSyncStatus');
+    try{
+      const snap = await fbFsMod.getDoc(fbDocRef);
+      if(snap.exists()){
+        const data = snap.data() || {};
+        const cloudList = Array.isArray(data.watchlist) ? data.watchlist : [];
+        const cloudChecklist = (data.checklistState && typeof data.checklistState === 'object') ? data.checklistState : {};
+        const cloudSaved = Array.isArray(data.savedListings) ? data.savedListings : [];
+
+        const localList = loadWatchlist();
+        const mergedList = [...cloudList];
+        localList.forEach(item => { if(!mergedList.some(x => x.id === item.id)) mergedList.push(item); });
+        persistWatchlist(mergedList); // this itself calls pushToCloud() again once fbUser is set — fine, idempotent
+
+        const localSaved = loadSavedListings();
+        const mergedSaved = [...cloudSaved];
+        localSaved.forEach(item => { if(!mergedSaved.some(x => x.id === item.id)) mergedSaved.push(item); });
+        persistSavedListings(mergedSaved);
+        renderSavedListings();
+
+        localStorage.setItem(CHECKLIST_STATE_KEY, JSON.stringify({...cloudChecklist, ...loadChecklistState()}));
+        renderChecklist();
+
+        // Commute anchor: cloud wins if it's set and local isn't. If both are set,
+        // local wins on the assumption the user updated it since their last sync.
+        // (Unlike watchlist/savedListings, this is a single record — no merge.)
+        const localCommute = loadCommuteAnchor();
+        if(data.commuteAnchor && typeof data.commuteAnchor === 'object' && !localCommute){
+          persistCommuteAnchor(data.commuteAnchor);
+        }
+      } else {
+        await pushToCloud(); // first sign-in on this account — seed the cloud doc from local data
+      }
+      if(document.getElementById('tab-watchlist').classList.contains('active')) renderWatchlistPanel();
+      if(status) status.textContent = 'Synced';
+    }catch(e){
+      console.error('Cloud sync (pull) failed', e);
+      if(status) status.textContent = 'Sync error — using this device\'s saved data';
+    }
+  }
+
+  async function initFirebase(){
+    try{
+      const [appMod, authMod, fsMod] = await Promise.all([
+        import(FB_SDK + 'firebase-app.js'),
+        import(FB_SDK + 'firebase-auth.js'),
+        import(FB_SDK + 'firebase-firestore.js')
+      ]);
+      const app = appMod.initializeApp(firebaseConfig);
+      fbAuth = authMod.getAuth(app);
+      fbDb = fsMod.getFirestore(app);
+      fbAuthMod = authMod;
+      fbFsMod = fsMod;
+
+      authMod.onAuthStateChanged(fbAuth, user => {
+        fbUser = user;
+        renderAuthArea();
+        if(user){
+          fbDocRef = fsMod.doc(fbDb, 'users', user.uid);
+          syncFromCloudOnSignIn();
+        } else {
+          fbDocRef = null;
+        }
+      });
+    }catch(e){
+      console.error('Firebase failed to load — falling back to device-only storage.', e);
+      const area = document.getElementById('authArea');
+      if(area) area.innerHTML = `<span class="auth-sync">Cloud sign-in unavailable right now — your data still saves on this device.</span>`;
+    }
+  }
+  initFirebase();
+
+  // Footer "Terms & Disclaimer" link opens the collapsed <details> block below
+  // it (rather than duplicating the text inline) and scrolls it into view.
+  const footerTermsLink = document.getElementById('footerTermsLink');
+  if(footerTermsLink){
+    footerTermsLink.addEventListener('click', e => {
+      e.preventDefault();
+      const details = document.getElementById('termsDetails');
+      if(!details) return;
+      details.open = true;
+      details.scrollIntoView({behavior:'smooth', block:'center'});
+    });
+  }
+
+  // Service worker registration for the PWA offline shell. Runs after the initial
+  // paint has finished (defer to window.load) so it doesn't compete with first
+  // render for network. Failures are silent — the app still works without it.
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(err => {
+        console.warn('Service worker registration failed:', err);
+      });
+    });
+  }
+
+  // Scroll-reveal for the Apple-style report layout. Uses IntersectionObserver
+  // so it's cheap and stops observing an element once it's revealed. A single
+  // observer instance watches for `.reveal` elements added anywhere in the DOM
+  // — new ones (from runSearch's report template, for example) get picked up
+  // by a MutationObserver on the results container.
+  if('IntersectionObserver' in window){
+    const revealObserver = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if(e.isIntersecting){
+          e.target.classList.add('in');
+          revealObserver.unobserve(e.target);
+        }
+      });
+    }, {threshold: 0.12, rootMargin: '0px 0px -40px 0px'});
+    function armReveal(root){
+      root.querySelectorAll('.reveal:not(.in)').forEach(el => revealObserver.observe(el));
+    }
+    // Initial pass
+    armReveal(document);
+    // Every time #results gets new content (from runSearch, watchlist recheck,
+    // etc.), pick up any new .reveal elements. Debounced trivially via requestAnimationFrame.
+    const resultsRoot = document.getElementById('results');
+    if(resultsRoot){
+      const mo = new MutationObserver(() => {
+        requestAnimationFrame(() => armReveal(resultsRoot));
+      });
+      mo.observe(resultsRoot, {childList:true, subtree:true});
+    }
+  } else {
+    // Fallback: no IO, just show everything
+    document.querySelectorAll('.reveal').forEach(el => el.classList.add('in'));
+  }
+
+  // ---------- 3D depth: mousemove tilt on cards + scroll parallax on hero ----------
+  // Skipped entirely on reduced-motion or on coarse pointers (touch devices,
+  // where the tilt has no natural trigger and the perspective feels wrong).
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const finePointer  = window.matchMedia && window.matchMedia('(pointer: fine)').matches;
+
+  if(!reduceMotion && finePointer){
+    // Card tilt on mousemove. Delegates from #results (and any other container
+    // holding cards) so cards rendered later by runSearch pick up the behavior
+    // for free — no need to re-wire per render.
+    const MAX_TILT = 2.2; // degrees; subtle enough to feel Apple, not toy
+    const LIFT = 4; // px
+    function handleMove(e){
+      const card = e.target.closest('.card');
+      if(!card) return;
+      // Skip if hover is on an interactive descendant that already has its
+      // own transform (buttons, inputs). Avoids compounding transforms.
+      if(e.target.closest('button, input, select, textarea, a')) return;
+      const rect = card.getBoundingClientRect();
+      // Ignore very small cards — the tilt reads jittery on narrow surfaces
+      if(rect.width < 260 || rect.height < 120) return;
+      const px = (e.clientX - rect.left) / rect.width  - 0.5; // -0.5..+0.5
+      const py = (e.clientY - rect.top)  / rect.height - 0.5;
+      card.style.setProperty('--tilt-y', (px *  MAX_TILT).toFixed(2) + 'deg');
+      card.style.setProperty('--tilt-x', (py * -MAX_TILT).toFixed(2) + 'deg');
+      card.style.setProperty('--lift', -LIFT + 'px');
+      if(!card.dataset.tiltActive) card.dataset.tiltActive = '1';
+    }
+    function handleLeave(e){
+      const card = e.target.closest('.card');
+      if(!card || !card.dataset.tiltActive) return;
+      // Smoothly reset by removing the data attribute (which the CSS gates on)
+      // and clearing the tilt props on the next frame so the transition runs
+      // from the current tilted value back to identity.
+      card.style.setProperty('--tilt-x', '0deg');
+      card.style.setProperty('--tilt-y', '0deg');
+      card.style.setProperty('--lift', '0px');
+      setTimeout(() => { delete card.dataset.tiltActive; }, 380);
+    }
+    // Use passive listeners since we never call preventDefault
+    document.addEventListener('mousemove', handleMove, {passive: true});
+    document.addEventListener('mouseleave', handleLeave, true);
+    document.addEventListener('mouseout', e => {
+      const card = e.target.closest && e.target.closest('.card');
+      if(card && !card.contains(e.relatedTarget)) handleLeave({target: card});
+    }, {passive: true});
+  }
+
+  if(!reduceMotion){
+    // Scroll parallax for the hero + giant grade letter. rAF-throttled and
+    // gated on presence of the hero (skipped on watchlist/tools tabs where
+    // there's no .report-hero to parallax).
+    let ticking = false;
+    function updateParallax(){
+      const y = window.scrollY;
+      // Different rates — the title moves faster than the letter beneath it,
+      // creating a subtle stacked-depth feel (Apple product-page rhythm).
+      document.body.style.setProperty('--parallax-hero',   Math.round(y * -0.18) + 'px');
+      document.body.style.setProperty('--parallax-letter', Math.round(y * -0.08) + 'px');
+      ticking = false;
+    }
+    function onScroll(){
+      if(!ticking){ requestAnimationFrame(updateParallax); ticking = true; }
+    }
+    // Enable parallax only when a hero is actually on the page
+    function armIfHero(){
+      const has = !!document.querySelector('.report-hero') || !!document.querySelector('.grade-canvas');
+      document.body.classList.toggle('parallax-active', has);
+    }
+    armIfHero();
+    window.addEventListener('scroll', onScroll, {passive: true});
+    // Re-arm whenever a search finishes (report added/removed from DOM)
+    const resultsRootParallax = document.getElementById('results');
+    if(resultsRootParallax){
+      new MutationObserver(armIfHero).observe(resultsRootParallax, {childList: true, subtree: true});
+    }
+  }
+
+  // ---------- Wire NYC GeoSearch autocomplete to every address input ----------
+  // Attached progressively — if GeoSearch is down these inputs still work as
+  // plain text fields. The Check-an-Address form has three fields but is fed
+  // by a single autocomplete on the top "ueInput" (parseInput already splits
+  // a picked address into house/street/borough), so we don't attach to the
+  // three split fields — that would fight the parser.
+  const _addrInputs = [
+    ['ueInput', (f) => {
+      // When the user picks a suggestion, split it into the three form fields.
+      const props = f.properties || {};
+      const boroMap = {'Manhattan':'MANHATTAN', 'Brooklyn':'BROOKLYN', 'Queens':'QUEENS', 'Bronx':'BRONX', 'Staten Island':'STATEN ISLAND'};
+      const boro = boroMap[props.borough] || '';
+      if(props.housenumber) document.getElementById('houseNumber').value = props.housenumber;
+      if(props.street)      document.getElementById('streetName').value  = props.street;
+      if(boro)              document.getElementById('borough').value     = boro;
+    }],
+    ['nearbyInput', null],
+    ['commuteInput', null],
+    ['savedListingInput', null] // useful for the saved-listing note field too
+  ];
+  _addrInputs.forEach(([id, onSelect]) => {
+    const el = document.getElementById(id);
+    if(el) attachGeoSearchAutocomplete(el, {onSelect});
+  });
+})();
