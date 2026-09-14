@@ -665,7 +665,7 @@
   // identify the calling app, not a user or a secret, so they're meant to
   // ship in client-side code same as this. Paste one in below; leaving it
   // blank is exactly the app's current (working) behavior.
-  const SOCRATA_APP_TOKEN = '';
+  const SOCRATA_APP_TOKEN = 'V020n6Dynd5cyjkuhxPotvkyj';
   const socrataHeaders = () => SOCRATA_APP_TOKEN
     ? {'Accept':'application/json', 'X-App-Token': SOCRATA_APP_TOKEN}
     : {'Accept':'application/json'};
