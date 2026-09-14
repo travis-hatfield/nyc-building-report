@@ -1224,6 +1224,17 @@
     const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
     return R * 2 * Math.asin(Math.sqrt(a));
   }
+  // Straight-line distance -> rough walk time at ~3 mph (a relaxed city walking
+  // pace, not a racewalk) with a flat 15% detour penalty since real sidewalks
+  // never run point-to-point the way a haversine distance does.
+  function walkTimeMinutes(miles){
+    const minutes = (miles / 3) * 60 * 1.15;
+    return Math.max(1, Math.round(minutes));
+  }
+  function walkTimeLabel(miles){
+    const m = walkTimeMinutes(miles);
+    return `${miles.toFixed(2)} mi · ~${m} min walk`;
+  }
 
   // MTA Subway Stations (data.ny.gov, same Socrata platform as NYC Open Data) — small
   // and essentially static, so fetch once and reuse for every address checked this session.
@@ -1300,7 +1311,27 @@
     return {crashes:Number(row.n)||0, injured:Number(row.injured)||0, killed:Number(row.killed)||0, radiusMiles:milesBox, sinceStr, url};
   }
 
-  function renderTransitSafety(coords, subwayResult, crimeResult, crashResult){
+  // Bus stops, Citi Bike docks, parks, groceries, and "third places" (coffee +
+  // bars/nightlife, used as a wellness proxy below) all come from the same
+  // Overpass proxy that already backs the Explore tab — one query instead of
+  // five separate ones. 0.5mi keeps this "genuinely walkable from this
+  // building," not "somewhere in the neighborhood."
+  async function fetchLivabilityAmenities(coords){
+    const pois = await fetchNearbyPOIs(coords.lat, coords.lon, 0.5,
+      ['busstop', 'bikeshare', 'parks', 'grocery', 'coffee', 'nightlife']);
+    const withDist = pois.map(p => ({...p, miles: haversineMiles(coords.lat, coords.lon, p.lat, p.lon)}));
+    const nearest = (cat, n) => withDist.filter(p => p.cat === cat).sort((a,b) => a.miles-b.miles).slice(0, n);
+    const countOf = cat => withDist.filter(p => p.cat === cat).length;
+    return {
+      busStops: nearest('busstop', 3),
+      citibike: nearest('bikeshare', 3),
+      parksCount: countOf('parks'),
+      groceryCount: countOf('grocery'),
+      thirdPlacesCount: countOf('coffee') + countOf('nightlife')
+    };
+  }
+
+  function renderTransitSafety(coords, subwayResult, crimeResult, crashResult, amenityResult){
     if(!coords){
       return '<p class="empty">No coordinates came back from any dataset for this address, so transit and safety data couldn\'t be looked up.</p>';
     }
@@ -1314,13 +1345,42 @@
             <div class="addr">${esc(s.name)}</div>
             <div class="meta">${s.routes.map(r=>esc(r)).join(', ') || '—'}</div>
           </div>
-          <span class="meta">${s.miles.toFixed(2)} mi</span>
+          <span class="meta">${walkTimeLabel(s.miles)}</span>
         </div>`).join(''));
       parts.push(`<div class="src-links"><a href="https://data.ny.gov/Transportation/MTA-Subway-Stations/39hk-dx4f" target="_blank" rel="noopener">MTA Subway Stations dataset ↗</a></div>`);
     } else if(subwayResult.status === 'rejected'){
       parts.push(errBlock(subwayResult.reason && subwayResult.reason.message || 'subway lookup failed'));
     } else {
       parts.push('<p class="empty">No subway stations found nearby.</p>');
+    }
+
+    parts.push('<hr style="border:none; border-top:1px solid var(--border); margin:16px 0;">');
+
+    if(amenityResult && amenityResult.status === 'fulfilled'){
+      const {busStops, citibike} = amenityResult.value;
+      parts.push(`<h3 style="margin:0 0 8px; font-size:1rem;">Nearest bus stops</h3>`);
+      if(busStops.length){
+        parts.push(busStops.map(s => `
+          <div class="building-row" style="cursor:default;">
+            <div><div class="addr">${esc(s.hasName ? s.name : 'Bus stop')}</div></div>
+            <span class="meta">${walkTimeLabel(s.miles)}</span>
+          </div>`).join(''));
+      } else {
+        parts.push('<p class="empty">No mapped bus stops within 0.5 mi.</p>');
+      }
+      parts.push(`<h3 style="margin:16px 0 8px; font-size:1rem;">Nearest Citi Bike stations</h3>`);
+      if(citibike.length){
+        parts.push(citibike.map(s => `
+          <div class="building-row" style="cursor:default;">
+            <div><div class="addr">${esc(s.hasName ? s.name : 'Bike share dock')}</div></div>
+            <span class="meta">${walkTimeLabel(s.miles)}</span>
+          </div>`).join(''));
+      } else {
+        parts.push('<p class="empty">No bike-share docks within 0.5 mi.</p>');
+      }
+      parts.push(`<p class="hint">Bus stops and bike-share docks come from OpenStreetMap, community-mapped rather than an official MTA/Lyft feed — usually complete in NYC but occasionally missing a brand-new dock or stop.</p>`);
+    } else if(amenityResult && amenityResult.status === 'rejected'){
+      parts.push(errBlock(amenityResult.reason && amenityResult.reason.message || 'bus/bike-share lookup failed'));
     }
 
     parts.push('<hr style="border:none; border-top:1px solid var(--border); margin:16px 0;">');
@@ -1736,6 +1796,177 @@
     </details>`;
   }
 
+  // ---------- Livability Score: composite 0-100 across 6 weighted categories ----------
+  // Same "transparent, hand-weighted, show every deduction" philosophy as the
+  // Building Grade above, just rolled up across everything the report already
+  // knows plus the transit/amenity data fetched for the Nearby-style lookups.
+  // Weights mirror the standard livability-index shape (building health and
+  // safety weighted highest — they affect daily life the most directly).
+  const LIVABILITY_WEIGHTS = {
+    buildingHealth: {weight:0.30, label:'Building Health', icon:'🏢'},
+    safety:         {weight:0.25, label:'Safety',          icon:'🛡️'},
+    transit:        {weight:0.15, label:'Transit',         icon:'🚇'},
+    amenities:      {weight:0.15, label:'Amenities',       icon:'🌳'},
+    noise:          {weight:0.10, label:'Noise & Nuisance',icon:'🔊'},
+    wellness:       {weight:0.05, label:'Wellness',        icon:'🧘'}
+  };
+
+  function computeLivabilityScore(gradeData, coordsData){
+    const {gradeInfo, resultsByKey} = gradeData;
+    const rowsOf = key => (resultsByKey[key] && resultsByKey[key].rows) || [];
+    const cats = {};
+    const mk = (key, score, notes) => {
+      cats[key] = {...LIVABILITY_WEIGHTS[key], score: Math.max(0, Math.min(100, Math.round(score))), notes: notes || []};
+    };
+
+    // Building Health — reuse the existing Building Grade score as-is; it's
+    // already a transparent 0-100 built from the exact same HPD/DOB/eviction/
+    // 311 records, no reason to recompute it a second way.
+    mk('buildingHealth', gradeInfo.score, [`Same 0-100 score as the Building Grade above (${gradeInfo.grade}) — see its breakdown for every deduction.`]);
+
+    // Safety — starts at 100, deducted for NYPD complaint volume and traffic
+    // crash severity within a small radius (same snapshots already fetched
+    // for the Transit & Safety card).
+    let safety = 100; const safetyNotes = [];
+    const coordsAvailable = coordsData !== 'unavailable';
+    if(coordsAvailable && coordsData.crimeResult.status === 'fulfilled'){
+      const {counts, radiusMiles} = coordsData.crimeResult.value;
+      const total = counts.FELONY + counts.MISDEMEANOR + counts.VIOLATION;
+      const d = Math.min(total * 1.2, 50);
+      safety -= d;
+      safetyNotes.push(`−${Math.round(d)} — ${total} NYPD complaint${total===1?'':'s'} within ~${radiusMiles} mi (last 180 days)`);
+    } else {
+      safetyNotes.push('Crime data unavailable for this address — score reflects crash data only.');
+    }
+    if(coordsAvailable && coordsData.crashResult.status === 'fulfilled'){
+      const {crashes, injured, killed, radiusMiles} = coordsData.crashResult.value;
+      const d = Math.min(crashes*1.5 + injured*4 + killed*15, 30);
+      if(d > 0) safety -= d;
+      if(crashes > 0) safetyNotes.push(`−${Math.round(d)} — ${crashes} traffic crash${crashes===1?'':'es'} within ~${radiusMiles} mi (${injured} injured, ${killed} killed, last 180 days)`);
+    }
+    mk('safety', safety, safetyNotes);
+
+    // Transit — starts near zero, adds points for proximity to subway, bus,
+    // and Citi Bike. A building with none nearby scores low; one within a
+    // couple blocks of a subway entrance maxes it out on that factor alone.
+    let transit = 15; const transitNotes = [`+15 — base score`];
+    if(coordsAvailable && coordsData.subwayResult.status === 'fulfilled' && coordsData.subwayResult.value.length){
+      const d = coordsData.subwayResult.value[0].miles;
+      const pts = d<=0.15 ? 40 : d<=0.3 ? 32 : d<=0.5 ? 22 : d<=0.75 ? 12 : 5;
+      transit += pts;
+      transitNotes.push(`+${pts} — nearest subway ${walkTimeLabel(d)}`);
+    } else {
+      transitNotes.push('+0 — no subway station found nearby');
+    }
+    if(coordsAvailable && coordsData.amenityResult.status === 'fulfilled'){
+      const {busStops, citibike} = coordsData.amenityResult.value;
+      if(busStops.length){
+        const d = busStops[0].miles;
+        const pts = d<=0.1 ? 25 : d<=0.25 ? 18 : d<=0.4 ? 10 : 4;
+        transit += pts;
+        transitNotes.push(`+${pts} — nearest bus stop ${walkTimeLabel(d)}`);
+      } else {
+        transitNotes.push('+0 — no mapped bus stop within 0.5 mi');
+      }
+      if(citibike.length){
+        const d = citibike[0].miles;
+        const pts = d<=0.15 ? 20 : d<=0.3 ? 12 : d<=0.5 ? 6 : 2;
+        transit += pts;
+        transitNotes.push(`+${pts} — nearest Citi Bike dock ${walkTimeLabel(d)}`);
+      } else {
+        transitNotes.push('+0 — no bike-share dock within 0.5 mi');
+      }
+    }
+    mk('transit', transit, transitNotes);
+
+    // Amenities — starts near zero, adds points for parks and groceries
+    // within 0.5 mi (each additional one worth less, capped, so one park a
+    // block away doesn't get outweighed by five convenience-adjacent hits).
+    let amenities = 20; const amenNotes = [`+20 — base score`];
+    if(coordsAvailable && coordsData.amenityResult.status === 'fulfilled'){
+      const {parksCount, groceryCount} = coordsData.amenityResult.value;
+      const parkPts = Math.min(parksCount*10, 30);
+      const groceryPts = Math.min(groceryCount*8, 30);
+      amenities += parkPts + groceryPts;
+      amenNotes.push(`+${parkPts} — ${parksCount} park${parksCount===1?'':'s'}/garden${parksCount===1?'':'s'} within 0.5 mi`);
+      amenNotes.push(`+${groceryPts} — ${groceryCount} grocery store${groceryCount===1?'':'s'} within 0.5 mi`);
+    } else {
+      amenNotes.push('Amenity data unavailable for this address.');
+    }
+    mk('amenities', amenities, amenNotes);
+
+    // Noise & Nuisance — starts at 100, deducted for 311 noise-category
+    // complaints on file for this address and nearby active construction
+    // permits (both datasets the report already fetched).
+    let noise = 100; const noiseNotes = [];
+    const noiseComplaints = rowsOf('threeOneOne').filter(r => /noise/i.test(r.complaint_type || '')).length;
+    const totalComplaints = rowsOf('threeOneOne').length;
+    if(noiseComplaints > 0){
+      const d = Math.min(noiseComplaints*2, 40);
+      noise -= d;
+      noiseNotes.push(`−${Math.round(d)} — ${noiseComplaints} noise-category 311 complaint${noiseComplaints===1?'':'s'} on file for this address`);
+    } else if(totalComplaints === 0){
+      noiseNotes.push('No 311 complaints on file for this address.');
+    } else {
+      noiseNotes.push('No noise-category 311 complaints among those on file.');
+    }
+    const permitsNearby = rowsOf('permits').length;
+    if(permitsNearby > 0){
+      const d = Math.min(permitsNearby*3, 20);
+      noise -= d;
+      noiseNotes.push(`−${Math.round(d)} — ${permitsNearby} nearby construction permit${permitsNearby===1?'':'s'} on file`);
+    }
+    mk('noise', noise, noiseNotes);
+
+    // Wellness — the lowest-weighted, softest category: a "third places" proxy
+    // (coffee shops + bars/nightlife within 0.5 mi, i.e. places to informally
+    // spend time near home) rather than anything resembling air-quality or
+    // sensory-environment sensor data, which the report doesn't have a source
+    // for. Deliberately conservative given how thin the signal is.
+    let wellness = 50; const wellNotes = [`+50 — base score`];
+    if(coordsAvailable && coordsData.amenityResult.status === 'fulfilled'){
+      const {thirdPlacesCount} = coordsData.amenityResult.value;
+      const pts = Math.min(thirdPlacesCount*5, 40);
+      wellness += pts;
+      wellNotes.push(`+${pts} — ${thirdPlacesCount} coffee shop${thirdPlacesCount===1?'':'s'}/bar${thirdPlacesCount===1?'':'s'} within 0.5 mi (a rough "third places" proxy — no air-quality or sensory-environment data source is wired up yet)`);
+    } else {
+      wellNotes.push('Third-places data unavailable for this address.');
+    }
+    mk('wellness', wellness, wellNotes);
+
+    const overall = Math.round(Object.values(cats).reduce((sum, c) => sum + c.score * c.weight, 0));
+    const grade = overall>=90 ? 'A' : overall>=75 ? 'B' : overall>=60 ? 'C' : overall>=40 ? 'D' : 'F';
+    return {overall, grade, categories: cats};
+  }
+
+  function renderLivabilityScore(result){
+    const {overall, grade, categories} = result;
+    const bandLabel = overall>=90 ? 'Excellent conditions with minimal issues'
+      : overall>=75 ? 'Good conditions with minor concerns'
+      : overall>=60 ? 'Average conditions with notable issues'
+      : 'Significant concerns across multiple factors';
+    const catsHtml = Object.entries(categories).map(([key, c]) => `
+      <details class="grade-wrap" style="margin-bottom:8px;">
+        <summary class="grade-badge grade-${scoreToGrade(c.score)}" style="width:100%; box-sizing:border-box;">
+          <span class="letter" style="font-size:0.85em;">${c.icon}</span>
+          ${esc(c.label)} — ${c.score}/100
+          <span class="meta" style="float:right; font-weight:400;">weight ${Math.round(c.weight*100)}%</span>
+        </summary>
+        <div class="grade-explain"><ul>${c.notes.map(n=>`<li>${esc(n)}</li>`).join('')}</ul></div>
+      </details>`).join('');
+    return `
+      <details class="grade-wrap" open>
+        <summary class="grade-badge grade-${grade}"><span class="letter">${grade}</span> Livability Score (${overall}/100)</summary>
+        <span class="grade-tagline">${esc(bandLabel)}</span>
+      </details>
+      <p class="hint" style="margin:10px 0 14px;">One weighted score combining six categories below — Building Health and Safety count most, Wellness least. Click any category to see exactly what it added or deducted and why. Every input is a public/open dataset the rest of this report already links to; nothing here is a black box.</p>
+      ${catsHtml}
+    `;
+  }
+  function scoreToGrade(score){
+    return score>=90 ? 'A' : score>=75 ? 'B' : score>=60 ? 'C' : score>=40 ? 'D' : 'F';
+  }
+
   // A little celebration for the best outcome a search can turn up — purely
   // decorative, no functional purpose. Respects prefers-reduced-motion, and
   // costs nothing when it doesn't fire (no canvas, no library — a handful of
@@ -1967,6 +2198,18 @@
       <div id="worstLandlordSlot"></div>
       <div id="rentStabSlot"></div>
 
+      <!-- Composite Livability Score: one weighted 0-100 number rolling up
+           Building Health, Safety, Transit, Amenities, Noise, and Wellness —
+           each category expandable to show the underlying data, same spirit
+           as the Building Grade above but covering everything, not just
+           HPD/DOB/eviction records. Waits on both the building grade (needs
+           every dataset) and the coords-dependent transit/amenity fetches,
+           whichever finishes last. -->
+      <div class="card full" id="sec-livability">
+        <div class="section-title"><h2>Livability Score</h2></div>
+        <div class="body">${loadingBlock('the livability score (building health, safety, transit, amenities, noise, wellness)')}</div>
+      </div>
+
       <!-- New section order surfaces value-first: Red Flags summary → the full
            records (violations, DOB complaints, other datasets) → ownership → then
            utility/context (listing sites, transit, tax records, flood zone). Old
@@ -2028,6 +2271,21 @@
 
     let latestRegId = null;
     const resultsByKey = {};
+
+    // Livability Score inputs arrive from two independent async paths (the
+    // full dataset settle for building health/noise, the coords-dependent
+    // transit/amenity fetch for everything else) — whichever finishes last
+    // triggers the render. 'unavailable' (string, not null) distinguishes
+    // "we checked and there's nothing" from "hasn't resolved yet".
+    let livabilityGradeData = null;   // {gradeInfo, resultsByKey} once set
+    let livabilityCoordsData = null;  // {subwayResult, crimeResult, crashResult, amenityResult} | 'unavailable'
+    function maybeRenderLivabilityScore(){
+      if(livabilityGradeData === null || livabilityCoordsData === null) return; // still waiting on one side
+      const body = document.querySelector('#sec-livability .body');
+      if(!body) return;
+      const result = computeLivabilityScore(livabilityGradeData, livabilityCoordsData);
+      body.innerHTML = renderLivabilityScore(result);
+    }
 
     // Pulled out of the Promise.all loop so a single failed dataset (rate limit,
     // network blip) can be retried on its own via the button in errBlock, instead
@@ -2108,9 +2366,11 @@
         document.getElementById('parksLinkSlot').innerHTML =
           `<a href="https://www.google.com/maps/search/parks/@${coords.lat},${coords.lon},15z" target="_blank" rel="noopener">Find nearby parks ↗</a>`;
         renderCommuteChip(coords);
-        Promise.allSettled([fetchNearestSubwayStations(coords), fetchCrimeSnapshot(coords), fetchCrashSnapshot(coords)])
-          .then(([subwayResult, crimeResult, crashResult]) => {
-            transitBody.innerHTML = renderTransitSafety(coords, subwayResult, crimeResult, crashResult);
+        Promise.allSettled([fetchNearestSubwayStations(coords), fetchCrimeSnapshot(coords), fetchCrashSnapshot(coords), fetchLivabilityAmenities(coords)])
+          .then(([subwayResult, crimeResult, crashResult, amenityResult]) => {
+            transitBody.innerHTML = renderTransitSafety(coords, subwayResult, crimeResult, crashResult, amenityResult);
+            livabilityCoordsData = {subwayResult, crimeResult, crashResult, amenityResult};
+            maybeRenderLivabilityScore();
           });
       }
       const floodBody = document.querySelector('#sec-floodzone .body');
@@ -2133,6 +2393,8 @@
       if(floodBody) floodBody.innerHTML = renderFloodZone(null);
       const sunBody = document.querySelector('#sec-sun .body');
       if(sunBody) sunBody.innerHTML = renderSunProfile(null);
+      livabilityCoordsData = 'unavailable';
+      maybeRenderLivabilityScore();
     });
 
     // Fire BBL-dependent sections the moment a BBL is available.
@@ -2212,6 +2474,9 @@
     const gradeBadgeSlot = document.getElementById('gradeBadgeSlot');
     gradeBadgeSlot.innerHTML = renderGradeBadge(gradeInfo);
     if(gradeInfo.grade === 'A') fireConfetti(gradeBadgeSlot.querySelector('.grade-badge'));
+
+    livabilityGradeData = {gradeInfo, resultsByKey};
+    maybeRenderLivabilityScore();
 
     // Apple-style hero + giant-grade canvas: populate now that gradeInfo exists.
     // Both live above the .card full block from the initial template; they don't
@@ -3773,6 +4038,8 @@
 
   const NEARBY_CATEGORIES = {
     transit:    {icon:'🚇', label:'Transit', color:'#1976d2'},
+    busstop:    {icon:'🚌', label:'Bus Stops', color:'#1565c0'},
+    bikeshare:  {icon:'🚲', label:'Citi Bike', color:'#00acc1'},
     coffee:     {icon:'☕', label:'Coffee', color:'#795548'},
     grocery:    {icon:'🛒', label:'Groceries', color:'#43a047'},
     attractions:{icon:'🎭', label:'Attractions', color:'#8e24aa'},
@@ -3789,6 +4056,16 @@
   const OVERPASS_TAGS = {
     transit:    ['node["railway"="station"]["station"="subway"]',
                  'node["public_transport"="station"]["subway"="yes"]'],
+    // Plain MTA/private bus stops — `highway=bus_stop` is the standard OSM tag
+    // for a curbside stop (vs. `amenity=bus_station` which is a terminal/depot,
+    // deliberately excluded so this stays "nearest stop to catch a bus", not
+    // "nearest bus garage").
+    busstop:    ['node["highway"="bus_stop"]'],
+    // Citi Bike (and any other dockless/docked bike-share network OSM has
+    // mapped) — tagged amenity=bicycle_rental in OSM regardless of operator,
+    // so this isn't Citi Bike-specific by construction, but it's effectively
+    // all Citi Bike within NYC.
+    bikeshare:  ['node["amenity"="bicycle_rental"]', 'way["amenity"="bicycle_rental"]'],
     coffee:     ['node["amenity"="cafe"]', 'way["amenity"="cafe"]'],
     // Real grocery shopping only — supermarkets, greengrocers, and health-food
     // stores (Whole Foods, Trader Joe's, etc. are tagged shop=supermarket or
@@ -4051,6 +4328,8 @@
     const categorize = el => {
       const t = el.tags || {};
       if(t.railway === 'station' || t.subway === 'yes') return 'transit';
+      if(t.highway === 'bus_stop') return 'busstop';
+      if(t.amenity === 'bicycle_rental') return 'bikeshare';
       if(t.amenity === 'cafe') return 'coffee';
       if(t.shop && /^(supermarket|greengrocer|health_food)$/.test(t.shop)) return 'grocery';
       if(t.shop && /^(department_store|wholesale)$/.test(t.shop) &&
