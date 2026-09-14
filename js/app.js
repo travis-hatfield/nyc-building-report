@@ -656,12 +656,26 @@
   }
 
   // ---------- Socrata fetch ----------
+  // Optional Socrata app token for data.cityofnewyork.us. Anonymous requests
+  // (today's default, SOCRATA_APP_TOKEN='') share one low rate limit across
+  // every unauthenticated caller on the internet, which is where throttled/
+  // slow responses under load come from. A free token — 2 minutes at
+  // https://data.cityofnewyork.us/profile/edit/developer_settings — moves
+  // this app's requests onto their own much higher per-app limit. App tokens
+  // identify the calling app, not a user or a secret, so they're meant to
+  // ship in client-side code same as this. Paste one in below; leaving it
+  // blank is exactly the app's current (working) behavior.
+  const SOCRATA_APP_TOKEN = '';
+  const socrataHeaders = () => SOCRATA_APP_TOKEN
+    ? {'Accept':'application/json', 'X-App-Token': SOCRATA_APP_TOKEN}
+    : {'Accept':'application/json'};
+
   // Every dataset on data.cityofnewyork.us is queried the same way: build a $where/$limit/
   // $order query string, GET the resource, and hand back both the rows and the exact URL
   // used (so the UI can link straight to it for verification).
   async function socrataGet(datasetId, params){
     const url = `https://data.cityofnewyork.us/resource/${datasetId}.json?${params.toString()}`;
-    const res = await fetch(url, {headers:{'Accept':'application/json'}});
+    const res = await fetch(url, {headers: socrataHeaders()});
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
     return {rows: await res.json(), url};
   }
@@ -1283,7 +1297,7 @@
       '$group': 'law_cat_cd'
     });
     const url = `https://data.cityofnewyork.us/resource/5uac-w243.json?${params.toString()}`;
-    const res = await fetch(url, {headers:{'Accept':'application/json'}});
+    const res = await fetch(url, {headers: socrataHeaders()});
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
     const rows = await res.json();
     const counts = {FELONY:0, MISDEMEANOR:0, VIOLATION:0};
@@ -1304,7 +1318,7 @@
                 `AND crash_date > '${sinceStr}T00:00:00'`
     });
     const url = `https://data.cityofnewyork.us/resource/h9gi-nx95.json?${params.toString()}`;
-    const res = await fetch(url, {headers:{'Accept':'application/json'}});
+    const res = await fetch(url, {headers: socrataHeaders()});
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
     const rows = await res.json();
     const row = rows[0] || {};
@@ -4643,7 +4657,7 @@
     const url = `https://data.cityofnewyork.us/resource/${AFFORDABLE_DATASET_ID}.json?${params}`;
 
     try{
-      const res = await fetch(url);
+      const res = await fetch(url, {headers: socrataHeaders()});
       if(!res.ok) throw new Error(`NYC Open Data returned ${res.status}`);
       const rows = await res.json();
       // De-duplicate by project_id (the dataset lists one row per BUILDING within
@@ -5075,7 +5089,20 @@
       if(area) area.innerHTML = `<span class="auth-sync">Cloud sign-in unavailable right now — your data still saves on this device.</span>`;
     }
   }
-  initFirebase();
+  // Deferred to window.load, same reasoning as the service worker registration
+  // below: this pulls in 3 Firebase ESM modules from a CDN that the large
+  // majority of visits never touch (most sessions never sign in — Watchlist/
+  // notes already work fully device-local without it). Firing it immediately
+  // at script-top competed with the initial report render for network and
+  // main-thread time on every single page load, for a feature only signed-in
+  // users benefit from. Deferring costs those users a few hundred ms before
+  // auto-sign-in restores (imperceptible — it was never gating anything on
+  // screen), and costs everyone else nothing.
+  if(document.readyState === 'complete'){
+    initFirebase();
+  } else {
+    window.addEventListener('load', initFirebase);
+  }
 
   // Footer "Terms & Disclaimer" link opens the collapsed <details> block below
   // it (rather than duplicating the text inline) and scrolls it into view.
