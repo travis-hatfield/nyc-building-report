@@ -1108,18 +1108,22 @@
     padding:11px 22px; font-size:16px; font-weight:400;
   }
 
-  /* Giant grade letter — one canvas unto itself */
+  /* Grade disc: ring gauge + letter, compact instead of one glyph filling
+     the whole viewport height. */
   .grade-canvas{
-    padding:56px 0 40px; text-align:center; break-inside:avoid;
+    padding:28px 0 22px; text-align:center; break-inside:avoid;
   }
   .grade-canvas .eyebrow{
     font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
-    color:var(--muted); margin:0 0 24px;
+    color:var(--muted); margin:0 0 14px;
   }
+  .grade-disc{ display:inline-grid; place-items:center; margin:0 auto; }
+  .grade-disc-ring{ grid-area:1/1; }
+  .grade-disc-center{ grid-area:1/1; display:flex; flex-direction:column; align-items:center; }
   .grade-canvas .letter-huge{
-    font-size:clamp(140px, 22vw, 260px);
-    font-weight:200; line-height:.9; letter-spacing:-.05em;
-    margin:0 0 10px; color:var(--good);
+    font-size:clamp(56px, 7vw, 78px);
+    font-weight:200; line-height:.9; letter-spacing:-.03em;
+    margin:0; color:var(--good);
     display:block;
   }
   .grade-canvas .letter-huge.grade-A, .grade-canvas .letter-huge.grade-B{ color:var(--good); }
@@ -1519,8 +1523,8 @@
     .tabs{ margin:0 -16px; padding:0 16px; }
     .tab-btn{ padding:12px 10px 10px; font-size:12px; }
     .report-hero{ padding:32px 0 24px; }
-    .grade-canvas{ padding:32px 0 24px; }
-    .grade-canvas .letter-huge{ font-size:clamp(120px, 42vw, 200px); }
+    .grade-canvas{ padding:18px 0 16px; }
+    .grade-canvas .letter-huge{ font-size:clamp(44px, 14vw, 64px); }
     .card{ padding:20px 18px; }
     .external-sources summary{ padding:14px 18px; font-size:13px; }
     .external-sources .ext-links{ padding:12px 18px 4px; }
@@ -1759,3 +1763,157 @@
   .sun-card .sun-tile .sr .val, .sun-card .sun-tile .ss .val { color: #1d1d1f; font-variant-numeric: tabular-nums; }
   .sun-card .sun-guidance { font-size: 13px; color: #424245; line-height: 1.5; }
 
+
+  /* =====================================================================
+     VISUAL REFRESH (2026): background texture, icon badges, score gauges,
+     hero illustration. Appended as its own layer (same pattern as the
+     Apple rewrite above) so it wins by source order without editing the
+     rules above. Nothing here changes markup structure that JS depends
+     on for functionality — every new class is additive.
+     ===================================================================== */
+
+  /* -------- Background texture -------- */
+  /* Three large, very soft color blobs behind the whole page instead of flat
+     white — the thing that reads as "empty"/dated on the plain --bg fill.
+     Pure background-image on <body>, no extra element, so there's zero
+     stacking-context/z-index risk. Colors are deliberately restrained
+     (6-10% opacity) so text contrast and existing shadows are unaffected. */
+  body{
+    background-color:var(--bg);
+    background-image:
+      radial-gradient(1000px 620px at 8% -10%, rgba(0,113,227,.07), transparent 60%),
+      radial-gradient(900px 620px at 100% 0%, rgba(124,92,240,.06), transparent 55%),
+      radial-gradient(850px 600px at 15% 100%, rgba(15,138,114,.055), transparent 55%);
+    background-repeat:no-repeat;
+    background-attachment:fixed, fixed, fixed;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]) body{
+      background-image:
+        radial-gradient(1000px 620px at 8% -10%, rgba(41,151,255,.13), transparent 60%),
+        radial-gradient(900px 620px at 100% 0%, rgba(151,92,255,.11), transparent 55%),
+        radial-gradient(850px 600px at 15% 100%, rgba(79,208,122,.09), transparent 55%);
+    }
+  }
+  :root[data-theme="dark"] body{
+    background-image:
+      radial-gradient(1000px 620px at 8% -10%, rgba(41,151,255,.13), transparent 60%),
+      radial-gradient(900px 620px at 100% 0%, rgba(151,92,255,.11), transparent 55%),
+      radial-gradient(850px 600px at 15% 100%, rgba(79,208,122,.09), transparent 55%);
+  }
+  /* Fixed backgrounds are expensive/buggy on mobile Safari — scroll normally there. */
+  @media (max-width:860px){
+    body{ background-attachment:scroll, scroll, scroll; }
+  }
+
+  /* -------- Icon badges on card headers -------- */
+  /* Wraps the existing, untouched .section-title so none of the eyebrow-
+     label stacking rules above need to change — this just adds a colored
+     glyph chip to its left. */
+  .card-head{ display:flex; align-items:flex-start; gap:12px; margin-bottom:14px; }
+  .card-head .section-title{ margin-bottom:0; flex:1; min-width:0; }
+  .icon-badge{
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+    width:36px; height:36px; border-radius:11px; font-size:17px; line-height:1;
+    box-shadow:0 3px 8px -3px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.25);
+  }
+  .icon-badge.hue-1{ background:linear-gradient(135deg,#5b8cff,#3465e0); }
+  .icon-badge.hue-2{ background:linear-gradient(135deg,#a78bfa,#7c5cf0); }
+  .icon-badge.hue-3{ background:linear-gradient(135deg,#22d3ee,#0f8a72); }
+  .icon-badge.hue-4{ background:linear-gradient(135deg,#ffb072,#e6862e); }
+  .icon-badge.hue-5{ background:linear-gradient(135deg,#f9829f,#c13c5a); }
+  .icon-badge.hue-6{ background:linear-gradient(135deg,#6bd6a8,#1e8a56); }
+  .icon-badge.hue-7{ background:linear-gradient(135deg,#8ea9ff,#4a5fd9); }
+
+  /* -------- Score gauges (Building Grade + Livability Score) -------- */
+  /* A circular SVG progress ring replacing the old flat letter-on-white-glow
+     treatment — same information, far less dead space, actual color. */
+  .score-gauge{ display:flex; flex-direction:column; align-items:center; gap:2px; }
+  .score-gauge svg{ display:block; max-width:100%; height:auto; }
+  .score-gauge .gauge-track{ fill:none; stroke:var(--border); }
+  .score-gauge .gauge-fill{
+    fill:none; stroke-linecap:round;
+    transform:rotate(-90deg); transform-origin:50% 50%;
+    transition:stroke-dashoffset .6s cubic-bezier(.4,0,.2,1);
+  }
+  .score-gauge .gauge-letter{ font-weight:800; }
+  .score-gauge .gauge-num{ font-weight:700; fill:var(--text); }
+  .score-gauge.grade-A .gauge-fill, .score-gauge.grade-B .gauge-fill{ stroke:var(--good); }
+  .score-gauge.grade-C .gauge-fill{ stroke:var(--warn); }
+  .score-gauge.grade-D .gauge-fill, .score-gauge.grade-F .gauge-fill{ stroke:var(--bad); }
+  .score-gauge.grade-A .gauge-letter, .score-gauge.grade-B .gauge-letter{ fill:var(--good); }
+  .score-gauge.grade-C .gauge-letter{ fill:var(--warn); }
+  .score-gauge.grade-D .gauge-letter, .score-gauge.grade-F .gauge-letter{ fill:var(--bad); }
+
+  /* Livability category mini-gauges — same ring component, smaller, laid out
+     in a responsive grid instead of a stacked list of <details>. */
+  .livability-grid{
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));
+    gap:14px; margin:16px 0 6px;
+  }
+
+  /* The hero and giant-grade blocks are direct children of the #results
+     multi-column (masonry) container along with every card — without an
+     explicit span they'd be balanced into a column like any other block,
+     which is wrong for something meant to read as the page's one full-width
+     opener. */
+  #results.show > .report-hero, #results.show > .grade-canvas{ column-span:all; }
+
+  /* Restore the 2-column masonry the Apple rewrite above turned off
+     (`#results.show{ columns:1 !important; }` near the top of that layer).
+     A single long column of stacked cards is the single biggest source of
+     "too much white space" at desktop widths — most cards are far shorter
+     than the viewport, so a 1-column layout leaves huge empty gutters on
+     both sides. Needs !important to beat that rule at equal specificity by
+     source order (this file is a stylesheet, so later still wins even
+     between two !important declarations — but matching it removes any
+     doubt). Collapses back to 1 column on narrow/mobile screens exactly
+     like the pre-existing @media (max-width:860px) rule already did. */
+  #results.show{ columns:2 !important; column-gap:18px !important; }
+  @media (max-width:860px){
+    #results.show{ columns:1 !important; }
+  }
+  .livability-cat{
+    background:var(--panel2); border:1px solid var(--border); border-radius:14px;
+    padding:14px 12px 12px; text-align:center; cursor:pointer;
+    transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+  }
+  .livability-cat:hover{ transform:translateY(-2px); box-shadow:var(--shadow-md); border-color:color-mix(in srgb, var(--border) 40%, var(--accent)); }
+  .livability-cat .cat-label{ font-size:12.5px; font-weight:600; color:var(--muted); margin-top:6px; }
+  .livability-cat .cat-weight{ font-size:11px; color:var(--muted); opacity:.75; }
+  .livability-cat .cat-notes{
+    text-align:left; margin:10px 0 0; padding-top:10px; border-top:1px solid var(--border);
+    font-size:12.5px; line-height:1.5; color:var(--muted); display:none;
+  }
+  .livability-cat.expanded .cat-notes{ display:block; }
+  .livability-cat .cat-notes ul{ margin:0; padding-left:18px; }
+
+  /* The "giant letter" gradient/drop-shadow treatment a few blocks up was
+     tuned for a 140-260px standalone glyph on plain white. Shrunk to ~70px
+     and overlaid on a colored ring for the new gauge layout, that gradient
+     text-fill reads as a barely-visible outline against a similarly-colored
+     ring instead of a legible letter — reset to a plain solid fill here. */
+  .grade-disc-center .letter-huge{
+    background:none; -webkit-background-clip:initial; background-clip:initial;
+    -webkit-text-fill-color:currentColor; color:var(--text) !important;
+    filter:none;
+  }
+
+  /* -------- Hero skyline illustration -------- */
+  /* One inline SVG (colored via currentColor + CSS vars, so it themes for
+     free) sitting behind the report-hero text as a low-opacity skyline
+     silhouette — the single biggest "this used to be a blank white box"
+     fix on the page. */
+  .report-hero{ position:relative; overflow:hidden; border-radius:20px; }
+  .report-hero .hero-skyline{
+    position:absolute; left:0; right:0; bottom:0; height:64%;
+    opacity:.16; pointer-events:none; color:var(--accent);
+  }
+  :root:not([data-theme="light"]) .report-hero .hero-skyline{ opacity:.22; }
+  :root[data-theme="dark"] .report-hero .hero-skyline{ opacity:.22; }
+  .report-hero > *:not(.hero-skyline){ position:relative; z-index:1; }
+
+  @media (max-width:640px){
+    .icon-badge{ width:32px; height:32px; font-size:15px; }
+    .livability-grid{ grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); }
+  }
