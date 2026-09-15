@@ -716,6 +716,62 @@
     }
     return `<div class="stat ${tone||''}"><div class="n">${n}</div><div class="l">${esc(label)}</div></div>`;
   }
+  // ---------- Visual helpers: icon badges + score gauges (2026 visual refresh) ----------
+  // Wraps an existing <div class="section-title">...</div> string with a
+  // colored icon chip. Deliberately wraps rather than injecting into
+  // .section-title itself, so the existing eyebrow-label stacking CSS never
+  // has to change — this only adds a sibling element around it.
+  function cardHead(emoji, hue, sectionTitleHtml){
+    return `<div class="card-head"><span class="icon-badge hue-${hue}" aria-hidden="true">${emoji}</span>${sectionTitleHtml}</div>`;
+  }
+
+  // A circular SVG progress ring — used for both the Building Grade and each
+  // Livability Score category. `pct` is 0-100. `size`/`stroke` in px.
+  // `centerHtml` is raw SVG (text/tspan) placed at the ring's center.
+  function scoreRingSvg(pct, size, stroke, centerHtml){
+    const r = (size - stroke) / 2;
+    const c = size / 2;
+    const circumference = 2 * Math.PI * r;
+    const offset = circumference * (1 - Math.max(0, Math.min(100, pct)) / 100);
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <circle class="gauge-track" cx="${c}" cy="${c}" r="${r}" stroke-width="${stroke}"></circle>
+      <circle class="gauge-fill" cx="${c}" cy="${c}" r="${r}" stroke-width="${stroke}"
+        stroke-dasharray="${circumference.toFixed(2)}" stroke-dashoffset="${offset.toFixed(2)}"></circle>
+      ${centerHtml}
+    </svg>`;
+  }
+
+  // Simple flat-color NYC skyline silhouette (a handful of rounded-rect
+  // "buildings" of varying height, a couple of window-grid accents on the
+  // tallest two) — inline SVG, currentColor-themed, no external image
+  // request, no licensing/attribution concerns. Sits behind the report hero
+  // at low opacity as decorative texture, not a literal building photo.
+  function heroSkylineSvg(){
+    return `<svg class="hero-skyline" viewBox="0 0 800 220" preserveAspectRatio="xMidYMax slice" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect x="0"   y="140" width="55" height="80" rx="3" fill="currentColor"/>
+      <rect x="60"  y="100" width="45" height="120" rx="3" fill="currentColor"/>
+      <rect x="112" y="150" width="38" height="70" rx="3" fill="currentColor"/>
+      <rect x="156" y="70"  width="50" height="150" rx="3" fill="currentColor"/>
+      <rect x="212" y="120" width="42" height="100" rx="3" fill="currentColor"/>
+      <rect x="260" y="40"  width="34" height="180" rx="3" fill="currentColor"/>
+      <rect x="300" y="95"  width="55" height="125" rx="3" fill="currentColor"/>
+      <rect x="360" y="10"  width="40" height="210" rx="3" fill="currentColor"/>
+      <rect x="405" y="130" width="46" height="90" rx="3" fill="currentColor"/>
+      <rect x="456" y="60"  width="36" height="160" rx="3" fill="currentColor"/>
+      <rect x="497" y="105" width="50" height="115" rx="3" fill="currentColor"/>
+      <rect x="552" y="30"  width="42" height="190" rx="3" fill="currentColor"/>
+      <rect x="599" y="145" width="44" height="75" rx="3" fill="currentColor"/>
+      <rect x="648" y="85"  width="38" height="135" rx="3" fill="currentColor"/>
+      <rect x="691" y="115" width="52" height="105" rx="3" fill="currentColor"/>
+      <rect x="748" y="150" width="52" height="70" rx="3" fill="currentColor"/>
+      <!-- window-grid texture on the two tallest towers, cut out via lower opacity rects -->
+      <g fill="var(--panel)" opacity=".5">
+        ${Array.from({length:8}).map((_,i)=>`<rect x="366" y="${22+i*22}" width="28" height="10" rx="1"/>`).join('')}
+        ${Array.from({length:7}).map((_,i)=>`<rect x="558" y="${40+i*22}" width="30" height="10" rx="1"/>`).join('')}
+      </g>
+    </svg>`;
+  }
+
   function sourceLinks(landing, queryUrl){
     return `<div class="src-links">
       <a href="${landing}" target="_blank" rel="noopener">Open dataset on NYC Open Data ↗</a>
@@ -1959,22 +2015,33 @@
       : overall>=75 ? 'Good conditions with minor concerns'
       : overall>=60 ? 'Average conditions with notable issues'
       : 'Significant concerns across multiple factors';
-    const catsHtml = Object.entries(categories).map(([key, c]) => `
-      <details class="grade-wrap" style="margin-bottom:8px;">
-        <summary class="grade-badge grade-${scoreToGrade(c.score)}" style="width:100%; box-sizing:border-box;">
-          <span class="letter" style="font-size:0.85em;">${c.icon}</span>
-          ${esc(c.label)} — ${c.score}/100
-          <span class="meta" style="float:right; font-weight:400;">weight ${Math.round(c.weight*100)}%</span>
-        </summary>
-        <div class="grade-explain"><ul>${c.notes.map(n=>`<li>${esc(n)}</li>`).join('')}</ul></div>
-      </details>`).join('');
+    const overallGauge = scoreRingSvg(overall, 108, 10, `
+      <text x="54" y="49" text-anchor="middle" class="gauge-letter" font-size="30" fill="var(--text)">${grade}</text>
+      <text x="54" y="70" text-anchor="middle" class="gauge-num" font-size="13">${overall}/100</text>
+    `);
+    const catsHtml = Object.entries(categories).map(([key, c]) => {
+      const catGrade = scoreToGrade(c.score);
+      const gauge = scoreRingSvg(c.score, 68, 7, `
+        <text x="34" y="39" text-anchor="middle" class="gauge-num" font-size="17">${c.score}</text>
+      `);
+      return `
+      <div class="livability-cat score-gauge grade-${catGrade}" role="button" tabindex="0" aria-expanded="false">
+        ${gauge}
+        <div class="cat-label">${c.icon} ${esc(c.label)}</div>
+        <div class="cat-weight">weight ${Math.round(c.weight*100)}%</div>
+        <div class="cat-notes"><ul>${c.notes.map(n=>`<li>${esc(n)}</li>`).join('')}</ul></div>
+      </div>`;
+    }).join('');
     return `
-      <details class="grade-wrap" open>
-        <summary class="grade-badge grade-${grade}"><span class="letter">${grade}</span> Livability Score (${overall}/100)</summary>
-        <span class="grade-tagline">${esc(bandLabel)}</span>
-      </details>
-      <p class="hint" style="margin:10px 0 14px;">One weighted score combining six categories below — Building Health and Safety count most, Wellness least. Click any category to see exactly what it added or deducted and why. Every input is a public/open dataset the rest of this report already links to; nothing here is a black box.</p>
-      ${catsHtml}
+      <div style="display:flex; align-items:center; gap:18px; flex-wrap:wrap; margin-bottom:4px;">
+        <div class="score-gauge grade-${grade}">${overallGauge}</div>
+        <div>
+          <div style="font-weight:700; font-size:1.05rem;">Livability Score</div>
+          <div class="grade-tagline" style="display:block;">${esc(bandLabel)}</div>
+        </div>
+      </div>
+      <p class="hint" style="margin:10px 0 4px;">One weighted score combining the six categories below — Building Health and Safety count most, Wellness least. Click (or tap) any category to see exactly what it added or deducted and why. Every input is a public/open dataset the rest of this report already links to; nothing here is a black box.</p>
+      <div class="livability-grid">${catsHtml}</div>
     `;
   }
   function scoreToGrade(score){
@@ -2146,6 +2213,7 @@
            top-links row below to keep the existing DOM contract that renderGradeBadge
            depends on, but a hero-scale slot up here mirrors it visually. -->
       <div class="report-hero">
+        ${heroSkylineSvg()}
         <p class="eyebrow">Building report</p>
         <h1 class="hero-title">${esc(houseNumber)} ${esc(streetRaw)}.</h1>
         <p class="hero-sub">Everything the public record says about this building, in one place.</p>
@@ -2163,11 +2231,21 @@
         </div>
       </div>
 
-      <!-- Giant-grade canvas — one big idea per screen height, populated when grade resolves -->
+      <!-- Grade canvas: compact ring gauge (SVG, filled in once gradeInfo
+           resolves) with the letter/score overlaid at its center via CSS
+           grid stacking — same #gradeCanvasLetter/Score/Blurb ids and
+           plain textContent/className updates the JS below has always
+           used, just visually smaller and paired with a graphic instead
+           of one glyph alone in a sea of padding. -->
       <div class="grade-canvas reveal" id="gradeCanvas" style="display:none;">
         <p class="eyebrow">Rating</p>
-        <div class="letter-huge" id="gradeCanvasLetter">?</div>
-        <div class="score-line"><span id="gradeCanvasScore">–</span><small>/100</small></div>
+        <div class="grade-disc" id="gradeDisc">
+          <div class="grade-disc-ring" id="gradeCanvasRing"></div>
+          <div class="grade-disc-center">
+            <div class="letter-huge" id="gradeCanvasLetter">?</div>
+            <div class="score-line"><span id="gradeCanvasScore">–</span><small>/100</small></div>
+          </div>
+        </div>
         <p class="score-blurb" id="gradeCanvasBlurb">Compiling the record from HPD, DOB, DOI, and NYC 311.</p>
       </div>
 
@@ -2219,8 +2297,8 @@
            HPD/DOB/eviction records. Waits on both the building grade (needs
            every dataset) and the coords-dependent transit/amenity fetches,
            whichever finishes last. -->
-      <div class="card full" id="sec-livability">
-        <div class="section-title"><h2>Livability Score</h2></div>
+      <div class="card" id="sec-livability">
+        ${cardHead('📊', 3, '<div class="section-title"><h2>Livability Score</h2></div>')}
         <div class="body">${loadingBlock('the livability score (building health, safety, transit, amenities, noise, wellness)')}</div>
       </div>
 
@@ -2229,27 +2307,29 @@
            utility/context (listing sites, transit, tax records, flood zone). Old
            order had Current Listings above Red Flags which pushed the most
            important information five cards down. -->
-      <div class="card full" id="sec-redflags">
-        <div class="section-title"><h2>Possible Red Flags</h2></div>
+      <div class="card" id="sec-redflags">
+        ${cardHead('🚩', 5, '<div class="section-title"><h2>Possible Red Flags</h2></div>')}
         <div class="body">${loadingBlock('for red flags')}</div>
       </div>
       ${DATASETS.map(ds => {
         // Violations + DOB Complaints get the "Case File" treatment: a doc-style
         // head (serif title, no emoji, tracked source tag) instead of the emoji
-        // header the rest of the report still uses — see design review.
+        // header the rest of the report still uses — see design review. Icon
+        // badges are deliberately skipped there too, same reasoning.
         const isCaseFile = ds.key === 'violations' || ds.key === 'dobComplaints';
         const cardClass = isCaseFile ? 'card case-file-card' : 'card';
+        const AGENCY_HUE = {HPD:1, DOB:2, '311':3, DOI:5, DOHMH:6};
         const head = isCaseFile
           ? `<div class="section-title cf-head"><span class="eyebrow-label">${esc(ds.agency)} source</span><h2>${esc(ds.label)}</h2></div>`
-          : `<div class="section-title"><span class="eyebrow-label">${esc(ds.agency)}</span><h2>${esc(ds.label)}</h2></div>`;
+          : cardHead(ds.icon, AGENCY_HUE[ds.agency] || 1, `<div class="section-title"><span class="eyebrow-label">${esc(ds.agency)}</span><h2>${esc(ds.label)}</h2></div>`);
         return `<div class="${cardClass}" id="sec-${ds.key}">${head}<div class="body">${loadingBlock(ds.label)}</div></div>`;
       }).join('')}
       <div class="card" id="sec-contacts">
-        <div class="section-title"><span class="eyebrow-label">HPD</span><h2>Registered Owner / Managing Agent</h2></div>
+        ${cardHead('📇', 1, '<div class="section-title"><span class="eyebrow-label">HPD</span><h2>Registered Owner / Managing Agent</h2></div>')}
         <div class="body"><p class="empty">Waiting for registration lookup…</p></div>
       </div>
-      <div class="card full" id="sec-listings">
-        <div class="section-title"><h2>Current Listings for This Building</h2></div>
+      <div class="card" id="sec-listings">
+        ${cardHead('🏙️', 7, '<div class="section-title"><h2>Current Listings for This Building</h2></div>')}
         <div class="top-links" style="margin-top:0;">
           <a href="${listingLinks.streeteasy}" target="_blank" rel="noopener">StreetEasy — this building ↗</a>
           <a href="${listingLinks.zillow}" target="_blank" rel="noopener">Zillow — rentals here ↗</a>
@@ -2259,23 +2339,23 @@
         <p class="hint" style="margin-top:10px;">These open the live listing pages for <strong>${esc(houseNumber)} ${esc(streetRaw)}</strong> in a new tab — actual availability lives on those sites (no public API exists to show it here). If StreetEasy's building link 404s, the "All sites" search will still surface every current listing.</p>
       </div>
       <div class="card" id="sec-transit">
-        <div class="section-title"><span class="eyebrow-label">MTA / NYPD</span><h2>Transit &amp; Safety</h2></div>
+        ${cardHead('🚇', 1, '<div class="section-title"><span class="eyebrow-label">MTA / NYPD</span><h2>Transit &amp; Safety</h2></div>')}
         <div class="body">${loadingBlock('transit and safety data')}</div>
       </div>
       <div class="card" id="sec-exemptions">
-        <div class="section-title"><span class="eyebrow-label">DOF</span><h2>Tax Exemptions &amp; Rent Stabilization</h2></div>
+        ${cardHead('💰', 6, '<div class="section-title"><span class="eyebrow-label">DOF</span><h2>Tax Exemptions &amp; Rent Stabilization</h2></div>')}
         <div class="body">${loadingBlock('tax exemption records')}</div>
       </div>
       <div class="card" id="sec-floodzone">
-        <div class="section-title"><span class="eyebrow-label">FEMA</span><h2>Flood Zone</h2></div>
+        ${cardHead('🌊', 3, '<div class="section-title"><span class="eyebrow-label">FEMA</span><h2>Flood Zone</h2></div>')}
         <div class="body">${loadingBlock('FEMA flood zone data')}</div>
       </div>
       <div class="card" id="sec-wow">
-        <div class="section-title"><span class="eyebrow-label">JustFix</span><h2>Landlord Portfolio</h2></div>
+        ${cardHead('🏢', 2, '<div class="section-title"><span class="eyebrow-label">JustFix</span><h2>Landlord Portfolio</h2></div>')}
         <div class="body">${loadingBlock('landlord portfolio data')}</div>
       </div>
       <div class="card" id="sec-sun">
-        <div class="section-title"><span class="eyebrow-label">Astronomical</span><h2>Daylight &amp; Sun Exposure</h2></div>
+        ${cardHead('☀️', 4, '<div class="section-title"><span class="eyebrow-label">Astronomical</span><h2>Daylight &amp; Sun Exposure</h2></div>')}
         <div class="body">${loadingBlock('daylight profile')}</div>
       </div>
       <div class="disclaimer">
@@ -2508,6 +2588,12 @@
       letter.textContent = gradeInfo.grade;
       letter.className = 'letter-huge grade-' + gradeInfo.grade;
       score.textContent = gradeInfo.score;
+      const gradeDisc = document.getElementById('gradeDisc');
+      const gradeRing = document.getElementById('gradeCanvasRing');
+      if(gradeDisc && gradeRing){
+        gradeDisc.className = 'grade-disc score-gauge grade-' + gradeInfo.grade;
+        gradeRing.innerHTML = scoreRingSvg(gradeInfo.score, 220, 14, '');
+      }
       // Plain-English one-liner per grade band, mirrors renderGradeBadge tone
       const blurbs = {
         A: 'No open violations, no evictions on file, no bedbug history.',
@@ -2517,16 +2603,14 @@
         F: 'Serious signals on record. Reconsider or verify very carefully.'
       };
       blurb.textContent = blurbs[gradeInfo.grade] || blurb.textContent;
-      // Inject the small 3D "grade disk" (radial-gradient shaded, drop-shadowed)
-      // beneath the giant letter. Removed and re-created on every populate so
-      // re-runs update the color/letter cleanly.
+      // The old small "grade disk" that used to repeat the letter a second
+      // time below the blurb is gone — the ring gauge above already shows
+      // grade + score together, so a second circular repeat was pure
+      // duplication rather than added information. Still tear down any
+      // leftover one from a page that hasn't reloaded past an older
+      // version of this code (e.g. a cached service worker response).
       const existingDisk = gradeCanvas.querySelector('.grade-disk');
       if(existingDisk) existingDisk.remove();
-      const disk = document.createElement('div');
-      disk.className = 'grade-disk grade-' + gradeInfo.grade;
-      disk.textContent = gradeInfo.grade;
-      disk.title = `${gradeInfo.grade} · ${gradeInfo.score}/100`;
-      blurb.insertAdjacentElement('afterend', disk);
       gradeCanvas.style.display = '';
       // trigger the fade-up reveal immediately since it's above-the-fold
       requestAnimationFrame(() => gradeCanvas.classList.add('in'));
@@ -2736,6 +2820,11 @@
   }
 
   resultsEl.addEventListener('click', e => {
+    const livCat = e.target.closest('.livability-cat');
+    if(livCat){
+      toggleLivabilityCat(livCat);
+      return;
+    }
     const retryBtn = e.target.closest('[data-retry-key]');
     if(retryBtn){
       const ds = DATASETS.find(d => d.key === retryBtn.dataset.retryKey);
@@ -2794,8 +2883,17 @@
     if((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('clickable')){
       e.preventDefault();
       applyStatFilter(e.target);
+      return;
+    }
+    if((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('livability-cat')){
+      e.preventDefault();
+      toggleLivabilityCat(e.target);
     }
   });
+  function toggleLivabilityCat(el){
+    const open = el.classList.toggle('expanded');
+    el.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
   // Single delegated handler for every renderFilterableSection's year dropdown —
   // rebuilds that section's stats/table from the cached full row set filtered to
   // the chosen year, using whichever {dateField, buildOpts} it registered at
@@ -3116,7 +3214,7 @@
       </tr>`).join('');
 
     watchlistContainer.innerHTML = `<div class="card full">
-      <div class="section-title"><h2>⭐ My Watchlist</h2><span class="badge">${list.length} saved</span></div>
+      ${cardHead('⭐', 4, `<div class="section-title"><h2>My Watchlist</h2><span class="badge">${list.length} saved</span></div>`)}
       <p class="hint">Compare candidates side by side. Add a monthly rent per address to compare cost too — it's just for your own reference, not pulled from any listing.</p>
       <p class="hint">Paste a listing URL in the "Listing" column to pull its photo/price/beds automatically where the site allows it — Monthly Rent auto-fills from the extracted price too (only if you haven't already typed one in). This is genuinely best-effort: verified directly against each site — OpenIgloo tends to return real data, but StreetEasy, Zillow, Apartments.com, and RentHop actively block automated requests (some return a "not found" page, others a blank shell with nothing to extract), so "couldn't extract" on those is the expected, common outcome, not a bug. Never guaranteed accurate — always confirm on the actual listing page.</p>
       <div class="cmp-table-wrap">
