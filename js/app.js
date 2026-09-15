@@ -673,21 +673,47 @@
   // Every dataset on data.cityofnewyork.us is queried the same way: build a $where/$limit/
   // $order query string, GET the resource, and hand back both the rows and the exact URL
   // used (so the UI can link straight to it for verification).
+  //
+  // Socrata's $where LIKE queries (especially leading-wildcard ones against tens of
+  // millions of rows, like 311's incident_address) can occasionally take 20s+ or simply
+  // never come back. A client-side timeout via AbortController caps how long any single
+  // dataset fetch can hang, so a slow/misbehaving dataset can't block the whole report
+  // forever — see fetchDataset's caller (loadDatasetSection), which already catches
+  // per-dataset errors and lets everything else render normally.
+  const SOCRATA_TIMEOUT_MS = 14000;
   async function socrataGet(datasetId, params){
     const url = `https://data.cityofnewyork.us/resource/${datasetId}.json?${params.toString()}`;
-    const res = await fetch(url, {headers: socrataHeaders()});
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    return {rows: await res.json(), url};
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SOCRATA_TIMEOUT_MS);
+    try{
+      const res = await fetch(url, {headers: socrataHeaders(), signal: controller.signal});
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      return {rows: await res.json(), url};
+    }catch(e){
+      if(e.name === 'AbortError') throw new Error('This took too long to load and was skipped.');
+      throw e;
+    }finally{
+      clearTimeout(timer);
+    }
   }
+
+  // Street tokens under this length (e.g. a lone house-number-ish digit like "5" from
+  // "5 Avenue") are skipped when building `like '%token%'` clauses: a 1-2 char leading-
+  // wildcard match is both the slowest kind of query Socrata can run and the least
+  // precise (it matches almost everything), so it costs a lot for very little narrowing.
+  // Longer tokens ("AVENUE") are the ones that actually narrow the match and are kept.
+  const MIN_LIKE_TOKEN_LEN = 3;
 
   async function fetchDataset(ds, ctx){
     const clauses = [];
     if(ds.addressIsFull){
       [ctx.houseNumber, ...ctx.streetTokens].filter(Boolean)
+        .filter(t => t.length >= MIN_LIKE_TOKEN_LEN)
         .forEach(t => clauses.push(`upper(${ds.streetField}) like '%${soql(t)}%'`));
     } else {
       if(ds.houseField) clauses.push(`upper(${ds.houseField})='${soql(ctx.houseNumber.toUpperCase())}'`);
-      if(ds.streetField) ctx.streetTokens.forEach(t => clauses.push(`upper(${ds.streetField}) like '%${soql(t)}%'`));
+      if(ds.streetField) ctx.streetTokens.filter(t => t.length >= MIN_LIKE_TOKEN_LEN)
+        .forEach(t => clauses.push(`upper(${ds.streetField}) like '%${soql(t)}%'`));
     }
     if(ds.boroField && ctx.borough){
       const boroVal = ds.boroTransform ? ds.boroTransform(ctx.borough) : ctx.borough;
