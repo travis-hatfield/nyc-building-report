@@ -14,6 +14,23 @@
 <meta name="description" content="Research NYC apartments — HPD violations, complaints, evictions, landlord history, transit and safety — from public NYC Open Data.">
 
 <link rel="stylesheet" href="/css/styles.css?v=w4">
+
+<!-- app.js is a single top-to-bottom IIFE that assumes the DOM is already
+     parsed (it does getElementById wiring at the top level, not inside a
+     DOMContentLoaded handler) — `defer` preserves that exact "runs after
+     parsing" guarantee while letting the browser start the download the
+     moment it sees this tag, in parallel with parsing the rest of the page,
+     instead of waiting until the parser reaches the bottom of <body> the way
+     the old inline placement did. Same execution order, faster start. -->
+<script src="/js/app.js?v=w4c" defer></script>
+
+<!-- Warm the connection to the data APIs a search actually hits, so the
+     TLS/DNS handshake is already done by the time the user submits the
+     form instead of paying that cost inside the perceived search latency.
+     Doesn't fetch anything or affect page weight. -->
+<link rel="preconnect" href="https://data.cityofnewyork.us">
+<link rel="preconnect" href="https://data.ny.gov">
+<link rel="preconnect" href="https://geosearch.planninglabs.nyc">
 </head>
 <body>
 <div class="wrap">
@@ -144,6 +161,8 @@
           <label>Show on map</label>
           <div class="nearby-toggles">
             <label class="nearby-toggle"><input type="checkbox" data-cat="transit" checked> Transit</label>
+            <label class="nearby-toggle"><input type="checkbox" data-cat="busstop"> Bus Stops</label>
+            <label class="nearby-toggle"><input type="checkbox" data-cat="bikeshare"> Citi Bike</label>
             <label class="nearby-toggle"><input type="checkbox" data-cat="coffee" checked> Coffee</label>
             <label class="nearby-toggle"><input type="checkbox" data-cat="grocery" checked> Groceries</label>
             <label class="nearby-toggle"><input type="checkbox" data-cat="attractions" checked> Attractions</label>
@@ -482,6 +501,5 @@
   </footer>
 </div>
 
-<script src="/js/app.js?v=w4c"></script>
 </body>
 </html>
