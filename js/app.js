@@ -697,23 +697,51 @@
     }
   }
 
-  // Street tokens under this length (e.g. a lone house-number-ish digit like "5" from
-  // "5 Avenue") are skipped when building `like '%token%'` clauses: a 1-2 char leading-
-  // wildcard match is both the slowest kind of query Socrata can run and the least
-  // precise (it matches almost everything), so it costs a lot for very little narrowing.
-  // Longer tokens ("AVENUE") are the ones that actually narrow the match and are kept.
+  // Tokens under this length (e.g. a lone house-number-ish digit like "5" from "5
+  // Avenue", or the "45" in "West 45 Street") make for the slowest, least selective
+  // `like '%token%'` clause Socrata can run — a 1-2 char wildcard matches almost
+  // everything. But they're often the *most* identifying part of the address (a
+  // numbered avenue/street), so dropping them outright backfires: for "West 45
+  // Street" that leaves only "WEST" and "STREET" as clauses, both common citywide,
+  // which is just as slow as before. Instead, a short token is merged into an
+  // adjacent token to form one more-selective phrase clause (e.g. "45 STREET", "5
+  // AVENUE") rather than being queried alone or discarded.
   const MIN_LIKE_TOKEN_LEN = 3;
+  function likeClauses(field, tokens){
+    const clauses = [];
+    let i = 0;
+    while(i < tokens.length){
+      let t = tokens[i];
+      if(t.length < MIN_LIKE_TOKEN_LEN){
+        if(i + 1 < tokens.length){
+          t = `${t} ${tokens[i+1]}`; // merge with the next token
+          i += 2;
+        } else if(clauses.length){
+          // last token, nothing after it to merge with: fold into the previous clause
+          clauses[clauses.length-1] = clauses[clauses.length-1].slice(0, -2) + ` ${t}%'`;
+          i += 1;
+          continue;
+        } else {
+          // a single short token with nothing to merge with at all — can't be made
+          // selective, so it's dropped rather than queried as a bare short wildcard.
+          i += 1;
+          continue;
+        }
+      } else {
+        i += 1;
+      }
+      clauses.push(`upper(${field}) like '%${soql(t)}%'`);
+    }
+    return clauses;
+  }
 
   async function fetchDataset(ds, ctx){
     const clauses = [];
     if(ds.addressIsFull){
-      [ctx.houseNumber, ...ctx.streetTokens].filter(Boolean)
-        .filter(t => t.length >= MIN_LIKE_TOKEN_LEN)
-        .forEach(t => clauses.push(`upper(${ds.streetField}) like '%${soql(t)}%'`));
+      clauses.push(...likeClauses(ds.streetField, [ctx.houseNumber, ...ctx.streetTokens].filter(Boolean)));
     } else {
       if(ds.houseField) clauses.push(`upper(${ds.houseField})='${soql(ctx.houseNumber.toUpperCase())}'`);
-      if(ds.streetField) ctx.streetTokens.filter(t => t.length >= MIN_LIKE_TOKEN_LEN)
-        .forEach(t => clauses.push(`upper(${ds.streetField}) like '%${soql(t)}%'`));
+      if(ds.streetField) clauses.push(...likeClauses(ds.streetField, ctx.streetTokens));
     }
     if(ds.boroField && ctx.borough){
       const boroVal = ds.boroTransform ? ds.boroTransform(ctx.borough) : ctx.borough;
