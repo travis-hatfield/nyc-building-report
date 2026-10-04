@@ -28,5 +28,7 @@ const sig = r => r.items.filter(i => i.type === 'sofa3').map(i => `${i.x},${i.y}
 check('variants place the couch differently', sig(a) !== sig(b));
 const tiny = E.autoArrange([{id: 'x', name: 'Living Room', x: 0, y: 0, w: 60, h: 60}], {bedking: 1}, {});
 check('oversize piece reported as left, not forced', tiny.left.length === 1 && tiny.items.length === 0);
+const sigAll = v => JSON.stringify(E.autoArrange(rooms, {desk: 1, dresser: 1, bookshelf: 1}, {variant: v}).items.map(i => [i.type, i.x, i.y, i.rot]));
+check('A/B/C differ even with no couch or bed', new Set([0, 1, 2].map(sigAll)).size === 3);
 console.log(fail ? `${fail} failed` : 'all passed');
 process.exit(fail ? 1 : 0);
