@@ -105,7 +105,12 @@ module.exports = async function handler(req, res){
     const upstream = await fetch(process.env.AI_BASE_URL || DEFAULT_URL, {
       method: 'POST',
       signal: ctrl.signal,
-      headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`},
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${key}`,
+        // Groq sits behind Cloudflare, which blocks the default Node fetch UA (same fix JobGuide needed).
+        'User-Agent': 'nyc-building-report/1.0'
+      },
       body: JSON.stringify({
         model: process.env.AI_MODEL || process.env.GROQ_MODEL || process.env.XAI_MODEL || DEFAULT_MODEL,
         messages,
