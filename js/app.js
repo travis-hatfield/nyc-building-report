@@ -673,21 +673,75 @@
   // Every dataset on data.cityofnewyork.us is queried the same way: build a $where/$limit/
   // $order query string, GET the resource, and hand back both the rows and the exact URL
   // used (so the UI can link straight to it for verification).
+  //
+  // Socrata's $where LIKE queries (especially leading-wildcard ones against tens of
+  // millions of rows, like 311's incident_address) can occasionally take 20s+ or simply
+  // never come back. A client-side timeout via AbortController caps how long any single
+  // dataset fetch can hang, so a slow/misbehaving dataset can't block the whole report
+  // forever — see fetchDataset's caller (loadDatasetSection), which already catches
+  // per-dataset errors and lets everything else render normally.
+  const SOCRATA_TIMEOUT_MS = 14000;
   async function socrataGet(datasetId, params){
     const url = `https://data.cityofnewyork.us/resource/${datasetId}.json?${params.toString()}`;
-    const res = await fetch(url, {headers: socrataHeaders()});
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    return {rows: await res.json(), url};
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SOCRATA_TIMEOUT_MS);
+    try{
+      const res = await fetch(url, {headers: socrataHeaders(), signal: controller.signal});
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      return {rows: await res.json(), url};
+    }catch(e){
+      if(e.name === 'AbortError') throw new Error('This took too long to load and was skipped.');
+      throw e;
+    }finally{
+      clearTimeout(timer);
+    }
+  }
+
+  // Tokens under this length (e.g. a lone house-number-ish digit like "5" from "5
+  // Avenue", or the "45" in "West 45 Street") make for the slowest, least selective
+  // `like '%token%'` clause Socrata can run — a 1-2 char wildcard matches almost
+  // everything. But they're often the *most* identifying part of the address (a
+  // numbered avenue/street), so dropping them outright backfires: for "West 45
+  // Street" that leaves only "WEST" and "STREET" as clauses, both common citywide,
+  // which is just as slow as before. Instead, a short token is merged into an
+  // adjacent token to form one more-selective phrase clause (e.g. "45 STREET", "5
+  // AVENUE") rather than being queried alone or discarded.
+  const MIN_LIKE_TOKEN_LEN = 3;
+  function likeClauses(field, tokens){
+    const clauses = [];
+    let i = 0;
+    while(i < tokens.length){
+      let t = tokens[i];
+      if(t.length < MIN_LIKE_TOKEN_LEN){
+        if(i + 1 < tokens.length){
+          t = `${t} ${tokens[i+1]}`; // merge with the next token
+          i += 2;
+        } else if(clauses.length){
+          // last token, nothing after it to merge with: fold into the previous clause
+          clauses[clauses.length-1] = clauses[clauses.length-1].slice(0, -2) + ` ${t}%'`;
+          i += 1;
+          continue;
+        } else {
+          // a single short token with nothing to merge with at all — can't be made
+          // selective, so it's dropped rather than queried as a bare short wildcard.
+          i += 1;
+          continue;
+        }
+      } else {
+        i += 1;
+      }
+      clauses.push(`upper(${field}) like '%${soql(t)}%'`);
+    }
+    return clauses;
   }
 
   async function fetchDataset(ds, ctx){
     const clauses = [];
     if(ds.addressIsFull){
-      [ctx.houseNumber, ...ctx.streetTokens].filter(Boolean)
-        .forEach(t => clauses.push(`upper(${ds.streetField}) like '%${soql(t)}%'`));
+      clauses.push(...likeClauses(ds.streetField, [ctx.houseNumber, ...ctx.streetTokens].filter(Boolean)));
     } else {
       if(ds.houseField) clauses.push(`upper(${ds.houseField})='${soql(ctx.houseNumber.toUpperCase())}'`);
-      if(ds.streetField) ctx.streetTokens.forEach(t => clauses.push(`upper(${ds.streetField}) like '%${soql(t)}%'`));
+      if(ds.streetField) clauses.push(...likeClauses(ds.streetField, ctx.streetTokens));
     }
     if(ds.boroField && ctx.borough){
       const boroVal = ds.boroTransform ? ds.boroTransform(ctx.borough) : ctx.borough;
