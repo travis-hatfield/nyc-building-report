@@ -5,15 +5,15 @@
 //   {mode:'chat', text, state, history?}     -> natural-language edit -> list of planner actions
 //
 // Env vars: GROQ_API_KEY (same key as the JobApp). To use another provider set
-// AI_BASE_URL (full chat/completions URL), AI_API_KEY and AI_MODEL instead; the
-// model must support image input for parse mode. GROQ_MODEL / AI_MODEL override
-// the default vision model.
+// AI_BASE_URL (full chat/completions URL) and AI_API_KEY instead. Models:
+// PLANNER_VISION_MODEL (image input, parse mode) and PLANNER_CHAT_MODEL (text).
 //
 // SECURITY: the upstream host is fixed (never taken from the request), payload
 // sizes are capped, and output is only ever returned as parsed JSON.
 
 const DEFAULT_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const DEFAULT_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+const DEFAULT_VISION_MODEL = 'qwen/qwen3.8-27b';   // reads floor plan images (verified on Groq)
+const DEFAULT_CHAT_MODEL = 'openai/gpt-oss-120b';   // text-only, same model the JobApp uses
 const MAX_IMAGE_CHARS = 4_000_000;
 const MAX_TEXT_CHARS = 2000;
 const TIMEOUT_MS = 45000;
@@ -112,7 +112,9 @@ module.exports = async function handler(req, res){
         'User-Agent': 'nyc-building-report/1.0'
       },
       body: JSON.stringify({
-        model: process.env.AI_MODEL || process.env.GROQ_MODEL || process.env.XAI_MODEL || DEFAULT_MODEL,
+        model: mode === 'parse'
+          ? (process.env.PLANNER_VISION_MODEL || DEFAULT_VISION_MODEL)
+          : (process.env.PLANNER_CHAT_MODEL || DEFAULT_CHAT_MODEL),
         messages,
         temperature: 0.1,
         response_format: {type: 'json_object'}
