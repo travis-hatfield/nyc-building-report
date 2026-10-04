@@ -1,16 +1,19 @@
 // Vercel serverless function — POST /api/planner-ai
-// Powers the Layout Planner tab. Two modes, both proxied to xAI (Grok) so the
-// API key never reaches the browser:
+// Powers the Layout Planner tab. Two modes, both proxied to an OpenAI-compatible
+// chat API (Groq by default) so the API key never reaches the browser:
 //   {mode:'parse', image:<data URL>, text?}  -> floor plan screenshot -> room geometry JSON
 //   {mode:'chat', text, state, history?}     -> natural-language edit -> list of planner actions
 //
-// Requires env var XAI_API_KEY (same key as the JobApp). Optional XAI_MODEL
-// (default grok-4; must be a vision-capable model for parse mode).
+// Env vars: GROQ_API_KEY (same key as the JobApp). To use another provider set
+// AI_BASE_URL (full chat/completions URL), AI_API_KEY and AI_MODEL instead; the
+// model must support image input for parse mode. GROQ_MODEL / AI_MODEL override
+// the default vision model.
 //
 // SECURITY: the upstream host is fixed (never taken from the request), payload
 // sizes are capped, and output is only ever returned as parsed JSON.
 
-const XAI_URL = 'https://api.x.ai/v1/chat/completions';
+const DEFAULT_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const DEFAULT_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
 const MAX_IMAGE_CHARS = 4_000_000;
 const MAX_TEXT_CHARS = 2000;
 const TIMEOUT_MS = 45000;
@@ -57,8 +60,8 @@ function extractJson(text){
 module.exports = async function handler(req, res){
   res.setHeader('Cache-Control', 'no-store');
   if(req.method !== 'POST'){ res.status(405).json({error: 'POST only.'}); return; }
-  const key = process.env.XAI_API_KEY;
-  if(!key){ res.status(503).json({error: 'XAI_API_KEY is not set on the server. Add it in Vercel project env vars, then redeploy.'}); return; }
+  const key = process.env.AI_API_KEY || process.env.GROQ_API_KEY || process.env.XAI_API_KEY;
+  if(!key){ res.status(503).json({error: 'GROQ_API_KEY is not set on the server. Add it in Vercel project env vars, then redeploy.'}); return; }
 
   let body = req.body;
   if(typeof body === 'string'){ try{ body = JSON.parse(body); }catch(e){ body = null; } }
@@ -77,7 +80,7 @@ module.exports = async function handler(req, res){
     messages = [
       {role: 'system', content: PARSE_PROMPT},
       {role: 'user', content: [
-        {type: 'image_url', image_url: {url: img, detail: 'high'}},
+        {type: 'image_url', image_url: {url: img}},
         {type: 'text', text: text || 'Extract the rooms, dimensions and openings.'}
       ]}
     ];
@@ -99,12 +102,12 @@ module.exports = async function handler(req, res){
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try{
-    const upstream = await fetch(XAI_URL, {
+    const upstream = await fetch(process.env.AI_BASE_URL || DEFAULT_URL, {
       method: 'POST',
       signal: ctrl.signal,
       headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`},
       body: JSON.stringify({
-        model: process.env.XAI_MODEL || 'grok-4',
+        model: process.env.AI_MODEL || process.env.GROQ_MODEL || process.env.XAI_MODEL || DEFAULT_MODEL,
         messages,
         temperature: 0.1,
         response_format: {type: 'json_object'}
@@ -112,14 +115,14 @@ module.exports = async function handler(req, res){
     });
     clearTimeout(timer);
     if(!upstream.ok){
-      res.status(502).json({error: `Grok returned ${upstream.status}. Check XAI_API_KEY / XAI_MODEL.`}); return;
+      res.status(502).json({error: `The AI provider returned ${upstream.status}. Check GROQ_API_KEY and the model name.`}); return;
     }
     const data = await upstream.json();
     const parsed = extractJson(data?.choices?.[0]?.message?.content);
-    if(!parsed){ res.status(502).json({error: 'Grok returned something unreadable. Try again.'}); return; }
+    if(!parsed){ res.status(502).json({error: 'The AI returned something unreadable. Try again.'}); return; }
     res.status(200).json({ok: true, ...parsed});
   }catch(e){
     clearTimeout(timer);
-    res.status(e.name === 'AbortError' ? 504 : 502).json({error: e.name === 'AbortError' ? 'Grok took too long to respond.' : 'Could not reach Grok.'});
+    res.status(e.name === 'AbortError' ? 504 : 502).json({error: e.name === 'AbortError' ? 'The AI took too long to respond.' : 'Could not reach the AI provider.'});
   }
 };
