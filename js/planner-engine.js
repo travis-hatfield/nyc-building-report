@@ -104,7 +104,7 @@
   let uid = 0;
   function newId(){ return 'f' + (++uid) + '_' + Math.floor(Math.random() * 1e4); }
 
-  function makeCtx(room, zones){ return {room, zones: zones || [], placed: []}; }
+  function makeCtx(room, zones, variant){ return {room, zones: zones || [], placed: [], variant: variant || 0}; }
   function fitsRect(ctx, r, flat){
     if(!inside(r, ctx.room)) return false;
     if(!flat){
@@ -170,10 +170,12 @@
     ctx.placed.forEach(o => { if(!o.flat && overlap(r, o.rect, 20)) p += 4; });
     return p;
   }
-  // Best generic spot for a piece; wall-mode pieces go back-to-wall, free pieces prefer walls/corners lightly.
+  // Generic spot for a piece; wall-mode pieces go back-to-wall, free pieces prefer walls/corners lightly.
+  // Variants pick the best spot per orientation/area, then take the variant-th best, so B and C differ from A
+  // even when the room has no couch/bed anchor.
   function placeGeneric(ctx, type){
     const c = CATALOG[type];
-    let best = null;
+    const buckets = new Map();
     const cands = c.mode === 'wall' ? wallCandidates(ctx.room, type) : freeCandidates(ctx.room, type);
     for(const k of cands){
       const d = dimsFor(type, k.rot), r = {x: k.x, y: k.y, w: d.w, h: d.h};
@@ -183,9 +185,15 @@
         const edge = Math.min(r.x - ctx.room.x, r.y - ctx.room.y, ctx.room.x + ctx.room.w - r.x - r.w, ctx.room.y + ctx.room.h - r.y - r.h);
         s -= edge / 12;
       }
-      if(!best || s > best.s) best = {s, x: k.x, y: k.y, rot: k.rot};
+      const key = c.mode === 'wall' ? k.rot
+        : `${k.rot}|${r.x + r.w / 2 < ctx.room.x + ctx.room.w / 2 ? 'w' : 'e'}${r.y + r.h / 2 < ctx.room.y + ctx.room.h / 2 ? 'n' : 's'}`;
+      const cur = buckets.get(key);
+      if(!cur || s > cur.s) buckets.set(key, {s, x: k.x, y: k.y, rot: k.rot});
     }
-    return best ? tryAdd(ctx, type, best.x, best.y, best.rot) : null;
+    const ranked = [...buckets.values()].sort((a, b) => b.s - a.s);
+    if(!ranked.length) return null;
+    const best = ranked[ctx.variant % ranked.length];
+    return tryAdd(ctx, type, best.x, best.y, best.rot);
   }
 
   const SOFA_TYPES = ['sofa3', 'sofa2', 'loveseat'];
@@ -223,8 +231,8 @@
   }
 
   // Run the whole chain for one anchor candidate. Returns {items, left, score}.
-  function buildRoom(room, zones, bagIn, kind, anchorCand){
-    const ctx = makeCtx(room, zones), bag = bagIn.slice(), left = [];
+  function buildRoom(room, zones, bagIn, kind, anchorCand, variant){
+    const ctx = makeCtx(room, zones, variant), bag = bagIn.slice(), left = [];
     let anchor = null;
 
     const sofa = takeFirst(bag, SOFA_TYPES), bed = takeFirst(bag, BED_TYPES);
@@ -333,7 +341,7 @@
     const bag = types.slice();
     const main = takeFirst(bag.slice(), SOFA_TYPES) || takeFirst(bag.slice(), BED_TYPES);
     const first = kind === 'bedroom' ? (takeFirst(bag.slice(), BED_TYPES) || main) : main;
-    if(!first) return buildRoom(room, zones, types, kind, null);
+    if(!first) return buildRoom(room, zones, types, kind, null, variant);
     const cands = wallCandidates(room, first).sort((a, b) => b.score - a.score);
     // best few per wall (rot), so variants really differ
     const byRot = {};
@@ -342,12 +350,12 @@
     Object.keys(byRot).forEach(rot => {
       let best = null;
       byRot[rot].forEach(c => {
-        const r = buildRoom(room, zones, types, kind, c);
+        const r = buildRoom(room, zones, types, kind, c, variant);
         if(!best || r.score > best.score) best = r;
       });
       if(best) results.push(best);
     });
-    if(!results.length) return buildRoom(room, zones, types, kind, null);
+    if(!results.length) return buildRoom(room, zones, types, kind, null, variant);
     results.sort((a, b) => b.score - a.score);
     return results[variant % results.length];
   }
