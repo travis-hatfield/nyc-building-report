@@ -15,7 +15,7 @@
  * Bump CACHE_NAME's version whenever the HTML changes structure enough that a
  * cached older copy would be broken by a subsequent JS update.
  */
-const CACHE_NAME = 'nyc-bldg-v1';
+const CACHE_NAME = 'nyc-bldg-v2';
 const APP_SHELL_URLS = ['/', '/index.html'];
 
 self.addEventListener('install', event => {

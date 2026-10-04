@@ -23,6 +23,8 @@
      instead of waiting until the parser reaches the bottom of <body> the way
      the old inline placement did. Same execution order, faster start. -->
 <script src="/js/app.js?v=w4c" defer></script>
+<script src="/js/planner-engine.js?v=1" defer></script>
+<script src="/js/planner.js?v=1" defer></script>
 
 <!-- Warm the connection to the data APIs a search actually hits, so the
      TLS/DNS handshake is already done by the time the user submits the
@@ -82,6 +84,10 @@
       <button class="tab-btn" data-tab="tools" role="tab" aria-selected="false">
         <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2 4 L6 4 M10 4 L14 4"/><circle cx="8" cy="4" r="1.6"/><path d="M2 8 L11 8"/><circle cx="12.5" cy="8" r="1.6"/><path d="M2 12 L4 12 M8 12 L14 12"/><circle cx="6" cy="12" r="1.6"/></svg>
         Renter Tools
+      </button>
+      <button class="tab-btn" data-tab="planner" role="tab" aria-selected="false">
+        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="12" height="12"/><path d="M2 8 H7 M7 2 V6 M10 14 V10 H14"/></svg>
+        Layout Planner
       </button>
     </div>
   </div>
@@ -389,6 +395,51 @@
         <button id="savedListingSaveBtn">Save listing</button>
       </div>
       <div id="savedListingsContainer" style="margin-top:16px;"></div>
+    </div>
+  </div>
+
+  <div id="tab-planner" class="tab-panel">
+    <div class="card">
+      <div class="section-title"><h2>Apartment Layout Planner</h2></div>
+      <p class="hint">Paste a floor plan screenshot (from a listing) into the chat. the AI reads the rooms and dimensions, you pick furniture, and the planner shows true-to-scale layouts you can drag around. Estimates only; verify dimensions with the listing agent. Screenshots are sent to the AI provider (Groq) for reading.</p>
+      <div class="pl-grid">
+        <div class="pl-left">
+          <div id="plChat" class="pl-chat" aria-live="polite"></div>
+          <div id="plAttach" class="pl-attach"></div>
+          <div class="pl-compose">
+            <textarea id="plInput" rows="2" placeholder="Paste a floor plan screenshot, or ask: add a king bed, move the desk..."></textarea>
+            <div class="pl-cbtns">
+              <label class="pl-filebtn secondary" title="Attach floor plan image">📎<input type="file" id="plFile" accept="image/*" hidden></label>
+              <button type="button" id="plSend">Send</button>
+            </div>
+          </div>
+          <h3 class="pl-h">Rooms</h3>
+          <div id="plRooms"></div>
+          <button type="button" class="secondary" id="plAddRoom">Add room</button>
+          <h3 class="pl-h">Furniture</h3>
+          <div class="field" style="margin-bottom:8px;">
+            <label for="plDeskRoom">Desks go in</label>
+            <select id="plDeskRoom"><option value="living">Living room</option><option value="bedroom">Bedroom</option></select>
+          </div>
+          <div id="plPicker"></div>
+        </div>
+        <div class="pl-right">
+          <div class="pl-toolbar">
+            <button type="button" data-arr="0">Auto-arrange A</button>
+            <button type="button" class="secondary" data-arr="1">B</button>
+            <button type="button" class="secondary" data-arr="2">C</button>
+            <span id="plSelBtns" hidden>
+              <button type="button" class="secondary" id="plRotate">Rotate (R)</button>
+              <button type="button" class="secondary" id="plDelete">Delete</button>
+            </span>
+            <button type="button" class="secondary" id="plClearItems">Clear furniture</button>
+            <button type="button" class="secondary" id="plPng">Save PNG</button>
+          </div>
+          <svg id="plSvg" class="pl-svg" viewBox="0 0 480 300" role="img" aria-label="Floor plan with furniture" preserveAspectRatio="xMidYMid meet"></svg>
+          <div id="plStatus" class="hint"></div>
+          <p class="hint">Drag pieces to move (they snap to walls), double-click or press R to rotate, red outline means overlap or outside the room. Layouts A, B, C put the main couch/bed on different walls. Door positions are only known if the AI spotted them on the plan.</p>
+        </div>
+      </div>
     </div>
   </div>
 
