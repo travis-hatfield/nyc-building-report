@@ -279,6 +279,18 @@
       </div>
       <div id="rsStatus" class="nearby-status"></div>
       <div id="rsResults"></div>
+      <hr style="margin:22px 0;border:none;border-top:1px solid var(--border, #ddd);">
+      <h3 style="margin:0 0 6px;">Scan a listings search page</h3>
+      <p class="hint">Paste a rental search-results URL (StreetEasy, Renthop, Apartments.com, Zillow, PadMapper, Naked Apartments). Each listing is checked for rent stabilized wording and run through the estimate above. Best-effort: sites that block automated requests or render results in the browser will return an error.</p>
+      <div class="field" style="margin-top:10px;">
+        <label for="rsListUrl">Search results URL</label>
+        <input id="rsListUrl" type="url" placeholder="https://streeteasy.com/for-rent/nyc/...">
+      </div>
+      <div class="actions">
+        <button id="rsScanBtn">Scan listings</button>
+      </div>
+      <div id="rsScanStatus" class="nearby-status"></div>
+      <div id="rsScanResults"></div>
     </div>
   </div>
 

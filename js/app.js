@@ -4889,6 +4889,18 @@
     return out;
   }
 
+  // Free-text address -> 10-digit BBL via NYC GeoSearch, or null.
+  async function rsBblFor(text){
+    const res = await fetch(`https://geosearch.planninglabs.nyc/v2/search?size=1&text=${encodeURIComponent(text)}`, {headers:{'Accept':'application/json'}});
+    if(!res.ok) throw new Error(`Address lookup returned ${res.status}`);
+    const f = ((await res.json()).features || [])[0];
+    const props = (f && f.properties) || {};
+    return (props.addendum && props.addendum.pad && props.addendum.pad.bbl) || props.pad_bbl || null;
+  }
+  function rsPlutoByBbl(bbl){
+    return rsFetchJson(`${RS_PLUTO}?${new URLSearchParams({'$select': 'bbl,address,borough,zipcode,yearbuilt,unitsres,bldgclass,ownername', '$where': `bbl=${Number(bbl)}`, '$limit': '1'})}`);
+  }
+
   function rsScore(p, codes){
     const units = Number(p.unitsres) || 0;
     const yr = Number(p.yearbuilt) || 0;
@@ -4948,13 +4960,9 @@
       let rows, mode;
       if(addr){
         mode = 'address';
-        const res = await fetch(`https://geosearch.planninglabs.nyc/v2/search?size=1&text=${encodeURIComponent(addr)}`, {headers:{'Accept':'application/json'}});
-        if(!res.ok) throw new Error(`Address lookup returned ${res.status}`);
-        const f = ((await res.json()).features || [])[0];
-        const props = (f && f.properties) || {};
-        const bbl = (props.addendum && props.addendum.pad && props.addendum.pad.bbl) || props.pad_bbl;
+        const bbl = await rsBblFor(addr);
         if(!bbl) throw new Error('Address not found in NYC');
-        rows = await rsFetchJson(`${RS_PLUTO}?${new URLSearchParams({'$select': sel, '$where': `bbl=${Number(bbl)}`, '$limit': '1'})}`);
+        rows = await rsPlutoByBbl(bbl);
       } else {
         mode = 'zip';
         const where = `zipcode='${soql(zip)}' AND unitsres>=${minUnits} AND yearbuilt>0 AND yearbuilt<1974`;
@@ -4978,6 +4986,59 @@
   document.getElementById('rsSearchBtn').addEventListener('click', runRentStabSearch);
   ['rsAddress','rsZip'].forEach(id => document.getElementById(id).addEventListener('keydown', e => { if(e.key === 'Enter') runRentStabSearch(); }));
   attachGeoSearchAutocomplete(document.getElementById('rsAddress'));
+
+  // Scan a rental search-results page via /api/scrape-search, then estimate each
+  // listing's building (first 20) using the same PLUTO/abatement logic as above.
+  async function runRentStabScan(){
+    const url = document.getElementById('rsListUrl').value.trim();
+    const statusEl = document.getElementById('rsScanStatus');
+    const resultsEl = document.getElementById('rsScanResults');
+    resultsEl.innerHTML = '';
+    if(!url){ statusEl.innerHTML = '<span class="err">Paste a search results URL.</span>'; return; }
+    statusEl.innerHTML = '<span class="loading"><span class="spinner"></span> Fetching listings…</span>';
+    try{
+      const res = await fetch(`/api/scrape-search?url=${encodeURIComponent(url)}`);
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || !data.ok) throw new Error(data.error || `Scan failed (${res.status})`);
+      const listings = data.listings;
+      statusEl.innerHTML = `<span class="loading"><span class="spinner"></span> Found ${listings.length} listings. Checking buildings…</span>`;
+      const results = [];
+      for(const l of listings.slice(0, 20)){
+        let row = null;
+        try{
+          const bbl = await rsBblFor(l.address || l.title || '');
+          if(bbl){
+            const rows = await rsPlutoByBbl(bbl);
+            if(rows[0]){
+              const ab = await rsAbatements([String(rows[0].bbl).split('.')[0]]).catch(() => new Map());
+              row = {p: rows[0], score: rsScore(rows[0], ab.get(String(rows[0].bbl).split('.')[0]))};
+            }
+          }
+        }catch(_){ /* leave unmatched */ }
+        results.push({l, row});
+      }
+      const rank = {high:0, likely:1, possible:2, low:3};
+      results.sort((x, y) =>
+        (y.l.stabilizedMention - x.l.stabilizedMention) ||
+        ((x.row ? rank[x.row.score.level] : 4) - (y.row ? rank[y.row.score.level] : 4)));
+      const labels = {high:'Very likely', likely:'Likely', possible:'Possible', low:'Unlikely'};
+      const flagged = results.filter(r => r.l.stabilizedMention).length;
+      statusEl.innerHTML = `<span style="color:var(--muted);">${listings.length} listings from ${esc(data.source)}${listings.length>20?' (first 20 checked)':''}. ${flagged} mention${flagged===1?'s':''} rent stabilization.</span>`;
+      resultsEl.innerHTML = `<div class="aff-project-list">${results.map(({l, row}) => `<div class="aff-project">
+        <div class="ap-name">${l.url ? `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || l.address || 'Listing')}</a>` : esc(l.title || l.address || 'Listing')}</div>
+        <div class="ap-meta">
+          ${l.price ? `<span><strong>${esc(l.price)}</strong></span>` : ''}
+          ${l.beds != null ? `<span>${esc(l.beds)} bed</span>` : ''}
+          ${l.stabilizedMention ? '<span style="color:#1a7f37;font-weight:600;">Listing mentions rent stabilization</span>' : ''}
+        </div>
+        <div class="ap-tiers">${row ? `Building estimate: <strong>${labels[row.score.level]}</strong> (${esc(row.score.why.join(' · '))})` : 'Building not matched (no address found).'}</div>
+      </div>`).join('')}</div>
+      <p class="hint" style="margin-top:14px;">Listing text and building estimates are not proof of stabilization. Ask the landlord for the lease rider and request DHCR rent history.</p>`;
+    }catch(e){
+      statusEl.innerHTML = `<span class="err">⚠ ${esc(e.message || 'Scan failed')}</span>`;
+    }
+  }
+  document.getElementById('rsScanBtn').addEventListener('click', runRentStabScan);
 
   // ---------- Explore a Neighborhood: rank buildings by violation history ----------
   function titleCase(s){ return String(s||'').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()); }
