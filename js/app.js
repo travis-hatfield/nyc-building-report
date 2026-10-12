@@ -2708,11 +2708,11 @@
   // malformed link falls back to a normal empty landing page.
   (function autoRunFromUrl(){
     const p = new URLSearchParams(location.search);
-    // ?tab=nearby|listings|affordable|explore|watchlist|tools switches to
+    // ?tab=nearby|listings|affordable|rentstab|explore|watchlist|tools switches to
     // that tab on load — extends the existing shareable-report deep link
     // so a URL can land you on any part of the app, not just the Check flow.
     const tab = p.get('tab');
-    const validTabs = ['check','listings','nearby','affordable','explore','watchlist','tools'];
+    const validTabs = ['check','listings','nearby','affordable','rentstab','explore','watchlist','tools'];
     // Deferred: switchTab triggers renderWatchlistPanel(), which references
     // `watchlistContainer` — that `let` declaration comes further down in
     // this IIFE, so calling switchTab synchronously here hits its TDZ.
@@ -4848,6 +4848,136 @@
     }
   }
   document.getElementById('affSearchBtn').addEventListener('click', runAffordableSearch);
+
+  // ---------- Rent Stabilized tab ----------
+  // No public per-unit or per-building registry exists (DHCR publishes only PDF
+  // lists by county). So we estimate from open data the way tenant tools do:
+  //  - PLUTO (64uk-42ks): 6+ residential units and built before 1974 is the legal
+  //    test for coverage under the Rent Stabilization Law.
+  //  - DOF Property Abatement Detail (rgyu-ii48): active J-51, 421-g, or ICAP
+  //    benefits legally require stabilized units, even for newer buildings.
+  const RS_PLUTO = 'https://data.cityofnewyork.us/resource/64uk-42ks.json';
+  const RS_ABATE = 'https://data.cityofnewyork.us/resource/rgyu-ii48.json';
+  const RS_CODES = ['J51','421G','ICAP'];
+  const RS_BORO = {MN:'Manhattan', BX:'Bronx', BK:'Brooklyn', QN:'Queens', SI:'Staten Island'};
+
+  async function rsFetchJson(url){
+    const res = await fetch(url, {headers: socrataHeaders()});
+    if(!res.ok) throw new Error(`NYC Open Data returned ${res.status}`);
+    return res.json();
+  }
+
+  // Returns Map<10-digit BBL, [active abatement codes]> for the given BBLs.
+  async function rsAbatements(bbls){
+    const out = new Map();
+    if(!bbls.length) return out;
+    const list = bbls.map(b => `'${soql(b)}'`).join(',');
+    const codes = RS_CODES.map(c => `'${c}'`).join(',');
+    const params = new URLSearchParams({
+      '$select': 'parid,tccode,max(yrenddt) as yrenddt',
+      '$group': 'parid,tccode',
+      '$where': `parid in(${list}) AND tccode in(${codes}) AND appstat='A'`,
+      '$limit': '5000'
+    });
+    const now = Date.now();
+    (await rsFetchJson(`${RS_ABATE}?${params}`)).forEach(r => {
+      if(r.yrenddt && new Date(r.yrenddt).getTime() < now - 365*864e5) return; // long expired
+      const set = out.get(r.parid) || [];
+      if(!set.includes(r.tccode)) set.push(r.tccode);
+      out.set(r.parid, set);
+    });
+    return out;
+  }
+
+  function rsScore(p, codes){
+    const units = Number(p.unitsres) || 0;
+    const yr = Number(p.yearbuilt) || 0;
+    const pre74 = units >= 6 && yr > 0 && yr < 1974;
+    const bene = codes && codes.length;
+    const condo = /^(R|D0|C6|C8)/.test(p.bldgclass || ''); // condo/co-op classes: only some units may be stabilized
+    let level, why = [];
+    if(pre74) why.push(`${units} units, built ${yr} (6+ units before 1974)`);
+    if(bene) why.push(`active tax benefit: ${codes.join(', ')}`);
+    if(pre74 && bene) level = 'high';
+    else if(pre74 || bene) level = 'likely';
+    else {
+      level = 'low';
+      why.push(units < 6 ? `only ${units} residential unit${units===1?'':'s'}` : (yr ? `built ${yr}, after 1973` : 'year built unknown'));
+    }
+    if(condo && level !== 'low'){ level = 'possible'; why.push('condo/co-op: only some units may be stabilized'); }
+    return {level, why};
+  }
+
+  function rsCard(p, codes){
+    const s = rsScore(p, codes);
+    const label = {high:'Very likely', likely:'Likely', possible:'Possible', low:'Unlikely'}[s.level];
+    const color = {high:'#1a7f37', likely:'#2d7a4f', possible:'#b7791f', low:'#8a8a8a'}[s.level];
+    const addr = titleCase(p.address || '');
+    const boro = RS_BORO[p.borough] || p.borough || '';
+    const q = encodeURIComponent(`${addr}, ${boro}, NY ${p.zipcode || ''}`);
+    return `<div class="aff-project">
+      <div class="ap-name">${esc(addr)} <span style="color:${color};font-weight:600;font-size:.85em;">· ${label}</span></div>
+      <div class="ap-addr">${esc(boro)}${p.zipcode ? ', ' + esc(p.zipcode) : ''}</div>
+      <div class="ap-meta">
+        <span><strong>${Number(p.unitsres)||0}</strong> residential units</span>
+        <span>Built ${esc(p.yearbuilt && p.yearbuilt !== '0' ? p.yearbuilt : 'unknown')}</span>
+        <span>Class ${esc(p.bldgclass || '—')}</span>
+      </div>
+      <div class="ap-tiers">${esc(s.why.join(' · '))}</div>
+      <div class="ap-actions">
+        <a href="https://www.google.com/maps/search/?api=1&query=${q}" target="_blank" rel="noopener">📍 Map</a>
+        <a href="https://portal.hcr.ny.gov/app/ask" target="_blank" rel="noopener">Request DHCR rent history ↗</a>
+      </div>
+    </div>`;
+  }
+
+  async function runRentStabSearch(){
+    const addr = document.getElementById('rsAddress').value.trim();
+    const zip = document.getElementById('rsZip').value.trim();
+    const minUnits = Number(document.getElementById('rsMinUnits').value) || 6;
+    const statusEl = document.getElementById('rsStatus');
+    const resultsEl = document.getElementById('rsResults');
+    resultsEl.innerHTML = '';
+    if(!addr && !/^\d{5}$/.test(zip)){
+      statusEl.innerHTML = '<span class="err">Enter an address or a 5-digit ZIP code.</span>';
+      return;
+    }
+    statusEl.innerHTML = '<span class="loading"><span class="spinner"></span> Checking NYC Open Data…</span>';
+    const sel = 'bbl,address,borough,zipcode,yearbuilt,unitsres,bldgclass,ownername';
+    try{
+      let rows, mode;
+      if(addr){
+        mode = 'address';
+        const res = await fetch(`https://geosearch.planninglabs.nyc/v2/search?size=1&text=${encodeURIComponent(addr)}`, {headers:{'Accept':'application/json'}});
+        if(!res.ok) throw new Error(`Address lookup returned ${res.status}`);
+        const f = ((await res.json()).features || [])[0];
+        const props = (f && f.properties) || {};
+        const bbl = (props.addendum && props.addendum.pad && props.addendum.pad.bbl) || props.pad_bbl;
+        if(!bbl) throw new Error('Address not found in NYC');
+        rows = await rsFetchJson(`${RS_PLUTO}?${new URLSearchParams({'$select': sel, '$where': `bbl=${Number(bbl)}`, '$limit': '1'})}`);
+      } else {
+        mode = 'zip';
+        const where = `zipcode='${soql(zip)}' AND unitsres>=${minUnits} AND yearbuilt>0 AND yearbuilt<1974`;
+        rows = await rsFetchJson(`${RS_PLUTO}?${new URLSearchParams({'$select': sel, '$where': where, '$order': 'unitsres DESC', '$limit': '100'})}`);
+      }
+      if(!rows.length){
+        statusEl.innerHTML = '<span style="color:var(--muted);">No matching buildings found.</span>';
+        return;
+      }
+      const keyOf = r => String(r.bbl).split('.')[0];
+      const abate = await rsAbatements(rows.map(keyOf)).catch(() => new Map());
+      statusEl.innerHTML = mode === 'zip'
+        ? `<span style="color:var(--muted);">${rows.length} building${rows.length===1?'':'s'} with ${minUnits}+ units built before 1974${rows.length===100?' (largest 100 shown)':''}.</span>`
+        : '';
+      resultsEl.innerHTML = `<div class="aff-project-list">${rows.map(r => rsCard(r, abate.get(keyOf(r)))).join('')}</div>
+        <p class="hint" style="margin-top:14px;">Data: <a href="https://data.cityofnewyork.us/City-Government/Primary-Land-Use-Tax-Lot-Output-PLUTO-/64uk-42ks" target="_blank" rel="noopener">PLUTO ↗</a> and <a href="https://data.cityofnewyork.us/City-Government/DOF-Property-Abatement-Detail/rgyu-ii48" target="_blank" rel="noopener">DOF Property Abatement Detail ↗</a>. Estimates only. Buildings can lose stabilization (e.g. through deregulation or conversion), and individual units can be exempt. Confirm with DHCR's <a href="https://hcr.ny.gov/rent-stabilized-buildings-lists" target="_blank" rel="noopener">rent stabilized building lists ↗</a> or a rent history request.</p>`;
+    }catch(e){
+      statusEl.innerHTML = `<span class="err">⚠ ${esc(e.message || 'Search failed')}. Try again.</span>`;
+    }
+  }
+  document.getElementById('rsSearchBtn').addEventListener('click', runRentStabSearch);
+  ['rsAddress','rsZip'].forEach(id => document.getElementById(id).addEventListener('keydown', e => { if(e.key === 'Enter') runRentStabSearch(); }));
+  attachGeoSearchAutocomplete(document.getElementById('rsAddress'));
 
   // ---------- Explore a Neighborhood: rank buildings by violation history ----------
   function titleCase(s){ return String(s||'').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()); }

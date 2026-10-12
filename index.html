@@ -73,6 +73,10 @@
         <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 7 L8 2.5 L14 7 L14 13 L2 13 Z"/><path d="M8 6.5 L8 11 M6.5 8 L9.5 8 M6.5 10 L9.5 10"/></svg>
         Affordable Housing
       </button>
+      <button class="tab-btn" data-tab="rentstab" role="tab" aria-selected="false">
+        <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.8 L13 3.6 L13 8 C13 11 10.8 13 8 14.2 C5.2 13 3 11 3 8 L3 3.6 Z"/><path d="M5.8 8 L7.4 9.6 L10.4 6.4"/></svg>
+        Rent Stabilized
+      </button>
       <button class="tab-btn" data-tab="explore" role="tab" aria-selected="false">
         <svg class="tab-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4 L6 8 L8 12 L10 8 Z"/></svg>
         Explore a Neighborhood
@@ -244,6 +248,37 @@
       </div>
       <div id="affStatus" class="nearby-status"></div>
       <div id="affResults"></div>
+    </div>
+  </div>
+
+  <div id="tab-rentstab" class="tab-panel">
+    <div class="card">
+      <div class="section-title"><h2>Rent Stabilized Apartment Finder</h2></div>
+      <p class="hint">Estimate whether a building likely has rent stabilized units, or browse likely stabilized buildings by ZIP. NYC has no public per-unit list, so this uses the standard indicators: 6+ units built before 1974, plus active J-51, 421-g, or ICAP tax benefits (which require stabilization). <strong>This is an estimate, not proof.</strong> The only authoritative answer is the apartment's DHCR rent history.</p>
+      <div class="row3" style="margin-top:14px;">
+        <div class="field">
+          <label for="rsAddress">Check a specific address</label>
+          <input id="rsAddress" type="text" placeholder="e.g. 1881 Amsterdam Ave, Manhattan" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="rsZip">Or browse by ZIP code</label>
+          <input id="rsZip" type="text" inputmode="numeric" maxlength="5" placeholder="e.g. 10032">
+        </div>
+        <div class="field">
+          <label for="rsMinUnits">Min. units (ZIP browse)</label>
+          <select id="rsMinUnits">
+            <option value="6" selected>6+</option>
+            <option value="10">10+</option>
+            <option value="20">20+</option>
+            <option value="50">50+</option>
+          </select>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="rsSearchBtn">Search</button>
+      </div>
+      <div id="rsStatus" class="nearby-status"></div>
+      <div id="rsResults"></div>
     </div>
   </div>
 
