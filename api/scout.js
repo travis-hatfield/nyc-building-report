@@ -23,17 +23,43 @@ function parseCsv(text) {
   return rows;
 }
 
+async function fetchTab(tab) {
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tab)}`;
+  const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const text = await r.text();
+  if (!r.ok || /^\s*<(!doctype|html)/i.test(text)) return null;
+  return parseCsv(text);
+}
+
+// Daily tabs are named like "Oct 4, 2026" (Pacific). Google serves the first
+// sheet when a tab name doesn't exist, so a real daily tab is recognised by
+// its "Save?" header column.
+async function fetchLatestDaily() {
+  const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric' });
+  for (let back = 0; back < 8; back++) {
+    const name = fmt.format(new Date(Date.now() - back * 86400000));
+    const rows = await fetchTab(name);
+    if (rows && rows.some((r) => /^save\?$/i.test((r[0] || '').trim()))) return { rows, name };
+  }
+  return null;
+}
+
 module.exports = async (req, res) => {
-  res.setHeader('Cache-Control', 'public, s-maxage=600, max-age=300');
+  res.setHeader('Cache-Control', 'public, s-maxage=60, max-age=30');
   try {
-    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(TAB)}`;
-    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    const text = await r.text();
-    if (!r.ok || /^\s*<(!doctype|html)/i.test(text)) {
+    const latest = req.query && req.query.tab === 'latest';
+    let rows, tabName = null;
+    if (latest) {
+      const d = await fetchLatestDaily();
+      if (!d) return res.status(200).json([]);
+      rows = d.rows; tabName = d.name;
+    } else {
+      rows = await fetchTab(TAB);
+    }
+    if (!rows) {
       res.setHeader('Cache-Control', 'no-store');
       return res.status(502).json({ error: 'Sheet not readable. Share it as "Anyone with the link can view".' });
     }
-    const rows = parseCsv(text);
     const hi = rows.findIndex((r) => r.some((c) => /^neighborhood$/i.test(c.trim())));
     if (hi < 0) return res.status(200).json([]);
     const head = rows[hi].map((h) => h.trim().toLowerCase());
@@ -51,7 +77,7 @@ module.exports = async (req, res) => {
       beds: get(r, 'beds'), price: num(get(r, 'price')), netEffective: num(get(r, 'net')),
       sqft: num(get(r, 'sqft')), washerDryer: get(r, 'wd'), daysOnMarket: get(r, 'dom'),
       link: /^https:\/\/(www\.)?streeteasy\.com\//.test(get(r, 'link')) ? get(r, 'link') : null,
-      notes: get(r, 'notes'), dateFound: get(r, 'found'), status: get(r, 'status'),
+      notes: get(r, 'notes'), dateFound: get(r, 'found') || tabName || '', status: get(r, 'status'),
     }));
     res.status(200).json(out);
   } catch (e) {

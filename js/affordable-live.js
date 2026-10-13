@@ -135,19 +135,24 @@
     }catch(e){ el.innerHTML = '<span class="err">⚠ HDC unavailable right now.</span>'; }
   }
 
-  async function runScout(){
+  let scoutSig = "";
+  async function runScout(quiet){
     const el = document.getElementById("liveScout");
-    el.innerHTML = '<span class="loading"><span class="spinner"></span> Loading scout picks…</span>';
+    const mode = document.getElementById("liveScoutMode").value;
+    if(!quiet) el.innerHTML = '<span class="loading"><span class="spinner"></span> Loading scout picks…</span>';
     try{
-      const data = await getJSON("/api/scout", {}, 20000);
+      const data = await getJSON("/api/scout" + (mode === "latest" ? "?tab=latest" : ""), {}, 20000);
+      const sig = mode + JSON.stringify(data);
+      if(quiet && sig === scoutSig) return; // nothing changed, skip re-render
+      scoutSig = sig;
       el.innerHTML = data.length ? `<div class="aff-project-list">${data.map(a => `<div class="aff-project">
         <div class="ap-name">${esc(a.address)}${a.unit ? " #" + esc(a.unit) : ""}</div>
         <div class="ap-addr">${esc(a.neighborhood)}</div>
         <div class="ap-meta"><span>${esc(a.beds)}</span><span><strong>${fmt(a.price)}</strong>/mo</span>${a.netEffective ? `<span>net ${fmt(a.netEffective)}</span>` : ""}${a.sqft ? `<span>${a.sqft} sqft</span>` : ""}${a.dateFound ? `<span>found ${esc(a.dateFound)}</span>` : ""}</div>
         ${a.notes ? `<div class="ap-tiers">${esc(a.notes)}</div>` : ""}
         ${a.link ? `<div class="ap-actions"><a href="${esc(a.link)}" target="_blank" rel="noopener">StreetEasy ↗</a></div>` : ""}
-      </div>`).join("")}</div>` : '<p class="hint">No saved scout picks yet. Check Save? on rows in a daily tab and say sync saved.</p>';
-    }catch(e){ el.innerHTML = '<span class="err">⚠ Scout sheet unavailable. Share it as "Anyone with the link can view".</span>'; }
+      </div>`).join("")}</div>` : '<p class="hint">Nothing here yet. Saved picks appear after you check Save? in a daily tab and say sync saved.</p>';
+    }catch(e){ if(quiet) return; el.innerHTML = '<span class="err">⚠ Scout sheet unavailable. Share it as "Anyone with the link can view".</span>'; }
   }
 
   function init(){
@@ -172,7 +177,9 @@
       <h3 style="margin-top:22px;">HDC re-rentals</h3>
       <div id="liveHdc"></div>
       <h3 style="margin-top:22px;">Daily apartment scout picks</h3>
-      <p class="hint">Market-rate Manhattan picks saved from your daily StreetEasy scout sheet.</p>
+      <p class="hint">Market-rate Manhattan picks from your daily StreetEasy scout sheet. Updates itself every 2 minutes while this page is open.</p>
+      <div class="field" style="max-width:260px;"><label for="liveScoutMode">Show</label>
+        <select id="liveScoutMode"><option value="saved">Saved apartments</option><option value="latest">Newest daily tab</option></select></div>
       <div id="liveScout"></div>`;
     tab.insertBefore(box, tab.firstChild);
     const onChange = () => {
@@ -183,7 +190,13 @@
     document.getElementById("liveRefresh").addEventListener("click", () => runLotteries(true));
     // Load when the tab is first opened
     let started = false;
-    const start = () => { if(started) return; started = true; runLotteries(false); runHdc(); runScout(); };
+    document.getElementById("liveScoutMode").addEventListener("change", () => runScout(false));
+    const start = () => {
+      if(started) return; started = true; runLotteries(false); runHdc(); runScout(false);
+      // Poll the sheet while the page is visible; re-render only when it changed
+      setInterval(() => { if(!document.hidden && tab.classList.contains("active")) runScout(true); }, 120000);
+      document.addEventListener("visibilitychange", () => { if(!document.hidden && tab.classList.contains("active")) runScout(true); });
+    };
     document.querySelectorAll('[data-tab="affordable"]').forEach(b => b.addEventListener("click", start));
     if(tab.classList.contains("active")) start();
   }
