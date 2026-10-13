@@ -9,4 +9,4 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - run: curl -fsS --max-time 90 -H "x-watch-secret: ${{ secrets.WATCH_SECRET }}" "${{ secrets.WATCH_URL }}"
+      - run: 'curl -fsS --max-time 90 -H "x-watch-secret: ${{ secrets.WATCH_SECRET }}" "${{ secrets.WATCH_URL }}"'
