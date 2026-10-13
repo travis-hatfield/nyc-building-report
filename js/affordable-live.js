@@ -60,7 +60,7 @@
   // true / false / null (unknown = maybe)
   function fits(unit, size, income){
     if(!size || !income) return null;
-    const row = unit.limits.find(r => r.hh === size);
+    const row = unit.limits.find(r => r.hh === size) || unit.limits.find(r => r.hh == null);
     if(!row) return null;
     if(row.min != null && income < row.min) return false;
     if(row.max != null && income > row.max) return false;
@@ -136,6 +136,32 @@
   }
 
   let scoutSig = "";
+  async function runAgents(){
+    const el = document.getElementById("liveAgents");
+    el.innerHTML = '<span class="loading"><span class="spinner"></span> Loading agent listings…</span>';
+    try{
+      const data = await getJSON("/api/affordable-feed", {}, 20000);
+      if(!data.configured){ el.innerHTML = '<p class="hint">Agent-page watcher not set up yet (needs Upstash Redis and WATCH_SECRET in Vercel).</p>'; return; }
+      const size = Number(document.getElementById("liveHH").value) || null;
+      const income = Number(document.getElementById("liveIncome").value) || null;
+      const onlyFit = document.getElementById("liveOnlyFit").checked;
+      const rows = data.listings.filter(l => !l.seniors).map(l => ({l, f: fits({limits: l.incomeLimits || []}, size, income)}))
+        .filter(x => !onlyFit || x.f !== false);
+      const ok = data.sources.filter(x => x.ok).length;
+      const badge = f => f === true ? '<span style="color:#2e9e5b">✓ fits</span>' : f === false ? '<span style="color:#c0392b">✗ out of range</span>' : '<span style="color:var(--muted)">? maybe</span>';
+      el.innerHTML = `<p class="hint">${rows.length} listing${rows.length===1?"":"s"} from ${ok} of ${data.sources.length} watched pages. Senior-only and market-rate units are hidden.</p>` +
+        (rows.length ? `<div class="aff-project-list">${rows.map(({l, f}) => {
+          const r = (l.incomeLimits || []).find(x => x.hh === size) || (l.incomeLimits || []).find(x => x.hh == null);
+          return `<div class="aff-project">
+          <div class="ap-name">${esc(l.building)}${l.unit ? " #" + esc(l.unit) : ""}</div>
+          <div class="ap-addr">${esc(l.address || "")}${l.neighborhood ? " · " + esc(l.neighborhood) : ""}${l.borough !== "unknown" ? " · " + esc(l.borough) : ""}</div>
+          <div class="ap-meta"><span>${esc(l.unitSize)}</span>${l.rent ? `<span><strong>${fmt(l.rent)}</strong>/mo</span>` : ""}${l.ami ? `<span>${l.ami}% AMI</span>` : ""}${l.deadline ? `<span>Deadline ${esc(l.deadline)}</span>` : ""}</div>
+          <div class="ap-tiers">${r ? `Income ${fmt(r.min)} to ${fmt(r.max)} ` : "Income range not stated "}${badge(f)}${l.howToApply ? `<div>${esc(l.howToApply)}</div>` : ""}${l.notes ? `<div>${esc(l.notes)}</div>` : ""}</div>
+          <div class="ap-actions">${l.url ? `<a href="${esc(l.url)}" target="_blank" rel="noopener">Listing ↗</a>` : ""}<a href="${esc(l.sourceUrl)}" target="_blank" rel="noopener">${esc(l.source)} ↗</a></div>
+        </div>`; }).join("")}</div>` : "");
+    }catch(e){ el.innerHTML = '<span class="err">⚠ Agent listings unavailable right now.</span>'; }
+  }
+
   async function runScout(quiet){
     const el = document.getElementById("liveScout");
     const mode = document.getElementById("liveScoutMode").value;
@@ -155,6 +181,7 @@
     }catch(e){ if(quiet) return; el.innerHTML = '<span class="err">⚠ Scout sheet unavailable. Share it as "Anyone with the link can view".</span>'; }
   }
 
+  let started = false;
   function init(){
     const tab = document.getElementById("tab-affordable");
     if(!tab) return;
@@ -176,6 +203,8 @@
       <div id="liveLotteries"></div>
       <h3 style="margin-top:22px;">HDC re-rentals</h3>
       <div id="liveHdc"></div>
+      <h3 style="margin-top:22px;">Agent &amp; landlord re-rentals</h3>
+      <div id="liveAgents"></div>
       <h3 style="margin-top:22px;">Daily apartment scout picks</h3>
       <p class="hint">Market-rate Manhattan picks from your daily StreetEasy scout sheet. Updates itself every 2 minutes while this page is open.</p>
       <div class="field" style="max-width:260px;"><label for="liveScoutMode">Show</label>
@@ -184,15 +213,14 @@
     tab.insertBefore(box, tab.firstChild);
     const onChange = () => {
       saveProfile({hh: document.getElementById("liveHH").value, income: document.getElementById("liveIncome").value, onlyFit: document.getElementById("liveOnlyFit").checked});
-      renderLotteries();
+      renderLotteries(); if(started) runAgents();
     };
     ["liveHH","liveIncome","liveOnlyFit"].forEach(id => document.getElementById(id).addEventListener("change", onChange));
     document.getElementById("liveRefresh").addEventListener("click", () => runLotteries(true));
     // Load when the tab is first opened
-    let started = false;
     document.getElementById("liveScoutMode").addEventListener("change", () => runScout(false));
     const start = () => {
-      if(started) return; started = true; runLotteries(false); runHdc(); runScout(false);
+      if(started) return; started = true; runLotteries(false); runHdc(); runAgents(); runScout(false);
       // Poll the sheet while the page is visible; re-render only when it changed
       setInterval(() => { if(!document.hidden && tab.classList.contains("active")) runScout(true); }, 120000);
       document.addEventListener("visibilitychange", () => { if(!document.hidden && tab.classList.contains("active")) runScout(true); });
