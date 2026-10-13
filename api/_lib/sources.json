@@ -1,0 +1,150 @@
+[
+ {
+  "name": "r/nychousinglottery",
+  "url": "https://www.reddit.com/r/nychousinglottery/new/.rss",
+  "kind": "rss",
+  "everyMinutes": 120
+ },
+ {
+  "name": "Clinton Management",
+  "url": "https://www.clintonmanagement.com/availabilities/affordable/",
+  "kind": "page"
+ },
+ {
+  "name": "Fifth Avenue Committee",
+  "url": "https://fifthave.org/re-rental-availabilities/",
+  "kind": "page"
+ },
+ {
+  "name": "Housing Partnership",
+  "url": "https://housingpartnership.com/what-we-do/current-vacancies/",
+  "kind": "page"
+ },
+ {
+  "name": "Infinite Horizons",
+  "url": "https://ihrerentals.com/",
+  "kind": "page"
+ },
+ {
+  "name": "Ibis Advisors",
+  "url": "https://ibis.powerappsportals.com/",
+  "kind": "page"
+ },
+ {
+  "name": "K&G Upright",
+  "url": "https://kgupright.com/current-vacancies",
+  "kind": "page"
+ },
+ {
+  "name": "Langsam Property Services",
+  "url": "https://www.langsampropertyservices.com/affordable-rental-opportunities",
+  "kind": "page"
+ },
+ {
+  "name": "MGNY Consulting",
+  "url": "https://mgnyconsulting.com/listings/",
+  "kind": "page"
+ },
+ {
+  "name": "MHANY",
+  "url": "https://www.mutualhousingny.org/affordable-re-rental-units",
+  "kind": "page"
+ },
+ {
+  "name": "Micki Garcia Realty",
+  "url": "https://www.mickigarciarealty.com/",
+  "kind": "page"
+ },
+ {
+  "name": "MNS",
+  "url": "https://www.mns.com/affordable_units",
+  "kind": "page"
+ },
+ {
+  "name": "Related (AHG Leasing)",
+  "url": "https://ahgleasing.com/",
+  "kind": "page"
+ },
+ {
+  "name": "Reside New York",
+  "url": "https://residenewyork.com/property-status/open-market/",
+  "kind": "page"
+ },
+ {
+  "name": "SJP Tax Consultants",
+  "url": "https://www.sjpny.com/affordable-rerentals",
+  "kind": "page"
+ },
+ {
+  "name": "SOIS",
+  "url": "https://soisrealestateconsulting.com/current-projects-1",
+  "kind": "page"
+ },
+ {
+  "name": "Spring Management",
+  "url": "https://springmanagement.net/apartments-for-rent/",
+  "kind": "page"
+ },
+ {
+  "name": "St. Nicks Alliance",
+  "url": "https://stnicksalliance.org/get-help-affordable-housing/",
+  "kind": "page"
+ },
+ {
+  "name": "Stanton Norfolk",
+  "url": "https://east-village-homes-owner-llc.rentcafewebsite.com/",
+  "kind": "page"
+ },
+ {
+  "name": "Sterling23",
+  "url": "https://www.sterling23.com/?page=affordable",
+  "kind": "page"
+ },
+ {
+  "name": "AffordableLivingNYC (Tax Solute)",
+  "url": "https://sites.google.com/affordablelivingnyc.com/hpd/home",
+  "kind": "page"
+ },
+ {
+  "name": "Taxace NY",
+  "url": "https://www.taxaceny.com/projects-8",
+  "kind": "page"
+ },
+ {
+  "name": "The Bridge",
+  "url": "https://www.thebridgeny.org/news-and-media",
+  "kind": "page"
+ },
+ {
+  "name": "Wavecrest Rentals",
+  "url": "https://wavecrestrentals.com/section.php?id=1",
+  "kind": "page"
+ },
+ {
+  "name": "Your Neighborhood Housing",
+  "url": "https://yourneighborhoodhousing.com/",
+  "kind": "page"
+ },
+ {
+  "name": "r/NYCapartments",
+  "url": "https://www.reddit.com/r/NYCapartments/new/.rss",
+  "kind": "rss",
+  "everyMinutes": 120,
+  "match": "re-?rental|\\bAMI\\b|income[- ]restricted|affordable (housing|unit|apartment)|housing connect|housing lottery"
+ },
+ {
+  "name": "Breaking Ground",
+  "url": "https://www.breakingground.org/need-housing",
+  "kind": "page"
+ },
+ {
+  "name": "AAFE / Stanton Norfolk Inc.",
+  "url": "https://aafe.org/?p=3392",
+  "kind": "page"
+ },
+ {
+  "name": "C+C Apartment Management",
+  "url": "https://ccmanagers.com/new-developments/",
+  "kind": "page"
+ }
+]

@@ -1,0 +1,12 @@
+# Pings /api/watch every 30 minutes (free alternative to Vercel Cron, which is daily-only on Hobby).
+# Repo secrets needed: WATCH_URL (e.g. https://your-site.vercel.app/api/watch) and WATCH_SECRET.
+name: Watch affordable listings
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS --max-time 90 -H "x-watch-secret: ${{ secrets.WATCH_SECRET }}" "${{ secrets.WATCH_URL }}"
