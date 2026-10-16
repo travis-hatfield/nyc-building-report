@@ -136,11 +136,12 @@
   }
 
   let scoutSig = "";
-  async function runAgents(){
+  let agentsData = null;
+  function renderAgents(){
     const el = document.getElementById("liveAgents");
-    el.innerHTML = '<span class="loading"><span class="spinner"></span> Loading agent listings…</span>';
-    try{
-      const data = await getJSON("/api/affordable-feed", {}, 20000);
+    const data = agentsData;
+    if(!data) return;
+    {
       if(!data.configured){ el.innerHTML = '<p class="hint">Agent-page watcher not set up yet (needs Upstash Redis and WATCH_SECRET in Vercel).</p>'; return; }
       const size = Number(document.getElementById("liveHH").value) || null;
       const income = Number(document.getElementById("liveIncome").value) || null;
@@ -159,7 +160,13 @@
           <div class="ap-tiers">${r ? `Income ${fmt(r.min)} to ${fmt(r.max)} ` : "Income range not stated "}${badge(f)}${l.howToApply ? `<div>${esc(l.howToApply)}</div>` : ""}${l.notes ? `<div>${esc(l.notes)}</div>` : ""}</div>
           <div class="ap-actions">${l.url ? `<a href="${esc(l.url)}" target="_blank" rel="noopener">Listing ↗</a>` : ""}<a href="${esc(l.sourceUrl)}" target="_blank" rel="noopener">${esc(l.source)} ↗</a></div>
         </div>`; }).join("")}</div>` : "");
-    }catch(e){ el.innerHTML = '<span class="err">⚠ Agent listings unavailable right now.</span>'; }
+    }
+  }
+
+  // Fetch once; filter changes re-render from this copy so the page never jumps.
+  async function runAgents(){
+    try{ agentsData = await getJSON("/api/affordable-feed", {}, 20000); renderAgents(); }
+    catch(e){ document.getElementById("liveAgents").innerHTML = '<span class="err">⚠ Agent listings unavailable right now.</span>'; }
   }
 
   async function runScout(quiet){
@@ -199,21 +206,21 @@
         <div class="field"><label>&nbsp;</label><label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="liveOnlyFit"${p.onlyFit ? " checked" : ""}> Hide out of range</label></div>
       </div>
       <div class="actions"><button id="liveRefresh">Refresh lotteries</button></div>
-      <div id="liveStatus" class="nearby-status"></div>
-      <div id="liveLotteries"></div>
+      <div id="liveStatus" class="nearby-status" style="min-height:28px"></div>
+      <div id="liveLotteries" style="min-height:140px"></div>
       <h3 style="margin-top:22px;">HDC re-rentals</h3>
-      <div id="liveHdc"></div>
+      <div id="liveHdc" style="min-height:140px"></div>
       <h3 style="margin-top:22px;">Agent &amp; landlord re-rentals</h3>
-      <div id="liveAgents"></div>
+      <div id="liveAgents" style="min-height:140px"></div>
       <h3 style="margin-top:22px;">Daily apartment scout picks</h3>
       <p class="hint">Market-rate Manhattan picks from your daily StreetEasy scout sheet. Updates itself every 2 minutes while this page is open.</p>
       <div class="field" style="max-width:260px;"><label for="liveScoutMode">Show</label>
         <select id="liveScoutMode"><option value="saved">Saved apartments</option><option value="latest">Newest daily tab</option></select></div>
-      <div id="liveScout"></div>`;
+      <div id="liveScout" style="min-height:140px"></div>`;
     tab.insertBefore(box, tab.firstChild);
     const onChange = () => {
       saveProfile({hh: document.getElementById("liveHH").value, income: document.getElementById("liveIncome").value, onlyFit: document.getElementById("liveOnlyFit").checked});
-      renderLotteries(); if(started) runAgents();
+      renderLotteries(); renderAgents();
     };
     ["liveHH","liveIncome","liveOnlyFit"].forEach(id => document.getElementById(id).addEventListener("change", onChange));
     document.getElementById("liveRefresh").addEventListener("click", () => runLotteries(true));
