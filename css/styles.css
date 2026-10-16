@@ -1248,6 +1248,7 @@
   @media (prefers-reduced-motion: reduce){
     .card, .card[data-tilt-active]{ transform:none !important; transition:box-shadow .2s ease; }
   }
+  .card.no-tilt, .card.no-tilt[data-tilt-active]{ transform:none !important; }
   /* Cards with a scoped darker/glass surface get a hairline top highlight so
      the "raised material" reads. */
   .card::after{
