@@ -5280,6 +5280,9 @@
       const rect = card.getBoundingClientRect();
       // Ignore very small cards — the tilt reads jittery on narrow surfaces
       if(rect.width < 260 || rect.height < 120) return;
+      // Very tall cards (long result lists) swing by tens of pixels under perspective
+      // tilt, which made the page slide away from the cursor mid-click. Skip them.
+      if(rect.height > 700) return;
       const px = (e.clientX - rect.left) / rect.width  - 0.5; // -0.5..+0.5
       const py = (e.clientY - rect.top)  / rect.height - 0.5;
       card.style.setProperty('--tilt-y', (px *  MAX_TILT).toFixed(2) + 'deg');

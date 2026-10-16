@@ -194,7 +194,7 @@
     if(!tab) return;
     const p = loadProfile();
     const box = document.createElement("div");
-    box.className = "card";
+    box.className = "card no-tilt";
     box.innerHTML = `
       <div class="section-title"><h2>Open Lotteries &amp; Re-rentals</h2></div>
       <p class="hint">Live rental lotteries from NYC Housing Connect and HDC re-rentals. Matching uses the income range for your household size, not the AMI label. Your details stay on this device.</p>
