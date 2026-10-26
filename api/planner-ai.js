@@ -122,7 +122,17 @@ module.exports = async function handler(req, res){
     });
     clearTimeout(timer);
     if(!upstream.ok){
-      res.status(502).json({error: `The AI provider returned ${upstream.status}. Check GROQ_API_KEY and the model name.`}); return;
+      if(upstream.status === 429){
+        // Rate limited (per-minute or daily quota), not a bad key or model. The key is shared with
+        // the listings watcher and the JobApp, so their usage counts against the same quota.
+        const wait = parseInt(upstream.headers.get('retry-after'), 10);
+        const hint = Number.isFinite(wait) && wait > 0 ? ` Try again in about ${wait} second${wait === 1 ? '' : 's'}.` : ' Try again in a minute.';
+        res.status(429).json({error: `The AI provider is rate limiting requests (shared quota).${hint}`}); return;
+      }
+      if(upstream.status === 401 || upstream.status === 403){
+        res.status(502).json({error: `The AI provider rejected the API key (${upstream.status}). Check GROQ_API_KEY.`}); return;
+      }
+      res.status(502).json({error: `The AI provider returned ${upstream.status}. Check the model name and GROQ_API_KEY.`}); return;
     }
     const data = await upstream.json();
     const parsed = extractJson(data?.choices?.[0]?.message?.content);
