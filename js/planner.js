@@ -148,6 +148,8 @@
     const rooms = useBg ? `<image href="${S.bg}" x="${S.rooms[0].x}" y="${S.rooms[0].y}" width="${S.rooms[0].w}" height="${S.rooms[0].h}" preserveAspectRatio="none" style="mix-blend-mode:multiply"/>`
       : S.rooms.map(r => `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" class="pl-wall"/>`).join('');
     const calib = S.calib ? S.calib.pts.map(q => `<circle cx="${q.x}" cy="${q.y}" r="4" fill="#e5484d"/>`).join('') + (S.calib.pts.length === 2 ? `<line x1="${S.calib.pts[0].x}" y1="${S.calib.pts[0].y}" x2="${S.calib.pts[1].x}" y2="${S.calib.pts[1].y}" stroke="#e5484d" stroke-width="2"/>` : '') : '';
+    const vbb = bounds(true), bsz = Math.max(9, vbb.w / 55);
+    const banner = S.calib ? `<rect x="${vbb.x - 24}" y="${vbb.y - 24}" width="${vbb.w + 48}" height="${bsz * 2.2}" fill="#e5484d"/><text x="${vbb.x + vbb.w / 2}" y="${vbb.y - 24 + bsz * 1.5}" text-anchor="middle" font-size="${bsz}" fill="#fff" font-weight="600">${S.calib.pts.length ? 'Now click the other end' : 'Calibrating: click one end of a wall you know the length of'} (Esc to cancel)</text>` : '';
     const labels = useBg ? S.legend.map((r, i) => `<text x="${S.rooms[0].x + S.rooms[0].w / 2}" y="${S.rooms[0].y + S.rooms[0].h + 14 + i * 12}" text-anchor="middle" font-size="8" class="pl-rt">${esc(r.name)} · ${fmtDim(r.w)} × ${fmtDim(r.h)}</text>`).join('') : S.rooms.map(r => `<text x="${r.x + r.w / 2}" y="${r.y + r.h + 11}" text-anchor="middle" font-size="8" class="pl-rt">${esc(r.name)} · ${fmtDim(r.w)} × ${fmtDim(r.h)}</text>`).join('');
     const door = S.openings.map(o => {
       const r = S.rooms.find(x => x.name.toLowerCase() === String(o.room || '').toLowerCase()); if(!r) return '';
@@ -156,7 +158,7 @@
       return g ? `<rect x="${g[0]}" y="${g[1]}" width="${g[2]}" height="${g[3]}" class="pl-door"/>` : '';
     }).join('');
     const sorted = S.items.slice().sort((a, b) => (CATALOG[b.type].flat ? 1 : 0) - (CATALOG[a.type].flat ? 1 : 0));
-    svg.innerHTML = rooms + (useBg ? '' : door) + sorted.map(i => itemSVG(i, bad.has(i.id))).join('') + labels + calib;
+    svg.innerHTML = rooms + (useBg ? '' : door) + sorted.map(i => itemSVG(i, bad.has(i.id))).join('') + labels + calib + banner;
     const tray = S.items.filter(i => i.tray).length;
     $('plStatus').textContent = S.rooms.length ? (S.calib ? (S.calib.pts.length ? 'Click the second end…' : 'Click one end of a wall whose length you know…') : '') || `${S.items.length} pieces · ${bad.size} conflicts${tray ? ` · ${tray} parked below plan` : ''}` : 'Nothing loaded yet.';
     $('plSelBtns').hidden = !S.selected;
@@ -429,7 +431,10 @@
       S.calib = null; renderAll();
     }, 30);
   }
-  $('plCalib').addEventListener('click', startCalib);
+  $('plCalib').addEventListener('click', () => { if(S.calib){ S.calib = null; render(); } else startCalib(); });
+  // any other toolbar button, or Escape, cancels calibration so it never gets stuck
+  document.querySelector('.pl-toolbar').addEventListener('click', e => { const b = e.target.closest('button'); if(S.calib && b && b.id !== 'plCalib') S.calib = null; }, true);
+  document.addEventListener('keydown', e => { if(e.key === 'Escape' && S.calib){ S.calib = null; render(); } });
 
   // ---------- multi-pass layout: AI describes which rooms touch (reliable), we compute positions ----------
   function solveLayout(rooms, rels){
