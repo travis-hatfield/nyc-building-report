@@ -22,6 +22,17 @@
     }catch(e){}
   }
 
+  // ---------- undo / redo ----------
+  const undoStack = [], redoStack = [];
+  const snapshot = () => JSON.stringify({rooms: S.rooms, items: S.items, counts: S.counts, openings: S.openings, manual: S.manual, variant: S.variant});
+  function pushUndo(){
+    undoStack.push(snapshot()); if(undoStack.length > 50) undoStack.shift();
+    redoStack.length = 0;
+  }
+  function restore(str){ Object.assign(S, JSON.parse(str), {selected: null}); renderAll(); }
+  function undo(){ if(!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); }
+  function redo(){ if(!redoStack.length) return; undoStack.push(snapshot()); restore(redoStack.pop()); }
+
   // ---------- rooms ----------
   function setRooms(list, openings){
     S.rooms = list.map(r => ({id: nid('r'), name: String(r.name || 'Room').slice(0, 30), x: r.x, y: r.y, w: r.w, h: r.h}));
@@ -59,6 +70,7 @@
   function changeCount(type, delta){
     const n = Math.max(0, Math.min(8, (S.counts[type] || 0) + delta));
     if(n === (S.counts[type] || 0)) return;
+    pushUndo();
     S.counts[type] = n;
     if(!S.manual && S.rooms.length) arrange(S.variant || 0, true);
     else if(delta > 0){ addToTray(type); }
@@ -163,12 +175,13 @@
     lastTap = {id: it.id, t: now};
     S.selected = it.id;
     const p = svgPoint(ev);
-    drag = {it, dx: p.x - it.x, dy: p.y - it.y};
+    drag = {it, dx: p.x - it.x, dy: p.y - it.y, undone: false};
     $('plSvg').setPointerCapture(ev.pointerId);
     render();
   });
   $('plSvg').addEventListener('pointermove', ev => {
     if(!drag) return;
+    if(!drag.undone){ const q = snapshot(); drag.undone = true; undoStack.push(q); redoStack.length = 0; }
     const p = svgPoint(ev), r = dimsFor(drag.it.type, drag.it.rot || 0);
     let x = p.x - drag.dx, y = p.y - drag.dy;
     // snap flush to nearest wall within 5", else to 1" grid
@@ -189,6 +202,7 @@
 
   function rotate(id){
     const it = S.items.find(i => i.id === id); if(!it) return;
+    pushUndo();
     const c = {x: it.x + dimsFor(it.type, it.rot || 0).w / 2, y: it.y + dimsFor(it.type, it.rot || 0).h / 2};
     it.rot = ((it.rot || 0) + 90) % 360;
     const d = dimsFor(it.type, it.rot);
@@ -197,13 +211,34 @@
   }
   function removeItem(id){
     const it = S.items.find(i => i.id === id); if(!it) return;
+    pushUndo();
     S.items = S.items.filter(i => i.id !== id);
     S.counts[it.type] = Math.max(0, (S.counts[it.type] || 0) - 1);
     S.selected = null; S.manual = true; renderAll();
   }
+  function duplicate(id){
+    const it = S.items.find(i => i.id === id); if(!it) return;
+    pushUndo();
+    const n = {id: nid('f'), type: it.type, x: it.x + 12, y: it.y + 12, rot: it.rot || 0, tray: it.tray};
+    S.items.push(n); S.counts[it.type] = (S.counts[it.type] || 0) + 1;
+    S.selected = n.id; S.manual = true; renderAll();
+  }
+  let lastNudge = 0;
+  function nudge(id, dx, dy){
+    const it = S.items.find(i => i.id === id); if(!it) return;
+    const now = Date.now(); if(now - lastNudge > 800) pushUndo(); lastNudge = now;
+    it.x += dx; it.y += dy; S.manual = true; render(); save();
+  }
   document.addEventListener('keydown', ev => {
-    if(!$('tab-planner').classList.contains('active') || !S.selected) return;
+    if(!$('tab-planner').classList.contains('active')) return;
     if(/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+    const mod = ev.ctrlKey || ev.metaKey, k = ev.key.toLowerCase();
+    if(mod && k === 'z'){ ev.preventDefault(); ev.shiftKey ? redo() : undo(); return; }
+    if(mod && k === 'y'){ ev.preventDefault(); redo(); return; }
+    if(!S.selected) return;
+    if(mod && k === 'd'){ ev.preventDefault(); duplicate(S.selected); return; }
+    const step = ev.shiftKey ? 6 : 1, arrows = {ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step]};
+    if(arrows[ev.key]){ ev.preventDefault(); nudge(S.selected, ...arrows[ev.key]); return; }
     if(ev.key === 'r' || ev.key === 'R') rotate(S.selected);
     else if(ev.key === 'Delete' || ev.key === 'Backspace'){ ev.preventDefault(); removeItem(S.selected); }
   });
@@ -286,7 +321,9 @@
           name: r.name, w: Math.round(Math.min(600, Math.max(24, r.width_in))), h: Math.round(Math.min(600, Math.max(24, r.depth_in))),
           x: Number.isFinite(+r.x_in) ? +r.x_in : NaN, y: Number.isFinite(+r.y_in) ? +r.y_in : NaN
         }));
+        dropDuplicateRooms(rooms);
         if(!rooms.length) throw new Error('I could not find rooms or dimensions in that image. Try a tighter crop, or add rooms by hand.');
+        pushUndo();
         setRooms(rooms, Array.isArray(d.openings) ? d.openings : []);
         thinking.remove();
         say('assistant', `Found ${rooms.length} room(s): ${rooms.map(r => `${r.name} ${fmtDim(r.w)}×${fmtDim(r.h)}`).join(', ')}.${d.notes ? ' ' + d.notes : ''} Check the sizes on the left, pick furniture, then hit Auto-arrange.`);
@@ -294,6 +331,7 @@
       }else{
         const d = await callApi({mode: 'chat', text, state: stateForAI(), history: history.slice(0, -1)});
         thinking.remove();
+        pushUndo();
         const note = applyActions(d.actions || []);
         say('assistant', [d.reply, note].filter(Boolean).join(' ') || 'Done.');
         renderAll();
@@ -303,6 +341,20 @@
       say('assistant', e.message);
     }
     busy = false; $('plSend').disabled = false;
+  }
+
+  // the vision model sometimes lists a closet/alcove twice; drop a room mostly covered by another room
+  function dropDuplicateRooms(list){
+    const area = r => r.w * r.h, ok = r => Number.isFinite(r.x) && Number.isFinite(r.y);
+    for(let i = list.length - 1; i >= 0; i--){
+      const a = list[i]; if(!ok(a)) continue;
+      const dup = list.some((b, j) => {
+        if(j === i || !ok(b)) return false;
+        const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x), h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+        return w > 0 && h > 0 && w * h > 0.5 * area(a) && (area(b) > area(a) || (area(b) === area(a) && j < i));
+      });
+      if(dup) list.splice(i, 1);
+    }
   }
 
   function findItem(a){
@@ -347,10 +399,13 @@
     changeCount(b.closest('.pl-fi').dataset.type, +b.dataset.d);
   });
   $('plDeskRoom').addEventListener('change', e => { S.deskRoom = e.target.value; save(); });
-  document.querySelectorAll('[data-arr]').forEach(b => b.addEventListener('click', () => { arrange(+b.dataset.arr); renderAll(); }));
+  document.querySelectorAll('[data-arr]').forEach(b => b.addEventListener('click', () => { pushUndo(); arrange(+b.dataset.arr); renderAll(); }));
   $('plRotate').addEventListener('click', () => S.selected && rotate(S.selected));
+  $('plDuplicate').addEventListener('click', () => S.selected && duplicate(S.selected));
+  $('plUndo').addEventListener('click', undo);
+  $('plRedo').addEventListener('click', redo);
   $('plDelete').addEventListener('click', () => S.selected && removeItem(S.selected));
-  $('plClearItems').addEventListener('click', () => { S.items = []; S.counts = {}; S.manual = false; S.selected = null; renderAll(); });
+  $('plClearItems').addEventListener('click', () => { pushUndo(); S.items = []; S.counts = {}; S.manual = false; S.selected = null; renderAll(); });
   $('plAddRoom').addEventListener('click', () => {
     const last = S.rooms[S.rooms.length - 1];
     S.rooms.push({id: nid('r'), name: 'Room ' + (S.rooms.length + 1), x: last ? last.x + last.w + 6 : 0, y: last ? last.y : 0, w: 144, h: 120});
