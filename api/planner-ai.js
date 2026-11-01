@@ -33,7 +33,9 @@ width_in is the east-west size as drawn, depth_in the north-south size. x_in/y_i
 corner relative to the plan's top-left, estimated from the drawing (rooms adjacent, no overlap).
 If a room is cut off or has no readable dimension, still include it, estimate, and say so in notes.
 Include entry doors and doorways you can see in openings (offset_in measured from the wall's west/north end).
-Do not invent rooms that are not in the image.`;
+Do not invent rooms that are not in the image. Only list spaces that have their own printed label or
+dimension. Do NOT list a closet, alcove, hallway or unlabeled space as a separate room unless it has its own
+dimensions, and never list the same space twice (e.g. a closet under two names). If unsure, leave it out and mention it in notes.`;
 
 function chatPrompt(){
   return `You control an apartment furniture layout planner. Return ONLY JSON:

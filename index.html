@@ -431,14 +431,17 @@
             <button type="button" class="secondary" data-arr="2">C</button>
             <span id="plSelBtns" hidden>
               <button type="button" class="secondary" id="plRotate">Rotate (R)</button>
+              <button type="button" class="secondary" id="plDuplicate">Duplicate</button>
               <button type="button" class="secondary" id="plDelete">Delete</button>
             </span>
+            <button type="button" class="secondary" id="plUndo" title="Ctrl+Z">Undo</button>
+            <button type="button" class="secondary" id="plRedo" title="Ctrl+Shift+Z">Redo</button>
             <button type="button" class="secondary" id="plClearItems">Clear furniture</button>
             <button type="button" class="secondary" id="plPng">Save PNG</button>
           </div>
           <svg id="plSvg" class="pl-svg" viewBox="0 0 480 300" role="img" aria-label="Floor plan with furniture" preserveAspectRatio="xMidYMid meet"></svg>
           <div id="plStatus" class="hint"></div>
-          <p class="hint">Drag pieces to move (they snap to walls), double-click or press R to rotate, red outline means overlap or outside the room. Layouts A, B, C put the main couch/bed on different walls. Door positions are only known if the AI spotted them on the plan.</p>
+          <p class="hint">Drag pieces to move (they snap to walls), double-click or press R to rotate, arrow keys nudge (Shift = 6"), Ctrl+D duplicates, Ctrl+Z undoes, red outline means overlap or outside the room. Layouts A, B, C put the main couch/bed on different walls. Door positions are only known if the AI spotted them on the plan.</p>
         </div>
       </div>
     </div>
