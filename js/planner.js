@@ -145,7 +145,7 @@
   function renderAll(){ renderRoomList(); renderPicker(); render(); save(); }
 
   // ---------- drag / select ----------
-  let drag = null;
+  let drag = null, lastTap = {id: null, t: 0};
   function svgPoint(ev){
     const svg = $('plSvg'), pt = svg.createSVGPoint();
     pt.x = ev.clientX; pt.y = ev.clientY;
@@ -155,6 +155,12 @@
     const g = ev.target.closest('.pl-item');
     if(!g){ S.selected = null; render(); return; }
     const it = S.items.find(i => i.id === g.dataset.id); if(!it) return;
+    // double-click/tap detection here: render() rebuilds the SVG, so native dblclick loses its target
+    const now = Date.now();
+    if(lastTap.id === it.id && now - lastTap.t < 400){
+      lastTap = {id: null, t: 0}; drag = null; rotate(it.id); return;
+    }
+    lastTap = {id: it.id, t: now};
     S.selected = it.id;
     const p = svgPoint(ev);
     drag = {it, dx: p.x - it.x, dy: p.y - it.y};
@@ -180,7 +186,6 @@
   const endDrag = () => { if(drag){ drag = null; save(); } };
   $('plSvg').addEventListener('pointerup', endDrag);
   $('plSvg').addEventListener('pointercancel', endDrag);
-  $('plSvg').addEventListener('dblclick', ev => { const g = ev.target.closest('.pl-item'); if(g) rotate(g.dataset.id); });
 
   function rotate(id){
     const it = S.items.find(i => i.id === id); if(!it) return;
