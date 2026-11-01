@@ -317,20 +317,15 @@
     try{
       if(img){
         const d = await callApi({mode: 'parse', image: img, text});
-        const src = (d.rooms || []).filter(r => r && r.width_in > 0 && r.depth_in > 0);
-        // positions: scale each drawn box to inches using the labelled sizes (median), so layout follows the drawing
-        const boxOf = r => Array.isArray(r.box) && r.box.length === 4 && r.box.every(Number.isFinite) && r.box[2] > r.box[0] && r.box[3] > r.box[1] ? r.box : null;
-        const ratios = src.filter(boxOf).flatMap(r => { const b = boxOf(r); return [r.width_in / (b[2] - b[0]), r.depth_in / (b[3] - b[1])]; }).sort((a, b) => a - b);
-        const scale = ratios.length ? ratios[Math.floor(ratios.length / 2)] : 0;
-        const rooms = src.map(r => ({
-          name: r.name, w: Math.round(Math.min(600, Math.max(24, r.width_in))), h: Math.round(Math.min(600, Math.max(24, r.depth_in))),
-          x: scale && boxOf(r) ? Math.round(boxOf(r)[0] * scale) : (Number.isFinite(+r.x_in) ? +r.x_in : NaN),
-          y: scale && boxOf(r) ? Math.round(boxOf(r)[1] * scale) : (Number.isFinite(+r.y_in) ? +r.y_in : NaN)
+        const seen = new Set();
+        const rooms = (d.rooms || []).filter(r => r && r.width_in > 0 && r.depth_in > 0 && !seen.has(String(r.name).toLowerCase()) && seen.add(String(r.name).toLowerCase())).map(r => ({
+          name: r.name, w: Math.round(Math.min(600, Math.max(24, r.width_in))), h: Math.round(Math.min(600, Math.max(24, r.depth_in))), x: NaN, y: NaN
         }));
-        dropDuplicateRooms(rooms);
         if(!rooms.length) throw new Error('I could not find rooms or dimensions in that image. Try a tighter crop, or add rooms by hand.');
         pushUndo();
         setRooms(rooms, Array.isArray(d.openings) ? d.openings : []);
+        thinking.textContent = 'Working out how the rooms connect…';
+        const lay = await layoutPasses(img);
         thinking.remove();
         say('assistant', `Found ${rooms.length} room(s): ${rooms.map(r => `${r.name} ${fmtDim(r.w)}×${fmtDim(r.h)}`).join(', ')}.${d.notes ? ' ' + d.notes : ''} Check the sizes on the left, pick furniture, then hit Auto-arrange.`);
         renderAll();
@@ -349,18 +344,56 @@
     busy = false; $('plSend').disabled = false;
   }
 
-  // the vision model sometimes lists a closet/alcove twice; drop a room mostly covered by another room
-  function dropDuplicateRooms(list){
-    const area = r => r.w * r.h, ok = r => Number.isFinite(r.x) && Number.isFinite(r.y);
-    for(let i = list.length - 1; i >= 0; i--){
-      const a = list[i]; if(!ok(a)) continue;
-      const dup = list.some((b, j) => {
-        if(j === i || !ok(b)) return false;
-        const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x), h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
-        return w > 0 && h > 0 && w * h > 0.5 * area(a) && (area(b) > area(a) || (area(b) === area(a) && j < i));
-      });
-      if(dup) list.splice(i, 1);
+  // ---------- multi-pass layout: AI describes which rooms touch (reliable), we compute positions ----------
+  function solveLayout(rooms, rels){
+    const by = n => rooms.find(r => r.name.toLowerCase() === String(n || '').toLowerCase());
+    const opp = {e: 'w', w: 'e', n: 's', s: 'n'};
+    const list = (rels || []).map(r => ({a: by(r.a), b: by(r.b), side: r.side, align: r.align || 'start'})).filter(r => r.a && r.b && r.a !== r.b && opp[r.side]);
+    rooms.forEach(r => { r.x = r.y = NaN; });
+    const placed = new Set(), put = (r, x, y) => { r.x = Math.round(x); r.y = Math.round(y); placed.add(r); };
+    const off = (al, A, B) => al === 'center' ? (A - B) / 2 : al === 'end' ? A - B : 0;
+    const place = (anchor, mover, side, al) => {   // mover sits on `side` of anchor
+      if(side === 'e') put(mover, anchor.x + anchor.w, anchor.y + off(al, anchor.h, mover.h));
+      else if(side === 'w') put(mover, anchor.x - mover.w, anchor.y + off(al, anchor.h, mover.h));
+      else if(side === 'n') put(mover, anchor.x + off(al, anchor.w, mover.w), anchor.y - mover.h);
+      else put(mover, anchor.x + off(al, anchor.w, mover.w), anchor.y + anchor.h);
+    };
+    const unplaced = () => rooms.filter(r => !placed.has(r));
+    while(unplaced().length){
+      if(!placed.size){ const first = list.length ? list[0].a : rooms[0]; put(first, 0, 0); }
+      let moved = true;
+      while(moved){
+        moved = false;
+        list.forEach(r => {
+          if(placed.has(r.a) && !placed.has(r.b)){ place(r.a, r.b, r.side, r.align); moved = true; }
+          else if(placed.has(r.b) && !placed.has(r.a)){   // invert: a is on the opposite side of b; alignment mirrors
+            place(r.b, r.a, opp[r.side], r.align); moved = true;
+          }
+        });
+      }
+      const rest = unplaced();
+      if(rest.length){   // disconnected leftovers: park to the right of everything placed
+        const right = Math.max(...[...placed].map(r => r.x + r.w)) + 6;
+        put(rest[0], right, Math.min(...[...placed].map(r => r.y)));
+      }
     }
+    const mx = Math.min(...rooms.map(r => r.x)), my = Math.min(...rooms.map(r => r.y));
+    rooms.forEach(r => { r.x -= mx; r.y -= my; });
+    return list.length;
+  }
+  async function layoutPasses(img){
+    // pass 2: relations; pass 3 and 4: verify/refine against the image
+    const payloadRooms = () => S.rooms.map(r => ({name: r.name, width_in: r.w, depth_in: r.h}));
+    let rels = null;
+    try{
+      for(let pass = 0; pass < 3; pass++){
+        const d = await callApi({mode: 'layout', image: img, rooms: payloadRooms(), relations: rels || undefined});
+        if(Array.isArray(d.relations) && d.relations.length) rels = d.relations; else break;
+      }
+    }catch(e){ if(!rels) return false; }
+    if(!rels) return false;
+    S.relations = rels;
+    return solveLayout(S.rooms, rels) > 0;
   }
 
   function findItem(a){

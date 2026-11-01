@@ -25,11 +25,9 @@ const FURNITURE_TYPES = [
 ];
 
 const PARSE_PROMPT = `You read apartment floor plan images. Return ONLY JSON:
-{"rooms":[{"name":string,"width_in":number,"depth_in":number,"x_in":number,"y_in":number,"box":[x0,y0,x1,y1]}],
+{"rooms":[{"name":string,"width_in":number,"depth_in":number,"x_in":number,"y_in":number}],
  "openings":[{"room":string,"wall":"n"|"s"|"e"|"w","offset_in":number,"width_in":number,"kind":"door"|"opening"}],
  "notes":string}
-box is the room's drawn outline as a bounding box in image coordinates scaled 0-1000 (x0,y0 top-left, x1,y1 bottom-right),
-measured from the image itself so rooms keep their real relative positions (e.g. a bath below and beside the bedroom).
 Rules: dimensions are labelled like 7'9" x 7'11" (width x depth, in the order shown); convert to inches.
 width_in is the east-west size as drawn, depth_in the north-south size. x_in/y_in is the room's top-left
 corner relative to the plan's top-left, estimated from the drawing (rooms adjacent, no overlap).
@@ -38,6 +36,18 @@ Include entry doors and doorways you can see in openings (offset_in measured fro
 Do not invent rooms that are not in the image. Only list spaces that have their own printed label or
 dimension. Do NOT list a closet, alcove, hallway or unlabeled space as a separate room unless it has its own
 dimensions, and never list the same space twice (e.g. a closet under two names). If unsure, leave it out and mention it in notes.`;
+
+const LAYOUT_PROMPT = `You read an apartment floor plan image and describe how the given rooms connect. Do NOT output
+coordinates. Return ONLY JSON:
+{"relations":[{"a":string,"b":string,"side":"e"|"w"|"n"|"s","align":"start"|"center"|"end"}],"notes":string}
+Meaning: room b touches room a on a's side (e = east/right, w = west/left, n = north/top, s = south/bottom), and along that
+shared wall b is aligned with a's start (top edge for e/w, left edge for n/s), center, or end (bottom/right edge).
+Rules: use the exact room names given; image up is north. Give each room at least one relation, as a connected chain or tree
+(about one relation per room, nothing contradictory, no cycles needed). Prefer relations between rooms that visibly share a wall
+or open into each other. A small room tucked beside or below a bigger one uses start or end alignment, not center, if it is flush.`;
+
+const VERIFY_SUFFIX = `\nA previous pass proposed these relations. Check each against the image (left/right/above/below and which edges line up)
+and return the full corrected JSON in the same format. Fix wrong sides and alignments; keep the ones that are right.`;
 
 function chatPrompt(){
   return `You control an apartment furniture layout planner. Return ONLY JSON:
@@ -88,6 +98,21 @@ module.exports = async function handler(req, res){
         {type: 'text', text: text || 'Extract the rooms, dimensions and openings.'}
       ]}
     ];
+  }else if(mode === 'layout'){
+    const img = body.image;
+    if(typeof img !== 'string' || !/^data:image\/(png|jpe?g|webp);base64,/.test(img) || img.length > MAX_IMAGE_CHARS){
+      res.status(400).json({error: 'Send the floor plan as a PNG/JPEG/WebP data URL under the size limit.'}); return;
+    }
+    const rooms = Array.isArray(body.rooms) ? body.rooms.slice(0, 20).map(r => ({name: String(r && r.name || '').slice(0, 30), width_in: +r.width_in || 0, depth_in: +r.depth_in || 0})) : [];
+    if(!rooms.length){ res.status(400).json({error: 'No rooms given.'}); return; }
+    const prev = Array.isArray(body.relations) ? JSON.stringify(body.relations.slice(0, 40)).slice(0, 4000) : '';
+    messages = [
+      {role: 'system', content: LAYOUT_PROMPT},
+      {role: 'user', content: [
+        {type: 'image_url', image_url: {url: img}},
+        {type: 'text', text: `Rooms: ${JSON.stringify(rooms)}${prev ? `\nPrevious relations: ${prev}${VERIFY_SUFFIX}` : ''}`}
+      ]}
+    ];
   }else if(mode === 'chat'){
     if(!text){ res.status(400).json({error: 'Empty message.'}); return; }
     const state = JSON.stringify(body.state || {}).slice(0, 12000);
@@ -116,7 +141,7 @@ module.exports = async function handler(req, res){
         'User-Agent': 'nyc-building-report/1.0'
       },
       body: JSON.stringify({
-        model: mode === 'parse'
+        model: (mode === 'parse' || mode === 'layout')
           ? (process.env.PLANNER_VISION_MODEL || DEFAULT_VISION_MODEL)
           : (process.env.PLANNER_CHAT_MODEL || DEFAULT_CHAT_MODEL),
         messages,
