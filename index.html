@@ -25,7 +25,7 @@
 <script src="/js/app.js?v=w4d" defer></script>
 <script src="/js/affordable-live.js?v=3" defer></script>
 <script src="/js/planner-engine.js?v=2" defer></script>
-<script src="/js/planner.js?v=3" defer></script>
+<script src="/js/planner.js?v=4" defer></script>
 
 <!-- Warm the connection to the data APIs a search actually hits, so the
      TLS/DNS handshake is already done by the time the user submits the
@@ -439,6 +439,8 @@
             <button type="button" class="secondary" id="plRedo" title="Ctrl+Shift+Z">Redo</button>
             <button type="button" class="secondary" id="plClearItems">Clear furniture</button>
             <button type="button" class="secondary" id="plPng">Save PNG</button>
+            <button type="button" class="secondary" id="plExport" title="Save this layout as a file">Save layout</button>
+            <label class="pl-filebtn secondary" title="Load a saved layout" style="cursor:pointer">Load layout<input type="file" id="plImport" accept="application/json,.json" hidden></label>
           </div>
           <svg id="plSvg" class="pl-svg" viewBox="0 0 480 300" role="img" aria-label="Floor plan with furniture" preserveAspectRatio="xMidYMid meet"></svg>
           <div id="plStatus" class="hint"></div>

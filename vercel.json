@@ -1,5 +1,18 @@
 {
   "functions": {
-    "api/watch.js": { "maxDuration": 60 }
-  }
+    "api/watch.js": {
+      "maxDuration": 60
+    }
+  },
+  "headers": [
+    {
+      "source": "/(js|css)/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    }
+  ]
 }
