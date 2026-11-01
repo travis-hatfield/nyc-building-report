@@ -7,18 +7,20 @@
   const SAVE_KEY = 'aptPlannerState';
   const TRAY_GAP = 36;
 
-  const S = {rooms: [], items: [], counts: {}, openings: [], deskRoom: 'living', manual: false, selected: null, history: []};
+  const S = {rooms: [], items: [], counts: {}, openings: [], deskRoom: 'living', manual: false, selected: null, history: [], bg: null, legend: [], calib: null};
   let uid = 0;
   const nid = p => p + (++uid) + '_' + Math.floor(Math.random() * 1e4);
 
   // ---------- persistence ----------
   function save(){
-    try{ localStorage.setItem(SAVE_KEY, JSON.stringify({rooms: S.rooms, items: S.items, counts: S.counts, openings: S.openings, deskRoom: S.deskRoom, manual: S.manual})); }catch(e){}
+    try{ localStorage.setItem(SAVE_KEY, JSON.stringify({rooms: S.rooms, items: S.items, counts: S.counts, openings: S.openings, deskRoom: S.deskRoom, manual: S.manual, legend: S.legend})); }catch(e){}
+    try{ if(S.bg) localStorage.setItem(SAVE_KEY + 'Bg', S.bg); else localStorage.removeItem(SAVE_KEY + 'Bg'); }catch(e){}
   }
   function load(){
     try{
       const d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
-      if(d && Array.isArray(d.rooms)) Object.assign(S, {rooms: d.rooms, items: d.items || [], counts: d.counts || {}, openings: d.openings || [], deskRoom: d.deskRoom || 'living', manual: !!d.manual});
+      if(d && Array.isArray(d.rooms)) Object.assign(S, {rooms: d.rooms, items: d.items || [], counts: d.counts || {}, openings: d.openings || [], deskRoom: d.deskRoom || 'living', manual: !!d.manual, legend: d.legend || []});
+      S.bg = S.rooms.length === 1 && S.legend.length ? localStorage.getItem(SAVE_KEY + 'Bg') : null;
     }catch(e){}
   }
 
@@ -36,7 +38,7 @@
   // ---------- rooms ----------
   function setRooms(list, openings){
     S.rooms = list.map(r => ({id: nid('r'), name: String(r.name || 'Room').slice(0, 30), x: r.x, y: r.y, w: r.w, h: r.h}));
-    S.openings = openings || [];
+    S.openings = openings || []; S.bg = null; S.legend = [];
     if(S.rooms.some(r => !Number.isFinite(r.x) || !Number.isFinite(r.y))) E.packRooms(S.rooms);
     S.items = []; S.manual = false;
   }
@@ -106,10 +108,12 @@
   }
 
   // ---------- rendering ----------
+  const legendH = () => S.legend.length * 12 + 10;
   function bounds(includeTray){
     if(!S.rooms.length) return {x: 0, y: 0, w: 480, h: 300};
     let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
     S.rooms.forEach(r => { x1 = Math.min(x1, r.x); y1 = Math.min(y1, r.y); x2 = Math.max(x2, r.x + r.w); y2 = Math.max(y2, r.y + r.h); });
+    if(S.bg) y2 += legendH();
     if(includeTray) S.items.forEach(i => { const r = rectOf(i); x1 = Math.min(x1, r.x); y1 = Math.min(y1, r.y); x2 = Math.max(x2, r.x + r.w); y2 = Math.max(y2, r.y + r.h); });
     return {x: x1, y: y1, w: x2 - x1, h: y2 - y1};
   }
@@ -140,8 +144,11 @@
     svg.setAttribute('viewBox', `${b.x - pad} ${b.y - pad} ${b.w + pad * 2} ${b.h + pad * 2}`);
     const bad = E.conflicts(S.items.filter(i => !i.tray), S.rooms);
     S.items.filter(i => i.tray).forEach(i => bad.delete(i.id));
-    const rooms = S.rooms.map(r => `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" class="pl-wall"/>`).join('');
-    const labels = S.rooms.map(r => `<text x="${r.x + r.w / 2}" y="${r.y + r.h + 11}" text-anchor="middle" font-size="8" class="pl-rt">${esc(r.name)} · ${fmtDim(r.w)} × ${fmtDim(r.h)}</text>`).join('');
+    const useBg = !!(S.bg && S.rooms.length === 1);
+    const rooms = useBg ? `<image href="${S.bg}" x="${S.rooms[0].x}" y="${S.rooms[0].y}" width="${S.rooms[0].w}" height="${S.rooms[0].h}" preserveAspectRatio="none" style="mix-blend-mode:multiply"/>`
+      : S.rooms.map(r => `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" class="pl-wall"/>`).join('');
+    const calib = S.calib ? S.calib.pts.map(q => `<circle cx="${q.x}" cy="${q.y}" r="4" fill="#e5484d"/>`).join('') + (S.calib.pts.length === 2 ? `<line x1="${S.calib.pts[0].x}" y1="${S.calib.pts[0].y}" x2="${S.calib.pts[1].x}" y2="${S.calib.pts[1].y}" stroke="#e5484d" stroke-width="2"/>` : '') : '';
+    const labels = useBg ? S.legend.map((r, i) => `<text x="${S.rooms[0].x + S.rooms[0].w / 2}" y="${S.rooms[0].y + S.rooms[0].h + 14 + i * 12}" text-anchor="middle" font-size="8" class="pl-rt">${esc(r.name)} · ${fmtDim(r.w)} × ${fmtDim(r.h)}</text>`).join('') : S.rooms.map(r => `<text x="${r.x + r.w / 2}" y="${r.y + r.h + 11}" text-anchor="middle" font-size="8" class="pl-rt">${esc(r.name)} · ${fmtDim(r.w)} × ${fmtDim(r.h)}</text>`).join('');
     const door = S.openings.map(o => {
       const r = S.rooms.find(x => x.name.toLowerCase() === String(o.room || '').toLowerCase()); if(!r) return '';
       const off = o.offset_in || 0, w = o.width_in || 32;
@@ -149,9 +156,9 @@
       return g ? `<rect x="${g[0]}" y="${g[1]}" width="${g[2]}" height="${g[3]}" class="pl-door"/>` : '';
     }).join('');
     const sorted = S.items.slice().sort((a, b) => (CATALOG[b.type].flat ? 1 : 0) - (CATALOG[a.type].flat ? 1 : 0));
-    svg.innerHTML = rooms + door + sorted.map(i => itemSVG(i, bad.has(i.id))).join('') + labels;
+    svg.innerHTML = rooms + (useBg ? '' : door) + sorted.map(i => itemSVG(i, bad.has(i.id))).join('') + labels + calib;
     const tray = S.items.filter(i => i.tray).length;
-    $('plStatus').textContent = S.rooms.length ? `${S.items.length} pieces · ${bad.size} conflicts${tray ? ` · ${tray} parked below plan` : ''}` : 'Nothing loaded yet.';
+    $('plStatus').textContent = S.rooms.length ? (S.calib ? (S.calib.pts.length ? 'Click the second end…' : 'Click one end of a wall whose length you know…') : '') || `${S.items.length} pieces · ${bad.size} conflicts${tray ? ` · ${tray} parked below plan` : ''}` : 'Nothing loaded yet.';
     $('plSelBtns').hidden = !S.selected;
   }
   function renderAll(){ renderRoomList(); renderPicker(); render(); save(); }
@@ -164,6 +171,7 @@
     return pt.matrixTransform(svg.getScreenCTM().inverse());
   }
   $('plSvg').addEventListener('pointerdown', ev => {
+    if(S.calib){ calibClick(svgPoint(ev)); return; }
     const g = ev.target.closest('.pl-item');
     if(!g){ S.selected = null; render(); return; }
     const it = S.items.find(i => i.id === g.dataset.id); if(!it) return;
@@ -324,10 +332,13 @@
         if(!rooms.length) throw new Error('I could not find rooms or dimensions in that image. Try a tighter crop, or add rooms by hand.');
         pushUndo();
         setRooms(rooms, Array.isArray(d.openings) ? d.openings : []);
-        thinking.textContent = 'Working out how the rooms connect…';
-        const lay = await layoutPasses(img);
+        thinking.textContent = 'Cleaning up the plan image…';
+        let usedBg = false;
+        try{ usedBg = await useImageAsPlan(img, rooms); }catch(e){ usedBg = false; }
+        if(!usedBg){ thinking.textContent = 'Working out how the rooms connect…'; await layoutPasses(img); }
         thinking.remove();
-        say('assistant', `Found ${rooms.length} room(s): ${rooms.map(r => `${r.name} ${fmtDim(r.w)}×${fmtDim(r.h)}`).join(', ')}.${d.notes ? ' ' + d.notes : ''} Check the sizes on the left, pick furniture, then hit Auto-arrange.`);
+        say('assistant', `Found ${rooms.length} room(s): ${rooms.map(r => `${r.name} ${fmtDim(r.w)}×${fmtDim(r.h)}`).join(', ')}.${d.notes ? ' ' + d.notes : ''} ${usedBg ? 'Your plan is now the backdrop. Calibrate the scale: click both ends of a wall you know the length of, then enter it.' : 'Check the sizes on the left, pick furniture, then hit Auto-arrange.'}`);
+        if(usedBg) startCalib();
         renderAll();
       }else{
         const d = await callApi({mode: 'chat', text, state: stateForAI(), history: history.slice(0, -1)});
@@ -343,6 +354,82 @@
     }
     busy = false; $('plSend').disabled = false;
   }
+
+  // ---------- use the pasted screenshot as the plan backdrop ----------
+  function loadImg(src){ return new Promise((ok, no) => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => no(new Error('image')); im.src = src; }); }
+  // erase small dark blobs (text, fixtures), crop to the walls, return {src, w, h} in pixels
+  async function cleanPlan(src){
+    const im = await loadImg(src), k = Math.min(1, 1600 / Math.max(im.width, im.height));
+    const W = Math.round(im.width * k), H = Math.round(im.height * k);
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const cx = cv.getContext('2d', {willReadFrequently: true}); cx.fillStyle = '#fff'; cx.fillRect(0, 0, W, H); cx.drawImage(im, 0, 0, W, H);
+    const id = cx.getImageData(0, 0, W, H), px = id.data, N = W * H;
+    const lum = new Uint8Array(N), dark = new Uint8Array(N);
+    for(let i = 0; i < N; i++){ const l = (px[i * 4] * 0.3 + px[i * 4 + 1] * 0.59 + px[i * 4 + 2] * 0.11) | 0; lum[i] = l; dark[i] = l < 150 ? 1 : 0; }
+    const lab = new Int32Array(N), keep = new Uint8Array(N), erase = new Uint8Array(N), lim = 0.045 * Math.max(W, H), stack = [];
+    let n = 0;
+    for(let s0 = 0; s0 < N; s0++){
+      if(!dark[s0] || lab[s0]) continue;
+      n++; lab[s0] = n; stack.length = 0; stack.push(s0);
+      const comp = []; let x1 = W, y1 = H, x2 = 0, y2 = 0;
+      while(stack.length){
+        const p = stack.pop(); comp.push(p);
+        const x = p % W, y = (p / W) | 0;
+        if(x < x1) x1 = x; if(x > x2) x2 = x; if(y < y1) y1 = y; if(y > y2) y2 = y;
+        for(let dy = -1; dy <= 1; dy++) for(let dx = -1; dx <= 1; dx++){
+          const nx = x + dx, ny = y + dy; if(nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const q = ny * W + nx; if(dark[q] && !lab[q]){ lab[q] = n; stack.push(q); }
+        }
+      }
+      const big = Math.max(x2 - x1, y2 - y1) >= lim;
+      comp.forEach(p => { if(big) keep[p] = 1; else erase[p] = 1; });
+    }
+    let bx1 = W, by1 = H, bx2 = 0, by2 = 0, kept = 0;
+    for(let p = 0; p < N; p++){
+      if(keep[p]){ kept++; const x = p % W, y = (p / W) | 0; if(x < bx1) bx1 = x; if(x > bx2) bx2 = x; if(y < by1) by1 = y; if(y > by2) by2 = y; }
+    }
+    if(kept < N * 0.002 || bx2 - bx1 < 40 || by2 - by1 < 40) throw new Error('no walls found');
+    for(let p = 0; p < N; p++){
+      if(keep[p] || lum[p] >= 235) continue;
+      const x = p % W, y = (p / W) | 0; let near = erase[p];
+      for(let dy = -2; dy <= 2 && !near; dy++) for(let dx = -2; dx <= 2; dx++){
+        const nx = x + dx, ny = y + dy; if(nx >= 0 && ny >= 0 && nx < W && ny < H && erase[ny * W + nx]){ near = 1; break; }
+      }
+      if(near){ px[p * 4] = px[p * 4 + 1] = px[p * 4 + 2] = 255; px[p * 4 + 3] = 255; }
+    }
+    const pad = 10, cw = Math.min(W, bx2 + pad) - Math.max(0, bx1 - pad), ch = Math.min(H, by2 + pad) - Math.max(0, by1 - pad);
+    cx.putImageData(id, 0, 0);
+    const out = document.createElement('canvas'); out.width = cw; out.height = ch;
+    out.getContext('2d').drawImage(cv, Math.max(0, bx1 - pad), Math.max(0, by1 - pad), cw, ch, 0, 0, cw, ch);
+    return {src: out.toDataURL('image/png'), w: cw, h: ch};
+  }
+  async function useImageAsPlan(img, rooms){
+    const c = await cleanPlan(img);
+    // rough starting scale: plan area is about the sum of room areas (+ walls/halls), content fills about 55% of its box
+    const area = rooms.reduce((a, r) => a + r.w * r.h, 0) * 1.15, sc = Math.sqrt(area / (0.55 * c.w * c.h));
+    S.legend = rooms.map(r => ({name: r.name, w: r.w, h: r.h}));
+    S.rooms = [{id: nid('r'), name: 'Plan', x: 0, y: 0, w: Math.round(Math.min(600, c.w * sc)), h: Math.round(Math.min(600, c.h * sc))}];
+    S.openings = []; S.items = []; S.manual = false; S.bg = c.src; S.deskRoom = 'living';
+    return true;
+  }
+  function startCalib(){ if(!S.bg) return; S.calib = {pts: []}; render(); }
+  function calibClick(p){
+    S.calib.pts.push({x: Math.round(p.x), y: Math.round(p.y)});
+    if(S.calib.pts.length < 2){ render(); return; }
+    const [a, b] = S.calib.pts, dist = Math.hypot(b.x - a.x, b.y - a.y);
+    render();
+    setTimeout(() => {
+      const ans = window.prompt('Real length between the two points you clicked? (e.g. 13\'3")', S.legend[0] ? fmtDim(S.legend[0].w) : '');
+      const real = ans ? parseDim(ans) : NaN;
+      if(real > 0 && dist > 4){
+        const r = S.rooms[0], f = Math.min(real / dist, 600 / Math.max(r.w, r.h));
+        pushUndo(); r.w = Math.round(r.w * f); r.h = Math.round(r.h * f); S.items = []; S.manual = false;
+        say('assistant', `Scale set. The plan is now ${fmtDim(r.w)} × ${fmtDim(r.h)}. Click Calibrate scale to redo it, then pick furniture and place it.`);
+      }
+      S.calib = null; renderAll();
+    }, 30);
+  }
+  $('plCalib').addEventListener('click', startCalib);
 
   // ---------- multi-pass layout: AI describes which rooms touch (reliable), we compute positions ----------
   function solveLayout(rooms, rels){
