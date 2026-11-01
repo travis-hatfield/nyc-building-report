@@ -80,6 +80,11 @@
     renderAll();
   }
   function addToTray(type){
+    if(S.bg && S.rooms.length === 1){   // backdrop mode: drop pieces on the plan, staggered, ready to drag
+      const r = S.rooms[0], d = dimsFor(type, 0), n = S.items.filter(i => !i.tray).length;
+      S.items.push({id: nid('f'), type, x: Math.round(Math.max(r.x, r.x + r.w / 2 - d.w / 2 + (n % 5) * 14 - 28)), y: Math.round(Math.max(r.y, r.y + r.h / 2 - d.h / 2 + (n % 5) * 14 - 28)), rot: 0});
+      S.manual = true; return;
+    }
     const b = bounds(false);
     const same = S.items.filter(i => i.tray).length;
     S.items.push({id: nid('f'), type, x: b.x + (same % 6) * 40, y: b.y + b.h + 30 + Math.floor(same / 6) * 40, rot: 0, tray: true});
@@ -116,6 +121,11 @@
     if(S.bg) y2 += legendH();
     if(includeTray) S.items.forEach(i => { const r = rectOf(i); x1 = Math.min(x1, r.x); y1 = Math.min(y1, r.y); x2 = Math.max(x2, r.x + r.w); y2 = Math.max(y2, r.y + r.h); });
     return {x: x1, y: y1, w: x2 - x1, h: y2 - y1};
+  }
+  function selInfo(){
+    const it = S.selected && S.items.find(i => i.id === S.selected); if(!it) return '';
+    const d = dimsFor(it.type, it.rot || 0);
+    return `${CATALOG[it.type].label}: ${fmtDim(d.w)} × ${fmtDim(d.h)}. Drag to move, double-click or R to rotate, arrows to nudge, Ctrl+D to duplicate.`;
   }
   function itemSVG(it, bad){
     const c = CATALOG[it.type], w = c.w, d = c.d, r = it.rot || 0;
@@ -160,7 +170,7 @@
     const sorted = S.items.slice().sort((a, b) => (CATALOG[b.type].flat ? 1 : 0) - (CATALOG[a.type].flat ? 1 : 0));
     svg.innerHTML = rooms + (useBg ? '' : door) + sorted.map(i => itemSVG(i, bad.has(i.id))).join('') + labels + calib + banner;
     const tray = S.items.filter(i => i.tray).length;
-    $('plStatus').textContent = S.rooms.length ? (S.calib ? (S.calib.pts.length ? 'Click the second end…' : 'Click one end of a wall whose length you know…') : '') || `${S.items.length} pieces · ${bad.size} conflicts${tray ? ` · ${tray} parked below plan` : ''}` : 'Nothing loaded yet.';
+    $('plStatus').textContent = S.rooms.length ? (selInfo()) || (S.calib ? (S.calib.pts.length ? 'Click the second end…' : 'Click one end of a wall whose length you know…') : '') || `${S.items.length} pieces · ${bad.size} conflicts${tray ? ` · ${tray} parked below plan` : ''}` : 'Nothing loaded yet.';
     $('plSelBtns').hidden = !S.selected;
   }
   function renderAll(){ renderRoomList(); renderPicker(); render(); save(); }
@@ -431,6 +441,20 @@
       S.calib = null; renderAll();
     }, 30);
   }
+  $('plExport').addEventListener('click', () => {
+    const data = {v: 1, rooms: S.rooms, items: S.items, counts: S.counts, legend: S.legend, bg: S.bg};
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], {type: 'application/json'}));
+    a.download = 'apartment-layout.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  $('plImport').addEventListener('change', e => {
+    const f = e.target.files[0]; e.target.value = ''; if(!f) return;
+    f.text().then(t => {
+      const d = JSON.parse(t); if(!d || !Array.isArray(d.rooms) || !d.rooms.length || !Array.isArray(d.items)) throw new Error('bad');
+      pushUndo();
+      Object.assign(S, {rooms: d.rooms, items: d.items, counts: d.counts || {}, legend: d.legend || [], bg: typeof d.bg === 'string' && d.bg.startsWith('data:image/') ? d.bg : null, selected: null, manual: true});
+      renderAll(); say('assistant', 'Layout loaded.');
+    }).catch(() => say('assistant', 'That file is not a saved layout.'));
+  });
   $('plCalib').addEventListener('click', () => { if(S.calib){ S.calib = null; render(); } else startCalib(); });
   // any other toolbar button, or Escape, cancels calibration so it never gets stuck
   document.querySelector('.pl-toolbar').addEventListener('click', e => { const b = e.target.closest('button'); if(S.calib && b && b.id !== 'plCalib') S.calib = null; }, true);
