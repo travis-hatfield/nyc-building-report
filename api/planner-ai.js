@@ -25,9 +25,11 @@ const FURNITURE_TYPES = [
 ];
 
 const PARSE_PROMPT = `You read apartment floor plan images. Return ONLY JSON:
-{"rooms":[{"name":string,"width_in":number,"depth_in":number,"x_in":number,"y_in":number}],
+{"rooms":[{"name":string,"width_in":number,"depth_in":number,"x_in":number,"y_in":number,"box":[x0,y0,x1,y1]}],
  "openings":[{"room":string,"wall":"n"|"s"|"e"|"w","offset_in":number,"width_in":number,"kind":"door"|"opening"}],
  "notes":string}
+box is the room's drawn outline as a bounding box in image coordinates scaled 0-1000 (x0,y0 top-left, x1,y1 bottom-right),
+measured from the image itself so rooms keep their real relative positions (e.g. a bath below and beside the bedroom).
 Rules: dimensions are labelled like 7'9" x 7'11" (width x depth, in the order shown); convert to inches.
 width_in is the east-west size as drawn, depth_in the north-south size. x_in/y_in is the room's top-left
 corner relative to the plan's top-left, estimated from the drawing (rooms adjacent, no overlap).

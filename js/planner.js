@@ -317,9 +317,15 @@
     try{
       if(img){
         const d = await callApi({mode: 'parse', image: img, text});
-        const rooms = (d.rooms || []).filter(r => r && r.width_in > 0 && r.depth_in > 0).map(r => ({
+        const src = (d.rooms || []).filter(r => r && r.width_in > 0 && r.depth_in > 0);
+        // positions: scale each drawn box to inches using the labelled sizes (median), so layout follows the drawing
+        const boxOf = r => Array.isArray(r.box) && r.box.length === 4 && r.box.every(Number.isFinite) && r.box[2] > r.box[0] && r.box[3] > r.box[1] ? r.box : null;
+        const ratios = src.filter(boxOf).flatMap(r => { const b = boxOf(r); return [r.width_in / (b[2] - b[0]), r.depth_in / (b[3] - b[1])]; }).sort((a, b) => a - b);
+        const scale = ratios.length ? ratios[Math.floor(ratios.length / 2)] : 0;
+        const rooms = src.map(r => ({
           name: r.name, w: Math.round(Math.min(600, Math.max(24, r.width_in))), h: Math.round(Math.min(600, Math.max(24, r.depth_in))),
-          x: Number.isFinite(+r.x_in) ? +r.x_in : NaN, y: Number.isFinite(+r.y_in) ? +r.y_in : NaN
+          x: scale && boxOf(r) ? Math.round(boxOf(r)[0] * scale) : (Number.isFinite(+r.x_in) ? +r.x_in : NaN),
+          y: scale && boxOf(r) ? Math.round(boxOf(r)[1] * scale) : (Number.isFinite(+r.y_in) ? +r.y_in : NaN)
         }));
         dropDuplicateRooms(rooms);
         if(!rooms.length) throw new Error('I could not find rooms or dimensions in that image. Try a tighter crop, or add rooms by hand.');
